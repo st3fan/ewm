@@ -436,8 +436,7 @@ static void jmp_ind(struct cpu_t *cpu, uint16_t oper) {
 /* JSR */
 
 static void jsr_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.sp -= 2;
-  mem_set_word(cpu, cpu->state.sp, cpu->state.pc-1);
+  _cpu_push_word(cpu, cpu->state.pc - 1);
   cpu->state.pc = oper;
 }
 
@@ -613,13 +612,11 @@ static void ora_indy(struct cpu_t *cpu, uint8_t oper) {
 /* P** */
 
 static void pha(struct cpu_t *cpu) {
-  cpu->state.sp--;
-  mem_set_byte(cpu, cpu->state.sp, cpu->state.a);
+  _cpu_push_byte(cpu, cpu->state.a);
 }
 
 static void pla(struct cpu_t *cpu) {
-  cpu->state.a = mem_get_byte(cpu, cpu->state.sp);
-  cpu->state.sp++;
+  cpu->state.a = _cpu_pull_byte(cpu);
   update_zn(cpu, cpu->state.a);
 }
 
@@ -686,8 +683,7 @@ static void ror_absx(struct cpu_t *cpu, uint16_t oper) {
 /* RTS */
 
 static void rts(struct cpu_t *cpu) {
-  cpu->state.pc = mem_get_word(cpu, cpu->state.sp)+1;
-  cpu->state.sp += 2;
+  cpu->state.pc = _cpu_pull_word(cpu) + 1;
 }
 
 /* SBC */
@@ -799,7 +795,7 @@ static void tay(struct cpu_t *cpu) {
 }
 
 static void tsx(struct cpu_t *cpu) {
-  cpu->state.x = cpu->state.sp & 0x00ff;
+  cpu->state.x = cpu->state.sp;
   update_zn(cpu, cpu->state.x);
 }
 
@@ -809,7 +805,7 @@ static void txa(struct cpu_t *cpu) {
 }
 
 static void txs(struct cpu_t *cpu) {
-  cpu->state.sp = 0x0100 + cpu->state.x;
+  cpu->state.sp = cpu->state.x;
 }
 
 static void tya(struct cpu_t *cpu) {

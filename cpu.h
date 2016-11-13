@@ -35,8 +35,7 @@ struct iom_t {
 };
 
 struct cpu_state_t {
-  uint8_t a, x, y, s;
-  uint16_t sp;
+  uint8_t a, x, y, s, sp;
   uint16_t pc;
   uint8_t n, v, b, d, i, z, c;
 };
@@ -47,6 +46,18 @@ struct cpu_t {
   uint8_t trace;
   struct iom_t *iom;
 };
+
+// Private. How do we keep them private?
+uint8_t _mem_get_byte(struct cpu_t *cpu, uint16_t addr);
+uint16_t _mem_get_word(struct cpu_t *cpu, uint16_t addr);
+void _mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v);
+void _mem_set_word(struct cpu_t *cpu, uint16_t addr, uint8_t v);
+
+// Private. How do we keep them private?
+void _cpu_push_byte(struct cpu_t *cpu, uint8_t b);
+void _cpu_push_word(struct cpu_t *cpu, uint16_t w);
+uint8_t _cpu_pull_byte(struct cpu_t *cpu);
+uint16_t _cpu_pull_word(struct cpu_t *cpu);
 
 typedef uint8_t (*iom_read_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr);
 typedef void (*iom_write_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr, uint8_t b);

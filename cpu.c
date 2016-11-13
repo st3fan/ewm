@@ -39,12 +39,45 @@ typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
 typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
 typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
 
-static uint8_t _mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
+// The following get and set memory directly. There are no checks, so
+// make sure you are doing the right thing. Mainly used for managing
+// the stack, reading instructions, reading vectors and tracing code.
+
+uint8_t _mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
    return cpu->memory[addr];
 }
 
-static uint16_t _mem_get_word(struct cpu_t *cpu, uint16_t addr) {
+uint16_t _mem_get_word(struct cpu_t *cpu, uint16_t addr) {
    return *((uint16_t*) &cpu->memory[addr]);
+}
+
+void _mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  cpu->memory[addr] = v;
+}
+
+void _mem_set_word(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  *((uint16_t*) &cpu->memory[addr]) = v;
+}
+
+// Stack management.
+
+void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {
+  _mem_set_byte(cpu, 0x0100 + cpu->state.sp, b);
+  cpu->state.sp -= 1;
+}
+
+void _cpu_push_word(struct cpu_t *cpu, uint16_t w) {
+  _cpu_push_byte(cpu, (uint8_t) (w >> 8));
+  _cpu_push_byte(cpu, (uint8_t) w);
+}
+
+uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
+  cpu->state.sp += 1;
+  return _mem_get_byte(cpu, 0x0100 + cpu->state.sp);
+}
+
+uint16_t _cpu_pull_word(struct cpu_t *cpu) {
+  return (uint16_t) _cpu_pull_byte(cpu) | ((uint16_t) _cpu_pull_byte(cpu) << 8);
 }
 
 #if 1
@@ -146,7 +179,7 @@ static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
 
 static void cpu_format_state(struct cpu_t *cpu, char *buffer) {
    sprintf(buffer, "A=%.2X X=%.2X Y=%.2X S=%.2X SP=%.4X %c%c%c%c%c%c%c%c",
-           cpu->state.a, cpu->state.x, cpu->state.y, cpu->state.s, cpu->state.sp,
+           cpu->state.a, cpu->state.x, cpu->state.y, cpu->state.s, 0x0100 + cpu->state.sp,
 
            cpu->state.n ? 'N' : '-',
            cpu->state.v ? 'V' : '-',
@@ -160,9 +193,9 @@ static void cpu_format_state(struct cpu_t *cpu, char *buffer) {
 
 static void cpu_format_stack(struct cpu_t *cpu, char *buffer) {
    *buffer = 0x00;
-   for (uint16_t sp = cpu->state.sp; sp != 0x01ff; sp++) {
+   for (uint16_t sp = cpu->state.sp; sp != 0xff; sp++) {
       char tmp[8];
-      sprintf(tmp, " %.2X", _mem_get_byte(cpu, sp));
+      sprintf(tmp, " %.2X", _mem_get_byte(cpu, 0x0100 + sp));
       buffer = strcat(buffer, tmp);
    }
 }
@@ -316,11 +349,7 @@ void cpu_reset(struct cpu_t *cpu) {
    cpu->state.i = 1;
    cpu->state.z = 0;
    cpu->state.c = 0;
-   cpu->state.sp = 0x01ff;
-}
-
-void cpu_brk(struct cpu_t *cpu) {
-
+   cpu->state.sp = 0xff;
 }
 
 void cpu_irq(struct cpu_t *cpu) {
