@@ -306,6 +306,16 @@ void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
 
 void cpu_reset(struct cpu_t *cpu) {
    cpu->state.pc = _mem_get_word(cpu, 0xfffc);
+   cpu->state.a = 0x00;
+   cpu->state.x = 0x00;
+   cpu->state.y = 0x00;
+   cpu->state.n = 0;
+   cpu->state.v = 0;
+   cpu->state.b = 0;
+   cpu->state.d = 0;
+   cpu->state.i = 1;
+   cpu->state.z = 0;
+   cpu->state.c = 0;
    cpu->state.sp = 0x01ff;
 }
 
