@@ -59,6 +59,10 @@ void _cpu_push_word(struct cpu_t *cpu, uint16_t w);
 uint8_t _cpu_pull_byte(struct cpu_t *cpu);
 uint16_t _cpu_pull_word(struct cpu_t *cpu);
 
+// Private. How do we keep them private?
+uint8_t _cpu_get_status(struct cpu_t *cpu);
+void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
+
 typedef uint8_t (*iom_read_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr);
 typedef void (*iom_write_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr, uint8_t b);
 

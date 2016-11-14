@@ -680,6 +680,13 @@ static void ror_absx(struct cpu_t *cpu, uint16_t oper) {
   mem_mod_byte_absx(cpu, oper, ror);
 }
 
+/* RTI */
+
+static void rti(struct cpu_t *cpu) {
+  _cpu_set_status(cpu, _cpu_pull_byte(cpu));
+  cpu->state.pc = _cpu_pull_word(cpu);
+}
+
 /* RTS */
 
 static void rts(struct cpu_t *cpu) {
@@ -888,7 +895,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x3e */ { "ROL", 0x3e, 3, 7, (void*) rol_absx },
   /* 0x3f */ { "???", 0x3f, 1, 2, (void*) unknown_instruction },
 
-  /* 0x40 */ { "???", 0x40, 1, 2, (void*) unknown_instruction },
+  /* 0x40 */ { "RTI", 0x40, 1, 6, (void*) rti },
   /* 0x41 */ { "EOR", 0x41, 2, 6, (void*) eor_indx },
   /* 0x42 */ { "???", 0x42, 1, 2, (void*) unknown_instruction },
   /* 0x43 */ { "???", 0x43, 1, 2, (void*) unknown_instruction },

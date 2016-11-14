@@ -80,6 +80,33 @@ uint16_t _cpu_pull_word(struct cpu_t *cpu) {
   return (uint16_t) _cpu_pull_byte(cpu) | ((uint16_t) _cpu_pull_byte(cpu) << 8);
 }
 
+// Because we keep the processor status bits in separate fields, we
+// need a function to combine them into a single register. This is
+// only used when we need to push the register on the stack for
+// interupt handlers. If this turns out to be inefficient then they
+// can be stored in their native form in a byte.
+
+uint8_t _cpu_get_status(struct cpu_t *cpu) {
+  return 0x30
+    | (((cpu->state.n != 0) & 0x01) << 7)
+    | (((cpu->state.v != 0) & 0x01) << 6)
+    | (((cpu->state.b != 0) & 0x01) << 4)
+    | (((cpu->state.d != 0) & 0x01) << 3)
+    | (((cpu->state.i != 0) & 0x01) << 2)
+    | (((cpu->state.z != 0) & 0x01) << 1)
+    | (((cpu->state.c != 0) & 0x01) << 0);
+}
+
+void _cpu_set_status(struct cpu_t *cpu, uint8_t status) {
+  cpu->state.n = (status & (1 << 7));
+  cpu->state.v = (status & (1 << 6));
+  cpu->state.b = (status & (1 << 4));
+  cpu->state.d = (status & (1 << 3));
+  cpu->state.i = (status & (1 << 2));
+  cpu->state.z = (status & (1 << 1));
+  cpu->state.c = (status & (1 << 0));
+}
+
 #if 1
 static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    *buffer = 0x00;
@@ -353,11 +380,17 @@ void cpu_reset(struct cpu_t *cpu) {
 }
 
 void cpu_irq(struct cpu_t *cpu) {
-   /* TODO: Implement support for IRQ triggering */
+  _cpu_push_word(cpu, cpu->state.pc);
+  _cpu_push_byte(cpu, _cpu_get_status(cpu));
+  cpu->state.i = 1;
+  cpu->state.pc = _mem_get_word(cpu, 0xfffe);
 }
 
 void cpu_nmi(struct cpu_t *cpu) {
-   /* TODO: Implement support for interrupt triggering */
+  _cpu_push_word(cpu, cpu->state.pc);
+  _cpu_push_byte(cpu, _cpu_get_status(cpu));
+  cpu->state.i = 1;
+  cpu->state.pc = _mem_get_word(cpu, 0xfffa);
 }
 
 void cpu_run(struct cpu_t *cpu) {
