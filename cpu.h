@@ -74,7 +74,6 @@ void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, 
 void cpu_trace(struct cpu_t *cpu, uint8_t trace);
 
 void cpu_reset(struct cpu_t *cpu);
-void cpu_brk(struct cpu_t *cpu);
 void cpu_irq(struct cpu_t *cpu);
 void cpu_nmi(struct cpu_t *cpu);
 

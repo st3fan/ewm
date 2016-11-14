@@ -214,7 +214,8 @@ static void bvs(struct cpu_t *cpu, uint8_t oper) {
 /* BRK */
 
 static void brk(struct cpu_t *cpu) {
-  // TODO
+  cpu->state.b = 1;
+  cpu_irq(cpu);
 }
 
 /* CLx */
