@@ -20,6 +20,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -32,6 +33,7 @@
 
 #include "cpu.h"
 #include "ins.h"
+#include "mem.h"
 
 /* Private API */
 
@@ -39,30 +41,10 @@ typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
 typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
 typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
 
-// The following get and set memory directly. There are no checks, so
-// make sure you are doing the right thing. Mainly used for managing
-// the stack, reading instructions, reading vectors and tracing code.
-
-uint8_t _mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
-   return cpu->memory[addr];
-}
-
-uint16_t _mem_get_word(struct cpu_t *cpu, uint16_t addr) {
-   return *((uint16_t*) &cpu->memory[addr]);
-}
-
-void _mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  cpu->memory[addr] = v;
-}
-
-void _mem_set_word(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  *((uint16_t*) &cpu->memory[addr]) = v;
-}
-
 // Stack management.
 
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {
-  _mem_set_byte(cpu, 0x0100 + cpu->state.sp, b);
+  _mem_set_byte_direct(cpu, 0x0100 + cpu->state.sp, b);
   cpu->state.sp -= 1;
 }
 
@@ -73,7 +55,7 @@ void _cpu_push_word(struct cpu_t *cpu, uint16_t w) {
 
 uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
   cpu->state.sp += 1;
-  return _mem_get_byte(cpu, 0x0100 + cpu->state.sp);
+  return _mem_get_byte_direct(cpu, 0x0100 + cpu->state.sp);
 }
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
@@ -107,12 +89,11 @@ void _cpu_set_status(struct cpu_t *cpu, uint8_t status) {
   cpu->state.c = (status & (1 << 0));
 }
 
-#if 1
 static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    *buffer = 0x00;
 
-   cpu_instruction_t *i = &instructions[cpu->memory[cpu->state.pc]];
-   uint8_t opcode = cpu->memory[cpu->state.pc];
+   cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
+   uint8_t opcode = mem_get_byte(cpu, cpu->state.pc);
 
    /* Single byte instructions */
    if (i->bytes == 1) {
@@ -121,12 +102,12 @@ static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
 
    /* JSR is the only exception */
    else if (opcode == 0x20) {
-      sprintf(buffer, "%s $%.4X", i->name, _mem_get_word(cpu, cpu->state.pc+1));
+     sprintf(buffer, "%s $%.4X", i->name, mem_get_word(cpu, cpu->state.pc+1));
    }
 
    /* Branches */
    else if ((opcode & 0b00011111) == 0b00010000) {
-      int8_t offset = (int8_t) _mem_get_byte(cpu, cpu->state.pc+1);
+      int8_t offset = (int8_t) mem_get_byte(cpu, cpu->state.pc+1);
       uint16_t addr = cpu->state.pc + 2 + offset;
       sprintf(buffer, "%s $%.4X", i->name, addr);
    }
@@ -134,28 +115,28 @@ static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    else if ((opcode & 0b00000011) == 0b00000001) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s ($%.2X,X)", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s ($%.2X,X)", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b010:
-            sprintf(buffer, "%s #$%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b100:
-            sprintf(buffer, "%s ($%.2X),Y", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s ($%.2X),Y", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b110:
-            sprintf(buffer, "%s $%.2X%.2X,Y", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X,Y", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
@@ -163,22 +144,22 @@ static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    else if ((opcode & 0b00000011) == 0b00000010) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b010:
             sprintf(buffer, "%s", i->name);
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
@@ -186,19 +167,19 @@ static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    else if ((opcode & 0b00000011) == 0b00000000) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, cpu->memory[cpu->state.pc+2], cpu->memory[cpu->state.pc+1]);
+            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
@@ -222,11 +203,10 @@ static void cpu_format_stack(struct cpu_t *cpu, char *buffer) {
    *buffer = 0x00;
    for (uint16_t sp = cpu->state.sp; sp != 0xff; sp++) {
       char tmp[8];
-      sprintf(tmp, " %.2X", _mem_get_byte(cpu, 0x0100 + sp));
+      sprintf(tmp, " %.2X", _mem_get_byte_direct(cpu, 0x0100 + sp));
       buffer = strcat(buffer, tmp);
    }
 }
-#endif
 
 static mach_timebase_info_data_t timebase_info;
 
@@ -239,8 +219,6 @@ static uint64_t nanos_to_abs(uint64_t nanos) {
 }
 
 static int cpu_execute_instruction(struct cpu_t *cpu) {
-
-
    /* Trace code - Refactor into its own function or module */
    char trace_instruction[256];
    char trace_state[256];
@@ -250,11 +228,10 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       cpu_format_instruction(cpu, trace_instruction);
    }
 
-
    uint64_t start_time = mach_absolute_time();
 
    /* Fetch instruction */
-   cpu_instruction_t *i = &instructions[cpu->memory[cpu->state.pc]];
+   cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
 
    /* Remember the PC since some instructions modify it */
    uint16_t pc = cpu->state.pc;
@@ -270,13 +247,12 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
          ((cpu_instruction_handler_t) i->handler)(cpu);
          break;
       case 2:
-         ((cpu_instruction_handler_byte_t) i->handler)(cpu, _mem_get_byte(cpu, pc+1));
+         ((cpu_instruction_handler_byte_t) i->handler)(cpu, mem_get_byte(cpu, pc+1));
          break;
       case 3:
-         ((cpu_instruction_handler_word_t) i->handler)(cpu, _mem_get_word(cpu, pc+1));
+         ((cpu_instruction_handler_word_t) i->handler)(cpu, mem_get_word(cpu, pc+1));
          break;
    }
-
 
    if (cpu->trace) {
       cpu_format_state(cpu, trace_state);
@@ -285,23 +261,18 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       switch (i->bytes) {
          case 1:
             fprintf(stderr, "CPU: %.4X %-20s | %.2X           %-20s  STACK: %s\n",
-                    pc, trace_instruction, cpu->memory[pc], trace_state, trace_stack);
+                    pc, trace_instruction, mem_get_byte(cpu, pc), trace_state, trace_stack);
             break;
          case 2:
             fprintf(stderr, "CPU: %.4X %-20s | %.2X %.2X        %-20s  STACK: %s\n",
-                    pc, trace_instruction, cpu->memory[pc], cpu->memory[pc+1], trace_state, trace_stack);
+                    pc, trace_instruction, mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), trace_state, trace_stack);
             break;
          case 3:
             fprintf(stderr, "CPU: %.4X %-20s | %.2X %.2X %.2X     %-20s  STACK: %s\n",
-                    pc, trace_instruction, cpu->memory[pc], cpu->memory[pc+1], cpu->memory[pc+2], trace_state, trace_stack);
+                    pc, trace_instruction, mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), mem_get_byte(cpu, pc+2), trace_state, trace_stack);
             break;
       }
    }
-
-
-
-
-
 
    /* Delay */
 
@@ -322,42 +293,88 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
    return i->opcode;
 }
 
-static void iom_init(struct iom_t *iom, uint16_t start, uint16_t length, void *obj, iom_read_handler_t read_handler, iom_write_handler_t write_handler) {
-   memset(iom, 0x00, sizeof(struct iom_t));
-   iom->start = start;
-   iom->length = length;
-   iom->obj = obj;
-   iom->read_handler = read_handler;
-   iom->write_handler = write_handler;
-}
-
 /* Public API */
 
 void cpu_init(struct cpu_t *cpu) {
    memset(cpu, 0x00, sizeof(struct cpu_t));
-   cpu->memory = malloc(64 * 1024);
 }
 
-void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
-   if (data != NULL) {
-      memcpy(cpu->memory + start, data, length);
-   }
-   /* TODO: Mark pages as RAM */
+void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
+  if (cpu->mem == NULL) {
+    cpu->mem = mem;
+    mem->next = NULL;
+  } else {
+    mem->next = cpu->mem;
+    cpu->mem = mem;
+  }
+
+  // If this is RAM mapped to the zero-page and to the stack then we
+  // keep a shortcut to it so that we can do direct and fast access
+  // with our _mem_get/set_byte/word_direct functions.
+  //
+  // This makes two assumptions: when RAM is added, it covers both
+  // pages. And that mem->obj points to a block of memory. This is
+  // fine for the Apple I and Apple II emulators.
+
+  if (mem->type == MEM_TYPE_RAM) {
+    if (mem->start == 0x0000 && mem->length >= 0x200) {
+      cpu->memory = mem->obj;
+    }
+  }
+}
+
+// RAM Memory
+
+static uint8_t _ram_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+  return ((uint8_t*) mem->obj)[addr - mem->start];
+}
+
+static void _ram_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
+  ((uint8_t*) mem->obj)[addr - mem->start] = b;
+}
+
+void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length) {
+  struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  mem->type = MEM_TYPE_RAM;
+  mem->obj = malloc(length);
+  mem->start = start;
+  mem->length = length;
+  mem->read_handler = _ram_read;
+  mem->write_handler = _ram_write;
+  mem->next = NULL;
+  cpu_add_mem(cpu, mem);
+}
+
+// ROM Memory
+
+static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+  return ((uint8_t*) mem->obj)[addr - mem->start];
 }
 
 void cpu_add_rom(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
-   if (data != NULL) {
-      memcpy(cpu->memory + start, data, length);
-   }
-   /* TODO: Mark pages as ROM */
+  struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  mem->type = MEM_TYPE_ROM;
+  mem->obj = data;
+  mem->start = start;
+  mem->length = length;
+  mem->read_handler = _rom_read;
+  mem->write_handler = NULL;
+  mem->next = NULL;
+  cpu_add_mem(cpu, mem);
 }
 
-void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, iom_read_handler_t read_handler, iom_write_handler_t write_handler) {
-   struct iom_t *iom = (struct iom_t*) malloc(sizeof(struct iom_t));
-   iom_init(iom, start, length, obj, read_handler, write_handler);
-   iom->next = (struct iom_t*) cpu->iom;
-   cpu->iom = iom;
-   /* TODO: Mark pages as IO */
+// IO Memory
+
+void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
+  struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  mem->type = MEM_TYPE_IOM;
+  mem->obj = obj;
+  mem->start = start;
+  mem->length = length;
+  mem->read_handler = read_handler;
+  mem->write_handler = write_handler;
+  mem->next = NULL;
+  cpu_add_mem(cpu, mem);
 }
 
 void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
@@ -365,7 +382,8 @@ void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
 }
 
 void cpu_reset(struct cpu_t *cpu) {
-   cpu->state.pc = _mem_get_word(cpu, 0xfffc);
+   cpu->state.pc = mem_get_word(cpu, 0xfffc);
+   fprintf(stderr, "CPU: cpu->state.pc = %.4x\n", cpu->state.pc);
    cpu->state.a = 0x00;
    cpu->state.x = 0x00;
    cpu->state.y = 0x00;
@@ -383,14 +401,14 @@ void cpu_irq(struct cpu_t *cpu) {
   _cpu_push_word(cpu, cpu->state.pc);
   _cpu_push_byte(cpu, _cpu_get_status(cpu));
   cpu->state.i = 1;
-  cpu->state.pc = _mem_get_word(cpu, 0xfffe);
+  cpu->state.pc = mem_get_word(cpu, 0xfffe);
 }
 
 void cpu_nmi(struct cpu_t *cpu) {
   _cpu_push_word(cpu, cpu->state.pc);
   _cpu_push_byte(cpu, _cpu_get_status(cpu));
   cpu->state.i = 1;
-  cpu->state.pc = _mem_get_word(cpu, 0xfffa);
+  cpu->state.pc = mem_get_word(cpu, 0xfffa);
 }
 
 void cpu_run(struct cpu_t *cpu) {

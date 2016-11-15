@@ -61,8 +61,8 @@ void pia_trace(struct pia_t *pia, uint8_t trace) {
    pia->trace = trace;
 }
 
-uint8_t pia_read(struct cpu_t *cpu, void *obj, uint16_t addr) {
-   struct pia_t *pia = (struct pia_t*) obj;
+uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+   struct pia_t *pia = (struct pia_t*) mem->obj;
    uint8_t result = 0;
    switch (addr) {
       case 0xd010: /* KBD */
@@ -96,8 +96,8 @@ uint8_t pia_read(struct cpu_t *cpu, void *obj, uint16_t addr) {
    return result;
 }
 
-void pia_write(struct cpu_t *cpu, void *obj, uint16_t addr, uint8_t b) {
-   struct pia_t *pia = (struct pia_t*) obj;
+void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
+   struct pia_t *pia = (struct pia_t*) mem->obj;
    if (pia->trace) {
       fprintf(stderr, "PIA: WRITING BYTE %.2X TO %.4X\n", b, addr);
    }

@@ -70,9 +70,9 @@ int main(int argc, char **argv) {
 
   struct cpu_t cpu;
   cpu_init(&cpu);
-  cpu_add_ram(&cpu, 0x0000, 0x4000, NULL);
-  cpu_add_iom(&cpu, 0xd000, 0x1000, &pia, pia_read, pia_write);
+  cpu_add_ram(&cpu, 0x0000, 0x4000);
   cpu_add_rom(&cpu, 0xff00, 0x0100, monitor);
+  cpu_add_iom(&cpu, 0xd000, 0x1000, &pia, pia_read, pia_write);
   cpu_trace(&cpu, 0);
   cpu_boot(&cpu);
 

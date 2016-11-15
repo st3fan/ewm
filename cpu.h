@@ -25,15 +25,6 @@
 
 #include <stdint.h>
 
-struct iom_t {
-  uint16_t start;
-  uint16_t length;
-  void *obj;
-  void *read_handler;
-  void *write_handler;
-  struct iom_t *next;
-};
-
 struct cpu_state_t {
   uint8_t a, x, y, s, sp;
   uint16_t pc;
@@ -42,16 +33,27 @@ struct cpu_state_t {
 
 struct cpu_t {
   struct cpu_state_t state;
-  uint8_t *memory;
   uint8_t trace;
-  struct iom_t *iom;
+  struct mem_t *mem;
+  uint8_t *memory; // This is pointing to the first 2 pages of memory, zero page and stack.
 };
 
-// Private. How do we keep them private?
-uint8_t _mem_get_byte(struct cpu_t *cpu, uint16_t addr);
-uint16_t _mem_get_word(struct cpu_t *cpu, uint16_t addr);
-void _mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v);
-void _mem_set_word(struct cpu_t *cpu, uint16_t addr, uint8_t v);
+#define MEM_TYPE_RAM 0
+#define MEM_TYPE_ROM 1
+#define MEM_TYPE_IOM 2
+
+typedef uint8_t (*mem_read_handler_t)(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr);
+typedef void (*mem_write_handler_t)(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b);
+
+struct mem_t {
+  uint8_t type;
+  uint16_t start;
+  uint16_t length;
+  void *obj;
+  mem_read_handler_t read_handler;
+  mem_write_handler_t write_handler;
+  struct mem_t *next;
+};
 
 // Private. How do we keep them private?
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b);
@@ -63,13 +65,12 @@ uint16_t _cpu_pull_word(struct cpu_t *cpu);
 uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
-typedef uint8_t (*iom_read_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr);
-typedef void (*iom_write_handler_t)(struct cpu_t *cpu, void *obj, uint16_t addr, uint8_t b);
-
 void cpu_init(struct cpu_t *cpu);
-void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data);
+
+void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem);
+void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length);
 void cpu_add_rom(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data);
-void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, iom_read_handler_t read_handler, iom_write_handler_t write_handler);
+void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler);
 
 void cpu_trace(struct cpu_t *cpu, uint8_t trace);
 

@@ -20,22 +20,49 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "mem.h"
 
-/* Memory Access */
+// The following two are our memory primitives that properly set go
+// through the handler functions for all registered memory. They will
+// take more time but do the right thing.
 
 uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
-  if (cpu->iom) {
-    /* TODO: Assuming there is only one area of memory mapped io */
-    if (addr >= cpu->iom->start && addr < (cpu->iom->start + cpu->iom->length)) {
-      uint8_t v = ((iom_read_handler_t) cpu->iom->read_handler)((struct cpu_t*) cpu, cpu->iom->obj, addr);
-      //fprintf(stderr, "MEM: GETTING BYTE AT %.4X -> %.2X\n", addr, v);
-      return v;
+  struct mem_t *mem = cpu->mem;
+  while (mem != NULL) {
+    if (addr >= mem->start && (addr <= (mem->start + mem->length))) {
+      if (mem->read_handler) {
+        return ((mem_read_handler_t) mem->read_handler)((struct cpu_t*) cpu, mem, addr);
+      } else {
+        // TODO What to do?
+        return 0;
+      }
     }
+    mem = mem->next;
   }
-  //fprintf(stderr, "MEM: GETTING BYTE AT %.4X -> %.2X\n", addr, cpu->memory[addr]);
-  return cpu->memory[addr];
+  return 0; // TODO What should the default be if we read from non-existent memory?
 }
+
+void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  struct mem_t *mem = cpu->mem;
+  while (mem != NULL) {
+    if (addr >= mem->start && (addr <= (mem->start + mem->length))) {
+      if (mem->write_handler) {
+        ((mem_write_handler_t) mem->write_handler)((struct cpu_t*) cpu, mem, addr, v);
+      } else {
+        // TODO What to do?
+      }
+      return;
+    }
+    mem = mem->next;
+  }
+  // TODO What should the default be if we read from non-existent memory?
+}
+
+// Getters
 
 uint8_t mem_get_byte_abs(struct cpu_t *cpu, uint16_t addr) {
   return mem_get_byte(cpu, addr);
@@ -69,21 +96,12 @@ uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
   return mem_get_byte(cpu, mem_get_word(cpu, addr) + cpu->state.y);
 }
 
-
-
-void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  //fprintf(stderr, "MEM: SETTING BYTE AT %.4X -> %.2X (%c)\n", addr, v, v & 0x7f);
-  if (cpu->iom) {
-    /* TODO: Assuming there is only one area of memory mapped io */
-    if (addr >= cpu->iom->start && addr < (cpu->iom->start + cpu->iom->length)) {
-      ((iom_write_handler_t) cpu->iom->write_handler)((struct cpu_t*) cpu, cpu->iom->obj, addr, v);
-      return;
-    }
-  }
-  cpu->memory[addr] = v;
+uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr) {
+  // TODO Did I do this right?
+  return ((uint16_t) mem_get_byte(cpu, addr+1) << 8) | (uint16_t) mem_get_byte(cpu, addr);
 }
 
-
+// Setters
 
 void mem_set_byte_zpg(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
   mem_set_byte(cpu, addr, v);
@@ -115,6 +133,11 @@ void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
 
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
   mem_set_byte(cpu, mem_get_word(cpu, addr)+cpu->state.y, v);
+}
+
+void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
+  mem_set_byte(cpu, addr+0, (uint8_t) v); // TODO Did I do this right?
+  mem_set_byte(cpu, addr+1, (uint8_t) (v >> 8));
 }
 
 /* MOD */
@@ -151,12 +174,26 @@ void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
   mem_set_byte_indy(cpu, addr, op(cpu, mem_get_byte_indy(cpu, addr)));
 }
 
-/* Words */
+// The following get and set memory directly. There are no checks, so
+// make sure you are doing the right thing. Mainly used for managing
+// the stack, reading instructions, reading vectors and tracing code.
 
-uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr) {
+uint8_t _mem_get_byte_direct(struct cpu_t *cpu, uint16_t addr) {
+  assert(addr <= 0x200);
+  return cpu->memory[addr];
+}
+
+uint16_t _mem_get_word_direct(struct cpu_t *cpu, uint16_t addr) {
+  assert(addr <= 0x200);
   return *((uint16_t*) &cpu->memory[addr]);
 }
 
-void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
-   *((uint16_t*) &cpu->memory[addr]) = v;
+void _mem_set_byte_direct(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  assert(addr <= 0x200);
+  cpu->memory[addr] = v;
+}
+
+void _mem_set_word_direct(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
+  assert(addr <= 0x200);
+  *((uint16_t*) &cpu->memory[addr]) = v;
 }

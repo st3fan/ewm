@@ -36,7 +36,7 @@ struct pia_t {
 
 void pia_init(struct pia_t *pia);
 void pia_trace(struct pia_t *pia, uint8_t trace);
-uint8_t pia_read(struct cpu_t *cpu, void *obj, uint16_t addr);
-void pia_write(struct cpu_t *cpu, void *obj, uint16_t addr, uint8_t b);
+uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr);
+void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b);
 
 #endif

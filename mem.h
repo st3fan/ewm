@@ -59,4 +59,10 @@ void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op);
 uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr);
 void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v);
 
+// Private. How do we keep them private?
+uint8_t _mem_get_byte_direct(struct cpu_t *cpu, uint16_t addr);
+uint16_t _mem_get_word_direct(struct cpu_t *cpu, uint16_t addr);
+void _mem_set_byte_direct(struct cpu_t *cpu, uint16_t addr, uint8_t v);
+void _mem_set_word_direct(struct cpu_t *cpu, uint16_t addr, uint16_t v);
+
 #endif
