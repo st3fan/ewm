@@ -382,7 +382,7 @@ void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
 }
 
 void cpu_reset(struct cpu_t *cpu) {
-   cpu->state.pc = mem_get_word(cpu, 0xfffc);
+   cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_RES);
    fprintf(stderr, "CPU: cpu->state.pc = %.4x\n", cpu->state.pc);
    cpu->state.a = 0x00;
    cpu->state.x = 0x00;
@@ -401,14 +401,14 @@ void cpu_irq(struct cpu_t *cpu) {
   _cpu_push_word(cpu, cpu->state.pc);
   _cpu_push_byte(cpu, _cpu_get_status(cpu));
   cpu->state.i = 1;
-  cpu->state.pc = mem_get_word(cpu, 0xfffe);
+  cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_IRQ);
 }
 
 void cpu_nmi(struct cpu_t *cpu) {
   _cpu_push_word(cpu, cpu->state.pc);
   _cpu_push_byte(cpu, _cpu_get_status(cpu));
   cpu->state.i = 1;
-  cpu->state.pc = mem_get_word(cpu, 0xfffa);
+  cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);
 }
 
 void cpu_run(struct cpu_t *cpu) {

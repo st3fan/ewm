@@ -25,6 +25,10 @@
 
 #include <stdint.h>
 
+#define EWM_VECTOR_NMI 0xfffa
+#define EWM_VECTOR_RES 0xfffc
+#define EWM_VECTOR_IRQ 0xfffe
+
 struct cpu_state_t {
   uint8_t a, x, y, s, sp;
   uint16_t pc;
