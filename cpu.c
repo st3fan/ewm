@@ -233,6 +233,9 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
    /* Fetch instruction */
    cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
+   if (i->handler == NULL) {
+      return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
+   }
 
    /* Remember the PC since some instructions modify it */
    uint16_t pc = cpu->state.pc;
@@ -291,7 +294,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
    mach_wait_until(now + nanos_to_abs(delay_nano));
 
-   return i->opcode;
+   return 0;
 }
 
 /* Public API */
@@ -440,20 +443,22 @@ void cpu_nmi(struct cpu_t *cpu) {
   cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);
 }
 
-void cpu_run(struct cpu_t *cpu) {
+int cpu_run(struct cpu_t *cpu) {
    uint64_t instruction_count = 0;
-   while (cpu_execute_instruction(cpu) != 0x00) {
+   int err = 0;
+   while ((err = cpu_execute_instruction(cpu)) == 0) {
       /* TODO: Tick? */
       instruction_count++;
    }
    fprintf(stderr, "Executed %" PRId64 " instructions\n", instruction_count);
+   return err;
 }
 
-void cpu_boot(struct cpu_t *cpu) {
+int cpu_boot(struct cpu_t *cpu) {
    cpu_reset(cpu);
-   cpu_run(cpu);
+   return cpu_run(cpu);
 }
 
-void cpu_step(struct cpu_t *cpu) {
-   cpu_execute_instruction(cpu);
+int cpu_step(struct cpu_t *cpu) {
+   return cpu_execute_instruction(cpu);
 }

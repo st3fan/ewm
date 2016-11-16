@@ -25,6 +25,10 @@
 
 #include <stdint.h>
 
+#define EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION (-1)
+#define EWM_CPU_ERR_STACK_OVERFLOW            (-2)
+#define EWM_CPU_ERR_STACK_UNDERFLOW           (-3)
+
 #define EWM_VECTOR_NMI 0xfffa
 #define EWM_VECTOR_RES 0xfffc
 #define EWM_VECTOR_IRQ 0xfffe
@@ -83,9 +87,9 @@ void cpu_reset(struct cpu_t *cpu);
 void cpu_irq(struct cpu_t *cpu);
 void cpu_nmi(struct cpu_t *cpu);
 
-void cpu_run(struct cpu_t *cpu);
-void cpu_boot(struct cpu_t *cpu);
-void cpu_step(struct cpu_t *cpu);
+int cpu_run(struct cpu_t *cpu);
+int cpu_boot(struct cpu_t *cpu);
+int cpu_step(struct cpu_t *cpu);
 
 uint16_t cpu_memory_get_word(struct cpu_t *cpu, uint16_t addr);
 uint8_t cpu_memory_get_byte(struct cpu_t *cpu, uint16_t addr);
