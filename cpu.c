@@ -21,13 +21,14 @@
 // SOFTWARE.
 
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <unistd.h>
-
+#include <sys/stat.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 
@@ -351,7 +352,7 @@ static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
   return ((uint8_t*) mem->obj)[addr - mem->start];
 }
 
-void cpu_add_rom(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
+void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_ROM;
   mem->obj = data;
@@ -361,6 +362,34 @@ void cpu_add_rom(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *da
   mem->write_handler = NULL;
   mem->next = NULL;
   cpu_add_mem(cpu, mem);
+}
+
+void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
+   int fd = open(path, O_RDONLY);
+   if (fd == -1) {
+      return;
+   }
+
+   struct stat file_info;
+   if (fstat(fd, &file_info) == -1) {
+      close(fd);
+      return;
+   }
+
+   if (file_info.st_size  > (64 * 1024 - start)) {
+      close(fd);
+      return;
+   }
+
+   char *data = malloc(file_info.st_size);
+   if (read(fd, data, file_info.st_size) != file_info.st_size) {
+      close(fd);
+      return;
+   }
+
+   close(fd);
+
+   cpu_add_rom_data(cpu, start, file_info.st_size, (uint8_t*) data);
 }
 
 // IO Memory
