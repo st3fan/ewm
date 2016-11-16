@@ -732,6 +732,20 @@ static void sbc_indy(struct cpu_t *cpu, uint8_t oper) {
   sbc(cpu, mem_get_byte_indy(cpu, oper));
 }
 
+/* SEx */
+
+static void sec(struct cpu_t *cpu) {
+  cpu->state.c = 1;
+}
+
+static void sed(struct cpu_t *cpu) {
+  cpu->state.d = 1;
+}
+
+static void sei(struct cpu_t *cpu) {
+  cpu->state.i = 1;
+}
+
 /* STA */
 
 static void sta_zpg(struct cpu_t *cpu, uint8_t oper) {
@@ -881,7 +895,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x35 */ { "AND", 0x35, 2, 4, (void*) and_zpgx },
   /* 0x36 */ { "ROL", 0x36, 2, 6, (void*) rol_zpgx },
   /* 0x37 */ { "???", 0x37, 1, 2, (void*) NULL },
-  /* 0x38 */ { "???", 0x38, 1, 2, (void*) NULL },
+  /* 0x38 */ { "SEC", 0x38, 1, 2, (void*) sec },
   /* 0x39 */ { "AND", 0x39, 3, 4, (void*) and_absy },
   /* 0x3a */ { "???", 0x3a, 1, 2, (void*) NULL },
   /* 0x3b */ { "???", 0x3b, 1, 2, (void*) NULL },
@@ -947,7 +961,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x75 */ { "ADC", 0x75, 2, 4, (void*) adc_zpgx },
   /* 0x76 */ { "ROR", 0x76, 2, 6, (void*) ror_zpgx },
   /* 0x77 */ { "???", 0x77, 1, 2, (void*) NULL },
-  /* 0x78 */ { "???", 0x78, 1, 2, (void*) NULL },
+  /* 0x78 */ { "SEI", 0x78, 1, 2, (void*) sei },
   /* 0x79 */ { "ADC", 0x79, 3, 4, (void*) adc_absy },
   /* 0x7a */ { "???", 0x7a, 1, 2, (void*) NULL },
   /* 0x7b */ { "???", 0x7b, 1, 2, (void*) NULL },
@@ -1079,7 +1093,7 @@ cpu_instruction_t instructions[256] = {
   /* 0xf5 */ { "SBC", 0xf5, 1, 2, (void*) sbc_zpgx },
   /* 0xf6 */ { "INC", 0xf6, 2, 6, (void*) inc_zpgx },
   /* 0xf7 */ { "???", 0xf7, 1, 2, (void*) NULL },
-  /* 0xf8 */ { "???", 0xf8, 1, 2, (void*) NULL },
+  /* 0xf8 */ { "SED", 0xf8, 1, 2, (void*) sed },
   /* 0xf9 */ { "SBC", 0xf9, 3, 2, (void*) sbc_absy },
   /* 0xfa */ { "???", 0xfa, 1, 2, (void*) NULL },
   /* 0xfb */ { "???", 0xfb, 1, 2, (void*) NULL },
