@@ -30,8 +30,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <mach/mach.h>
-#include <mach/mach_time.h>
 
 #include "cpu.h"
 #include "ins.h"
@@ -218,16 +216,6 @@ static void cpu_format_stack(struct cpu_t *cpu, char *buffer) {
    }
 }
 
-static mach_timebase_info_data_t timebase_info;
-
-static uint64_t abs_to_nanos(uint64_t abs) {
-   return abs * timebase_info.numer  / timebase_info.denom;
-}
-
-static uint64_t nanos_to_abs(uint64_t nanos) {
-   return nanos * timebase_info.denom / timebase_info.numer;
-}
-
 static int cpu_execute_instruction(struct cpu_t *cpu) {
    /* Trace code - Refactor into its own function or module */
    char trace_instruction[256];
@@ -237,8 +225,6 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
    if (cpu->trace) {
       cpu_format_instruction(cpu, trace_instruction);
    }
-
-   uint64_t start_time = mach_absolute_time();
 
    /* Fetch instruction */
    cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
@@ -299,22 +285,6 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
             break;
       }
    }
-
-   /* Delay */
-
-   if (timebase_info.denom == 0) {
-      (void) mach_timebase_info(&timebase_info);
-   }
-
-   uint64_t now = mach_absolute_time();
-
-   uint64_t elapsed_nano = abs_to_nanos(now - start_time);
-   uint64_t expected_duration = (i->cycles * (1000000000 / 960000));
-   uint64_t delay_nano = expected_duration - elapsed_nano;
-
-   //fprintf(stderr, "Expected: %" PRId64 " Elapsed: %" PRId64 " Delay: %" PRId64 "\n", expected_duration, elapsed_nano, delay_nano);
-
-   mach_wait_until(now + nanos_to_abs(delay_nano));
 
    return 0;
 }
