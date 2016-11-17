@@ -25,6 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <inttypes.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -61,6 +62,14 @@ uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
   return (uint16_t) _cpu_pull_byte(cpu) | ((uint16_t) _cpu_pull_byte(cpu) << 8);
+}
+
+uint8_t _cpu_stack_free(struct cpu_t *cpu) {
+   return cpu->state.sp;
+}
+
+uint8_t _cpu_stack_used(struct cpu_t *cpu) {
+   return 0xff - cpu->state.sp;
 }
 
 // Because we keep the processor status bits in separate fields, we
@@ -237,6 +246,19 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
    }
 
+   // If strict mode and if we need the stack, check if that works out
+   if (cpu->strict && i->stack != 0) {
+      if (i->stack > 0) {
+         if (_cpu_stack_free(cpu) < i->stack) {
+            return EWM_CPU_ERR_STACK_OVERFLOW;
+         }
+      } else {
+         if (_cpu_stack_used(cpu) < -(i->stack)) {
+            return EWM_CPU_ERR_STACK_UNDERFLOW;
+         }
+      }
+   }
+
    /* Remember the PC since some instructions modify it */
    uint16_t pc = cpu->state.pc;
 
@@ -409,6 +431,10 @@ void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, 
   cpu_add_mem(cpu, mem);
 }
 
+void cpu_strict(struct cpu_t *cpu, bool strict) {
+   cpu->strict = true;
+}
+
 void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
    cpu->trace = trace;
 }
@@ -429,18 +455,30 @@ void cpu_reset(struct cpu_t *cpu) {
    cpu->state.sp = 0xff;
 }
 
-void cpu_irq(struct cpu_t *cpu) {
-  _cpu_push_word(cpu, cpu->state.pc);
-  _cpu_push_byte(cpu, _cpu_get_status(cpu));
-  cpu->state.i = 1;
-  cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_IRQ);
+int cpu_irq(struct cpu_t *cpu) {
+   if (cpu->strict && _cpu_stack_free(cpu) < 3) {
+      return EWM_CPU_ERR_STACK_OVERFLOW;
+   }
+
+   _cpu_push_word(cpu, cpu->state.pc);
+   _cpu_push_byte(cpu, _cpu_get_status(cpu));
+   cpu->state.i = 1;
+   cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_IRQ);
+
+   return 0;
 }
 
-void cpu_nmi(struct cpu_t *cpu) {
-  _cpu_push_word(cpu, cpu->state.pc);
-  _cpu_push_byte(cpu, _cpu_get_status(cpu));
-  cpu->state.i = 1;
-  cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);
+int cpu_nmi(struct cpu_t *cpu) {
+   if (cpu->strict && _cpu_stack_free(cpu) < 3) {
+      return EWM_CPU_ERR_STACK_OVERFLOW;
+   }
+
+   _cpu_push_word(cpu, cpu->state.pc);
+   _cpu_push_byte(cpu, _cpu_get_status(cpu));
+   cpu->state.i = 1;
+   cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);
+
+   return 0;
 }
 
 int cpu_run(struct cpu_t *cpu) {

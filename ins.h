@@ -30,6 +30,7 @@ typedef struct {
   uint8_t opcode;
   uint8_t bytes;
   uint8_t cycles;
+  int8_t stack; // How much stack does this instruction need. Negative means pull, positive push
   void *handler;
 } cpu_instruction_t;
 

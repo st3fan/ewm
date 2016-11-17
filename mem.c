@@ -37,12 +37,19 @@ uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
       if (mem->read_handler) {
         return ((mem_read_handler_t) mem->read_handler)((struct cpu_t*) cpu, mem, addr);
       } else {
-        // TODO What to do?
+        if (cpu->strict) {
+          // TODO: Signal an error about reading to write-only region (does that even exist?)
+        }
         return 0;
       }
     }
     mem = mem->next;
   }
+
+  if (cpu->strict) {
+     // TODO: Signal an error about reading non-existent memory
+  }
+
   return 0; // TODO What should the default be if we read from non-existent memory?
 }
 
@@ -53,13 +60,18 @@ void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
       if (mem->write_handler) {
         ((mem_write_handler_t) mem->write_handler)((struct cpu_t*) cpu, mem, addr, v);
       } else {
-        // TODO What to do?
+        if (cpu->strict) {
+          // TODO: Signal an error about writing to read-only region
+        }
       }
       return;
     }
     mem = mem->next;
   }
-  // TODO What should the default be if we read from non-existent memory?
+
+  if (cpu->strict) {
+     // TODO: Signal an error about writing non-existent memory
+  }
 }
 
 // Getters

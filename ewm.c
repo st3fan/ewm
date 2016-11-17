@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <getopt.h>
 #include <string.h>
 
@@ -81,6 +82,7 @@ static struct ewm_machine_t machines[] = {
 
 static struct option options[] = {
    { "machine", required_argument, NULL, 'm' },
+   { "strict",  no_argument,       NULL, 's' },
    { NULL,      0,                 NULL, 0   }
 };
 
@@ -95,12 +97,16 @@ static struct ewm_machine_t *machine_with_name(char *name) {
 
 int main(int argc, char **argv) {
    struct ewm_machine_t *machine = NULL;
+   bool strict = false;
 
    char ch;
    while ((ch = getopt_long(argc, argv, "m:", options, NULL)) != -1) {
       switch (ch) {
          case 'm':
             machine = machine_with_name(optarg);
+            break;
+         case 's':
+            strict = true;
             break;
       }
    }
@@ -115,6 +121,7 @@ int main(int argc, char **argv) {
 
    struct cpu_t cpu;
    cpu_init(&cpu);
+   cpu_strict(&cpu, strict);
 
    (void) setup_replica1(&cpu);
 
