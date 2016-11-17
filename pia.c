@@ -29,8 +29,10 @@
 #include "cpu.h"
 #include "pia.h"
 
+// This implements a 6820 Peripheral I/O Adapter. On the Apple I this
+// is what connects the keyboard and display logic to the CPU.
+
 static void pia_dsp_write(uint8_t b) {
-   //fprintf(stderr, "PIA: Sending to display: %.2x / %.2x\n", b, b & 0x7f);
    b &= 0b01111111;
    if (b == '\r') {
       b = '\n';
@@ -38,14 +40,6 @@ static void pia_dsp_write(uint8_t b) {
    addch(b);
    refresh();
 }
-
-/* static int pia_kbd_read() { */
-/*    int c = getch(); */
-/* } */
-
-/* static uint8_t pia_kbd_read() { */
-/*    return getchar(); */
-/* } */
 
 void pia_init(struct pia_t *pia) {
    initscr();
@@ -63,12 +57,16 @@ void pia_trace(struct pia_t *pia, uint8_t trace) {
 
 uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct pia_t *pia = (struct pia_t*) mem->obj;
+
    uint8_t result = 0;
+
    switch (addr) {
-      case 0xd010: /* KBD */
+      case EWM_A1_PIA6820_KBD: {
          result = pia->a;
          break;
-      case 0xd011: /* KBDCR */ {
+      }
+
+      case EWM_A1_PIA6820_KBDCR: {
          int c = getch();
          if (c != ERR) {
             /* TODO: Remove this, this is not how we want to stop the emulator */
@@ -78,42 +76,57 @@ uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
             if (c == '\n') {
                c = '\r';
             }
-            pia->a = c | 0x80;
+            pia->a = c | 0x80; // Set the high bit - WHat is up with the high bits. Document this.
          }
          result = (c == ERR) ? 0x00 : 0x80;
          break;
       }
-      case 0xd012: /* DSP */
+
+      case EWM_A1_PIA6820_DSP: {
          result = 0;
          break;
-      case 0xd013: /* DSPCR */
+      }
+
+      case EWM_A1_PIA6820_DSPCR: {
          result = 0;
          break;
+      }
    }
+
    if (pia->trace) {
       fprintf(stderr, "PIA: READ BYTE %.2X FROM %.4X\n", result, addr);
    }
+
    return result;
 }
 
 void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
    struct pia_t *pia = (struct pia_t*) mem->obj;
+
    if (pia->trace) {
       fprintf(stderr, "PIA: WRITING BYTE %.2X TO %.4X\n", b, addr);
    }
+
    switch (addr) {
-      case 0xd010: /* KBD */
+      case EWM_A1_PIA6820_KBD: { /* KBD */
          break;
-      case 0xd011: /* KBDCR */
+      }
+
+      case EWM_A1_PIA6820_KBDCR: { /* KBDCR */
          pia->cra = b;
          break;
-      case 0xd012: /* DSP */
+      }
+
+      case EWM_A1_PIA6820_DSP: { /* DSP */
          if (pia->crb != 0x00) { /* TODO: Check the actual flag */
             pia_dsp_write(b);
          }
          break;
-      case 0xd013: /* DSPCR */
+      }
+
+      case EWM_A1_PIA6820_DSPCR: { /* DSPCR */
          pia->crb = b;
          break;
+      }
    }
 }
