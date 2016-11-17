@@ -51,8 +51,8 @@ void pia_init(struct pia_t *pia) {
    pia->crb = 0;
 }
 
-void pia_trace(struct pia_t *pia, uint8_t trace) {
-   pia->trace = trace;
+void pia_trace(struct pia_t *pia, uint8_t enable) {
+   pia->trace = enable;
 }
 
 uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
