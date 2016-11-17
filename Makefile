@@ -1,6 +1,6 @@
 
 CC=cc
-CFLAGS=-O3 -std=c11 -Werror -Wall -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes
+CFLAGS=-O3 -std=c99 -Werror -Wall -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes
 SOURCES=cpu.c ins.c pia.c mem.c ewm.c
 OBJECTS=$(SOURCES:.c=.o)
 LIBS=-lcurses
