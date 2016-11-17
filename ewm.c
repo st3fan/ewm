@@ -23,12 +23,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <getopt.h>
+#include <string.h>
 
 #include "cpu.h"
 #include "mem.h"
 #include "pia.h"
 
-static uint8_t monitor[256] = {
+static uint8_t woz_monitor[256] = {
     0xD8, 0x58, 0xA0, 0x7F, 0x8C, 0x12, 0xD0, 0xA9,
     0xA7, 0x8D, 0x11, 0xD0, 0x8D, 0x13, 0xD0, 0xC9,
     0xDF, 0xF0, 0x13, 0xC9, 0x9B, 0xF0, 0x03, 0xC8,
@@ -63,18 +65,106 @@ static uint8_t monitor[256] = {
     0x00, 0x00, 0x00, 0x0F, 0x00, 0xFF, 0x00, 0x00
 };
 
+// Apple 1 / 8K RAM / WOZ Monitor
+
+static int setup_apple1(struct cpu_t *cpu) {
+   struct pia_t *pia = malloc(sizeof(struct pia_t));
+   pia_init(pia);
+   pia_trace(pia, 0);
+   cpu_add_ram(cpu, 0x0000, 8 * 1024);
+   cpu_add_rom_data(cpu, 0xff00, 0x0100, woz_monitor);
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_LENGTH, pia, pia_read, pia_write);
+   return 0;
+}
+
+// Replica 1 / 32K RAM / Krusader Assembler & Monitor
+
+static int setup_replica1(struct cpu_t *cpu) {
+   struct pia_t *pia = malloc(sizeof(struct pia_t));
+   pia_init(pia);
+   pia_trace(pia, 0);
+   cpu_add_ram(cpu, 0x0000, 32 * 1024);
+   cpu_add_rom_file(cpu, 0xe000, "roms/krusader.rom");
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_LENGTH, pia, pia_read, pia_write);
+   return 0;
+}
+
+// Apple ][+ / 48K RAM / Original ROMs
+
+static int setup_apple2plus(struct cpu_t *cpu) {
+   cpu_add_ram(cpu, 0x0000, 48 * 1024);
+   cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
+   return 0;
+}
+
+// Machine Setup
+
+typedef int (*ewm_machine_setup_f)(struct cpu_t *cpu);
+
+struct ewm_machine_t {
+   char *name;
+   char *description;
+   ewm_machine_setup_f setup;
+};
+
+static struct ewm_machine_t machines[] = {
+   { "apple1",     "Apple 1",   setup_apple1 },
+   { "replica1",   "Replica 1", setup_replica1 },
+   { "apple2plus", "Apple ][+", setup_apple2plus },
+   { NULL,         NULL,        NULL }
+};
+
+static struct option options[] = {
+   { "machine", required_argument, NULL, 'm' },
+   { NULL,      0,                 NULL, 0   }
+};
+
+static struct ewm_machine_t *machine_with_name(char *name) {
+   for (struct ewm_machine_t *m = machines; m->name != NULL; m++) {
+      if (strcmp(m->name, name) == 0) {
+         return m;
+      }
+   }
+   return NULL;
+}
+
 int main(int argc, char **argv) {
-  struct pia_t pia;
-  pia_init(&pia);
-  pia_trace(&pia, 0);
+   struct ewm_machine_t *machine = NULL;
 
-  struct cpu_t cpu;
-  cpu_init(&cpu);
-  cpu_add_ram(&cpu, 0x0000, 0x4000);
-  cpu_add_rom(&cpu, 0xff00, 0x0100, monitor);
-  cpu_add_iom(&cpu, 0xd000, 0x1000, &pia, pia_read, pia_write);
-  cpu_trace(&cpu, 0);
-  cpu_boot(&cpu);
+   char ch;
+   while ((ch = getopt_long(argc, argv, "m:", options, NULL)) != -1) {
+      switch (ch) {
+         case 'm':
+            machine = machine_with_name(optarg);
+            break;
+      }
+   }
 
-  return 0;
+   argc -= optind;
+   argv += optind;
+
+   if (machine == NULL) {
+      fprintf(stderr, "Usage: ewm --machine apple1|replica1|apple2plus\n");
+      exit(1);
+   }
+
+   struct cpu_t cpu;
+   cpu_init(&cpu);
+
+   (void) setup_replica1(&cpu);
+
+   switch (cpu_boot(&cpu)) {
+      case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
+         fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
+                 mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
+         break;
+      case EWM_CPU_ERR_STACK_OVERFLOW:
+         fprintf(stderr, "CPU: Exited because of stack overflow at 0x%.4x\n", cpu.state.pc);
+         break;
+      case EWM_CPU_ERR_STACK_UNDERFLOW:
+         fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", cpu.state.pc);
+         break;
+   }
+
+   return 0;
 }
