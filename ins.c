@@ -621,6 +621,14 @@ static void pla(struct cpu_t *cpu) {
   update_zn(cpu, cpu->state.a);
 }
 
+static void php(struct cpu_t *cpu) {
+   _cpu_push_byte(cpu, _cpu_get_status(cpu));
+}
+
+static void plp(struct cpu_t *cpu) {
+   _cpu_set_status(cpu, _cpu_pull_byte(cpu));
+}
+
 /* ROL */
 
 static uint8_t rol(struct cpu_t* cpu, uint8_t b) {
@@ -846,7 +854,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x05 */ { "ORA", 0x05, 2, 2,  0, (void*) ora_zpg },
   /* 0x06 */ { "ASL", 0x06, 2, 5,  0, (void*) asl_zpg },
   /* 0x07 */ { "???", 0x07, 1, 2,  0, (void*) NULL },
-  /* 0x08 */ { "???", 0x08, 1, 2,  0, (void*) NULL },
+  /* 0x08 */ { "PHP", 0x08, 1, 3,  0, (void*) php },
   /* 0x09 */ { "ORA", 0x09, 2, 2,  0, (void*) ora_imm },
   /* 0x0a */ { "ASL", 0x0a, 1, 2,  0, (void*) asl_acc },
   /* 0x0b */ { "???", 0x0b, 1, 2,  0, (void*) NULL },
@@ -879,7 +887,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x25 */ { "AND", 0x25, 2, 3,  0, (void*) and_zpg },
   /* 0x26 */ { "ROL", 0x26, 2, 5,  0, (void*) rol_zpg },
   /* 0x27 */ { "???", 0x27, 1, 2,  0, (void*) NULL },
-  /* 0x28 */ { "???", 0x28, 1, 2,  0, (void*) NULL },
+  /* 0x28 */ { "PLP", 0x28, 1, 4,  0, (void*) plp },
   /* 0x29 */ { "AND", 0x29, 2, 2,  0, (void*) and_imm },
   /* 0x2a */ { "ROL", 0x2a, 1, 2,  0, (void*) rol_acc },
   /* 0x2b */ { "???", 0x2b, 1, 2,  0, (void*) NULL },
