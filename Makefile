@@ -1,7 +1,7 @@
 
 CC=cc
 CFLAGS=-O3 -std=c99 -Werror -Wall -Wshadow -Wpointer-arith -Wcast-qual -Wstrict-prototypes -Wmissing-prototypes
-SOURCES=cpu.c ins.c pia.c mem.c ewm.c
+SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c
 OBJECTS=$(SOURCES:.c=.o)
 LIBS=-lcurses
 EXECUTABLE=ewm

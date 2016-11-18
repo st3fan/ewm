@@ -41,11 +41,11 @@ struct cpu_state_t {
 };
 
 struct cpu_t {
-  struct cpu_state_t state;
-  uint8_t trace;
-  bool strict;
-  struct mem_t *mem;
-  uint8_t *memory; // This is pointing to the first 2 pages of memory, zero page and stack.
+   struct cpu_state_t state;
+   FILE *trace;
+   bool strict;
+   struct mem_t *mem;
+   uint8_t *memory; // This is pointing to the first 2 pages of memory, zero page and stack.
 };
 
 #define MEM_TYPE_RAM 0
@@ -79,6 +79,7 @@ uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
 void cpu_init(struct cpu_t *cpu);
+void cpu_shutdown(struct cpu_t *cpu);
 
 void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem);
 void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length);
@@ -87,7 +88,7 @@ void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_
 void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler);
 
 void cpu_strict(struct cpu_t *cpu, bool strict);
-void cpu_trace(struct cpu_t *cpu, uint8_t trace);
+int cpu_trace(struct cpu_t *cpu, char *path);
 
 void cpu_reset(struct cpu_t *cpu);
 int cpu_irq(struct cpu_t *cpu);

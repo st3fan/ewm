@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
@@ -34,6 +35,7 @@
 #include "cpu.h"
 #include "ins.h"
 #include "mem.h"
+#include "fmt.h"
 
 /* Private API */
 
@@ -97,125 +99,6 @@ void _cpu_set_status(struct cpu_t *cpu, uint8_t status) {
   cpu->state.c = (status & (1 << 0));
 }
 
-static void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
-   *buffer = 0x00;
-
-   cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
-   uint8_t opcode = mem_get_byte(cpu, cpu->state.pc);
-
-   /* Single byte instructions */
-   if (i->bytes == 1) {
-      sprintf(buffer, "%s", i->name);
-   }
-
-   /* JSR is the only exception */
-   else if (opcode == 0x20) {
-     sprintf(buffer, "%s $%.4X", i->name, mem_get_word(cpu, cpu->state.pc+1));
-   }
-
-   /* Branches */
-   else if ((opcode & 0b00011111) == 0b00010000) {
-      int8_t offset = (int8_t) mem_get_byte(cpu, cpu->state.pc+1);
-      uint16_t addr = cpu->state.pc + 2 + offset;
-      sprintf(buffer, "%s $%.4X", i->name, addr);
-   }
-
-   else if ((opcode & 0b00000011) == 0b00000001) {
-      switch ((opcode & 0b00011100) >> 2) {
-         case 0b000:
-            sprintf(buffer, "%s ($%.2X,X)", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b010:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b100:
-            sprintf(buffer, "%s ($%.2X),Y", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b110:
-            sprintf(buffer, "%s $%.2X%.2X,Y", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-      }
-   }
-
-   else if ((opcode & 0b00000011) == 0b00000010) {
-      switch ((opcode & 0b00011100) >> 2) {
-         case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b010:
-            sprintf(buffer, "%s", i->name);
-            break;
-         case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-      }
-   }
-
-   else if ((opcode & 0b00000011) == 0b00000000) {
-      switch ((opcode & 0b00011100) >> 2) {
-         case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-         case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
-            break;
-      }
-   }
-}
-
-static void cpu_format_state(struct cpu_t *cpu, char *buffer) {
-   sprintf(buffer, "A=%.2X X=%.2X Y=%.2X S=%.2X SP=%.4X %c%c%c%c%c%c%c%c",
-           cpu->state.a, cpu->state.x, cpu->state.y, cpu->state.s, 0x0100 + cpu->state.sp,
-
-           cpu->state.n ? 'N' : '-',
-           cpu->state.v ? 'V' : '-',
-           '-',
-           cpu->state.b ? 'B' : '-',
-           cpu->state.d ? 'D' : '-',
-           cpu->state.i ? 'I' : '-',
-           cpu->state.z ? 'Z' : '-',
-           cpu->state.c ? 'C' : '-');
-}
-
-static void cpu_format_stack(struct cpu_t *cpu, char *buffer) {
-   *buffer = 0x00;
-   for (uint16_t sp = cpu->state.sp; sp != 0xff; sp++) {
-      char tmp[8];
-      sprintf(tmp, " %.2X", _mem_get_byte_direct(cpu, 0x0100 + sp));
-      buffer = strcat(buffer, tmp);
-   }
-}
-
 static int cpu_execute_instruction(struct cpu_t *cpu) {
    /* Trace code - Refactor into its own function or module */
    char trace_instruction[256];
@@ -268,22 +151,23 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
    if (cpu->trace) {
       cpu_format_state(cpu, trace_state);
-      cpu_format_stack(cpu, trace_stack); // TODO: This crashes on the hello world test
+      cpu_format_stack(cpu, trace_stack);
 
+      char bytes[10];
       switch (i->bytes) {
          case 1:
-            fprintf(stderr, "CPU: %.4X %-20s | %.2X           %-20s  STACK: %s\n",
-                    pc, trace_instruction, mem_get_byte(cpu, pc), trace_state, trace_stack);
+            snprintf(bytes, sizeof bytes, "%.2X", mem_get_byte(cpu, pc));
             break;
          case 2:
-            fprintf(stderr, "CPU: %.4X %-20s | %.2X %.2X        %-20s  STACK: %s\n",
-                    pc, trace_instruction, mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), trace_state, trace_stack);
+            snprintf(bytes, sizeof bytes, "%.2X %.2X", mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1));
             break;
          case 3:
-            fprintf(stderr, "CPU: %.4X %-20s | %.2X %.2X %.2X     %-20s  STACK: %s\n",
-                    pc, trace_instruction, mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), mem_get_byte(cpu, pc+2), trace_state, trace_stack);
+            snprintf(bytes, sizeof bytes, "%.2X %.2X %.2X", mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), mem_get_byte(cpu, pc+2));
             break;
       }
+      
+      fprintf(cpu->trace, "%.4X: %-8s  %-11s  %-20s  %s\n",
+              pc, bytes, trace_instruction, trace_state, trace_stack);
    }
 
    return 0;
@@ -293,6 +177,13 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
 void cpu_init(struct cpu_t *cpu) {
    memset(cpu, 0x00, sizeof(struct cpu_t));
+}
+
+void cpu_shutdown(struct cpu_t *cpu) {
+   if (cpu->trace != NULL) {
+      (void) fclose(cpu->trace);
+      cpu->trace = NULL;
+   }
 }
 
 void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
@@ -405,13 +296,25 @@ void cpu_strict(struct cpu_t *cpu, bool strict) {
    cpu->strict = true;
 }
 
-void cpu_trace(struct cpu_t *cpu, uint8_t trace) {
-   cpu->trace = trace;
+int cpu_trace(struct cpu_t *cpu, char *path) {
+   if (cpu->trace != NULL) {
+      (void) fclose(cpu->trace);
+      cpu->trace = NULL;
+   }
+
+   if (path != NULL) {
+      printf("MOO Tracing to %s\n", path);
+      cpu->trace = fopen(path, "w");
+      if (cpu->trace == NULL) {
+         return errno;
+      }
+   }
+
+   return 0;
 }
 
 void cpu_reset(struct cpu_t *cpu) {
    cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_RES);
-   fprintf(stderr, "CPU: cpu->state.pc = %.4x\n", cpu->state.pc);
    cpu->state.a = 0x00;
    cpu->state.x = 0x00;
    cpu->state.y = 0x00;
@@ -458,7 +361,6 @@ int cpu_run(struct cpu_t *cpu) {
       /* TODO: Tick? */
       instruction_count++;
    }
-   fprintf(stderr, "Executed %" PRId64 " instructions\n", instruction_count);
    return err;
 }
 

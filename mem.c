@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "cpu.h"
 #include "mem.h"
 
 // The following two are our memory primitives that properly set go
