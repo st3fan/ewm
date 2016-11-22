@@ -83,8 +83,10 @@ void cpu_shutdown(struct cpu_t *cpu);
 
 void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem);
 void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length);
-void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path);
+void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data);
+void cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path);
 void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data);
+void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path);
 void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler);
 
 void cpu_strict(struct cpu_t *cpu, bool strict);

@@ -221,15 +221,47 @@ static void _ram_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint
 }
 
 void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length) {
+   cpu_add_ram_data(cpu, start, length, calloc(length, 0x01));
+}
+
+void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_RAM;
-  mem->obj = malloc(length);
+  mem->obj = data;
   mem->start = start;
   mem->length = length;
   mem->read_handler = _ram_read;
   mem->write_handler = _ram_write;
   mem->next = NULL;
   cpu_add_mem(cpu, mem);
+}
+
+void cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path) {
+   int fd = open(path, O_RDONLY);
+   if (fd == -1) {
+      return;
+   }
+
+   struct stat file_info;
+   if (fstat(fd, &file_info) == -1) {
+      close(fd);
+      return;
+   }
+
+   if (file_info.st_size  > (64 * 1024 - start)) {
+      close(fd);
+      return;
+   }
+
+   char *data = malloc(file_info.st_size);
+   if (read(fd, data, file_info.st_size) != file_info.st_size) {
+      close(fd);
+      return;
+   }
+
+   close(fd);
+
+   cpu_add_ram_data(cpu, start, file_info.st_size, (uint8_t*) data);
 }
 
 // ROM Memory
