@@ -35,12 +35,38 @@ static void update_zn(struct cpu_t *cpu, uint8_t v) {
 /* ADC */
 
 static void adc(struct cpu_t *cpu, uint8_t m) {
-  uint16_t t = (uint16_t)cpu->state.a + (uint16_t)m + (uint16_t)(cpu->state.c ? 1 : 0);
-  uint8_t r = (uint8_t) (t & 0xff);
-  cpu->state.c = (t & 0x0100) != 0;
-  cpu->state.v = (cpu->state.a^r) & (m^r) & 0x80;
-  cpu->state.a = r;
-  update_zn(cpu, cpu->state.a);
+   uint8_t c = cpu->state.c ? 1 : 0;
+   if (cpu->state.d) {
+      uint8_t cb = 0;
+
+      uint8_t low = (cpu->state.a & 0x0f) + (m & 0x0f) + c;
+      if ((low & 0xff) > 9) {
+         low += 6;
+      }
+      if (low > 15) {
+         cb = 1;
+      }
+
+      uint8_t high = (cpu->state.a >> 4) + (m >> 4) + cb;
+      if ((high & 0xff) > 9) {
+         high += 6;
+      }
+      uint8_t r = (low & 0x0F) | ((high<<4)&0xF0);
+
+      cpu->state.c = (high > 15);
+      cpu->state.z = (r == 0);
+      cpu->state.n = 0;
+      cpu->state.v = 0;
+
+      cpu->state.a = r;
+   } else {
+      uint16_t t = (uint16_t)cpu->state.a + (uint16_t)m + (uint16_t)c;
+      uint8_t r = (int8_t)t;
+      cpu->state.c = (t & 0x0100) != 0;
+      cpu->state.v = (cpu->state.a^r) & (m^r) & 0x80;
+      cpu->state.a = r;
+      update_zn(cpu, cpu->state.a);
+   }
 }
 
 static void adc_imm(struct cpu_t *cpu, uint8_t oper) {
@@ -705,7 +731,40 @@ static void rts(struct cpu_t *cpu) {
 /* SBC */
 
 static void sbc(struct cpu_t *cpu, uint8_t m) {
-  adc(cpu, m ^ 0xff);
+   uint8_t c = cpu->state.c ? 1 : 0;
+   if (cpu->state.d) {
+      uint8_t cb = 0;
+      
+      if (c == 0) {
+         c = 1;
+      } else {
+         c = 0;
+      }
+
+      uint8_t low = (cpu->state.a & 0x0F) - (m & 0x0F) - c;
+      if ((low & 0x10) != 0) {
+         low -= 6;
+      }
+      if ((low & 0x10) != 0) {
+         cb = 1;
+      }
+
+      uint8_t high = (cpu->state.a >> 4) - (m >> 4) - cb;
+      if ((high & 0x10) != 0) {
+         high -= 6;
+      }
+
+      int8_t result = (low & 0x0F) | (high << 4);
+
+      cpu->state.c = (high & 0xff) < 15;
+      cpu->state.z = (result == 0);
+      cpu->state.n = 0;
+      cpu->state.v = 0;
+
+      cpu->state.a = result;
+   } else {
+      adc(cpu, m ^ 0xff);
+   }
 }
 
 static void sbc_imm(struct cpu_t *cpu, uint8_t oper) {
