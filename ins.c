@@ -1098,7 +1098,7 @@ cpu_instruction_t instructions[256] = {
   /* 0xf2 */ { "???", 0xf2, 1, 2,  0, (void*) NULL },
   /* 0xf3 */ { "???", 0xf3, 1, 2,  0, (void*) NULL },
   /* 0xf4 */ { "???", 0xf4, 1, 2,  0, (void*) NULL },
-  /* 0xf5 */ { "SBC", 0xf5, 1, 2,  0, (void*) sbc_zpgx },
+  /* 0xf5 */ { "SBC", 0xf5, 2, 2,  0, (void*) sbc_zpgx },
   /* 0xf6 */ { "INC", 0xf6, 2, 6,  0, (void*) inc_zpgx },
   /* 0xf7 */ { "???", 0xf7, 1, 2,  0, (void*) NULL },
   /* 0xf8 */ { "SED", 0xf8, 1, 2,  0, (void*) sed },
