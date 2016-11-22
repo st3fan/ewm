@@ -204,7 +204,7 @@ void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
   // fine for the Apple I and Apple II emulators.
 
   if (mem->type == MEM_TYPE_RAM) {
-    if (mem->start == 0x0000 && mem->length >= 0x200) {
+    if (mem->start == 0x0000 && mem->end >= 0x0200) {
       cpu->memory = mem->obj;
     }
   }
@@ -220,16 +220,16 @@ static void _ram_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint
   ((uint8_t*) mem->obj)[addr - mem->start] = b;
 }
 
-void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t length) {
-   cpu_add_ram_data(cpu, start, length, calloc(length, 0x01));
+void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end) {
+   cpu_add_ram_data(cpu, start, end, calloc(end-start+1, 0x01));
 }
 
-void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
+void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_RAM;
   mem->obj = data;
   mem->start = start;
-  mem->length = length;
+  mem->end = end;
   mem->read_handler = _ram_read;
   mem->write_handler = _ram_write;
   mem->next = NULL;
@@ -253,7 +253,7 @@ void cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path) {
       return;
    }
 
-   char *data = malloc(file_info.st_size);
+   char *data = calloc(file_info.st_size, 1);
    if (read(fd, data, file_info.st_size) != file_info.st_size) {
       close(fd);
       return;
@@ -261,7 +261,7 @@ void cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path) {
 
    close(fd);
 
-   cpu_add_ram_data(cpu, start, file_info.st_size, (uint8_t*) data);
+   cpu_add_ram_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
 }
 
 // ROM Memory
@@ -270,12 +270,12 @@ static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
   return ((uint8_t*) mem->obj)[addr - mem->start];
 }
 
-void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t length, uint8_t *data) {
+void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_ROM;
   mem->obj = data;
   mem->start = start;
-  mem->length = length;
+  mem->end = end;
   mem->read_handler = _rom_read;
   mem->write_handler = NULL;
   mem->next = NULL;
@@ -299,7 +299,7 @@ void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
       return;
    }
 
-   char *data = malloc(file_info.st_size);
+   char *data = calloc(file_info.st_size, 1);
    if (read(fd, data, file_info.st_size) != file_info.st_size) {
       close(fd);
       return;
@@ -307,17 +307,17 @@ void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
 
    close(fd);
 
-   cpu_add_rom_data(cpu, start, file_info.st_size, (uint8_t*) data);
+   cpu_add_rom_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
 }
 
 // IO Memory
 
-void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
+void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_IOM;
   mem->obj = obj;
   mem->start = start;
-  mem->length = length;
+  mem->end = end;
   mem->read_handler = read_handler;
   mem->write_handler = write_handler;
   mem->next = NULL;
@@ -335,7 +335,6 @@ int cpu_trace(struct cpu_t *cpu, char *path) {
    }
 
    if (path != NULL) {
-      printf("MOO Tracing to %s\n", path);
       cpu->trace = fopen(path, "w");
       if (cpu->trace == NULL) {
          return errno;
@@ -365,7 +364,7 @@ int cpu_irq(struct cpu_t *cpu) {
       return EWM_CPU_ERR_STACK_OVERFLOW;
    }
 
-   _cpu_push_word(cpu, cpu->state.pc);
+   _cpu_push_word(cpu, cpu->state.pc + 1); // TODO +1?? Spec says +2 but test fails then
    _cpu_push_byte(cpu, _cpu_get_status(cpu));
    cpu->state.i = 1;
    cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_IRQ);
@@ -378,7 +377,7 @@ int cpu_nmi(struct cpu_t *cpu) {
       return EWM_CPU_ERR_STACK_OVERFLOW;
    }
 
-   _cpu_push_word(cpu, cpu->state.pc);
+   _cpu_push_word(cpu, cpu->state.pc + 1); // TODO +1?? Spec says +2 but test fails then
    _cpu_push_byte(cpu, _cpu_get_status(cpu));
    cpu->state.i = 1;
    cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);

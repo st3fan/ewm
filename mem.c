@@ -34,7 +34,7 @@
 uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
   struct mem_t *mem = cpu->mem;
   while (mem != NULL) {
-    if (addr >= mem->start && (addr <= (mem->start + mem->length))) {
+    if (addr >= mem->start && addr <= mem->end) {
       if (mem->read_handler) {
         return ((mem_read_handler_t) mem->read_handler)((struct cpu_t*) cpu, mem, addr);
       } else {
@@ -57,7 +57,7 @@ uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
 void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
   struct mem_t *mem = cpu->mem;
   while (mem != NULL) {
-    if (addr >= mem->start && (addr <= (mem->start + mem->length))) {
+    if (addr >= mem->start && addr <= mem->end) {
       if (mem->write_handler) {
         ((mem_write_handler_t) mem->write_handler)((struct cpu_t*) cpu, mem, addr, v);
       } else {

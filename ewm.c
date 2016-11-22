@@ -36,10 +36,9 @@
 static int setup_apple1(struct cpu_t *cpu) {
    struct pia_t *pia = malloc(sizeof(struct pia_t));
    pia_init(pia);
-   pia_trace(pia, 0);
-   cpu_add_ram(cpu, 0x0000, 8 * 1024);
+   cpu_add_ram(cpu, 0x0000, 8 * 1024 - 1);
    cpu_add_rom_file(cpu, 0xff00, "roms/apple1.com");
-   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_LENGTH, pia, pia_read, pia_write);
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
    return 0;
 }
 
@@ -48,10 +47,9 @@ static int setup_apple1(struct cpu_t *cpu) {
 static int setup_replica1(struct cpu_t *cpu) {
    struct pia_t *pia = malloc(sizeof(struct pia_t));
    pia_init(pia);
-   pia_trace(pia, 0);
-   cpu_add_ram(cpu, 0x0000, 32 * 1024);
+   cpu_add_ram(cpu, 0x0000, 32 * 1024 - 1);
    cpu_add_rom_file(cpu, 0xe000, "roms/krusader.rom");
-   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_LENGTH, pia, pia_read, pia_write);
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
    return 0;
 }
 
@@ -131,7 +129,9 @@ int main(int argc, char **argv) {
 
    machine->setup(&cpu);
 
-   switch (cpu_boot(&cpu)) {
+   cpu_reset(&cpu);
+
+   switch (cpu_run(&cpu)) {
       case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
          fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
                  mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
