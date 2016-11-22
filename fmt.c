@@ -43,6 +43,7 @@ void cpu_format_state(struct cpu_t *cpu, char *buffer) {
 }
 
 void cpu_format_stack(struct cpu_t *cpu, char buffer[764]) {
+   buffer[0] = 0x00;
    if (cpu->state.sp != 0xff) {
       char *p = buffer;
       *p = 0x00;
