@@ -1007,7 +1007,7 @@ cpu_instruction_t instructions[256] = {
   /* 0x9a */ { "TXS", 0x9a, 1, 2,  0, (void*) txs },
   /* 0x9b */ { "???", 0x9b, 1, 2,  0, (void*) NULL },
   /* 0x9c */ { "???", 0x9c, 1, 2,  0, (void*) NULL },
-  /* 0x9d */ { "STA", 0x9d, 2, 5,  0, (void*) sta_absx },
+  /* 0x9d */ { "STA", 0x9d, 3, 5,  0, (void*) sta_absx },
   /* 0x9e */ { "???", 0x9e, 1, 2,  0, (void*) NULL },
   /* 0x9f */ { "???", 0x9f, 1, 2,  0, (void*) NULL },
 
