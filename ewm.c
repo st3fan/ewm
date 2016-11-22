@@ -28,7 +28,9 @@
 #include <string.h>
 
 #include "cpu.h"
+#include "dsk.h"
 #include "mem.h"
+#include "mmu.h"
 #include "pia.h"
 
 // Apple 1 / 8K RAM / WOZ Monitor
@@ -61,6 +63,19 @@ static int setup_apple2plus(struct cpu_t *cpu) {
    return 0;
 }
 
+// Apple IIe / 128K RAM / Original ROMs
+
+static int setup_apple2e(struct cpu_t *cpu) {
+   struct ewm_mmu_t *mmu = malloc(sizeof(struct ewm_mmu_t));
+   mmu_init(mmu, cpu);
+   struct ewm_dsk_t *dsk = malloc(sizeof(struct ewm_dsk_t));
+   dsk_init(dsk);
+   dsk_set_disk_file(dsk, 1, "disks/DOS33-SystemMaster.dsk");
+   dsk_set_disk_file(dsk, 2, "disks/DOS33-SamplePrograms.dsk");
+   mmu_insert_card(mmu, 6, &dsk->card);
+   return 0;
+}
+
 // Machine Setup
 
 typedef int (*ewm_machine_setup_f)(struct cpu_t *cpu);
@@ -72,10 +87,11 @@ struct ewm_machine_t {
 };
 
 static struct ewm_machine_t machines[] = {
-   { "apple1",     "Apple 1",   setup_apple1 },
-   { "replica1",   "Replica 1", setup_replica1 },
-   { "apple2plus", "Apple ][+", setup_apple2plus },
-   { NULL,         NULL,        NULL }
+   { "apple1",     "Apple 1",         setup_apple1 },
+   { "replica1",   "Replica 1",       setup_replica1 },
+   { "apple2plus", "Apple ][+",       setup_apple2plus },
+   { "apple2e",    "Apple IIe",       setup_apple2e },
+   { NULL,         NULL,              NULL }
 };
 
 static struct option options[] = {
@@ -118,7 +134,7 @@ int main(int argc, char **argv) {
    argv += optind;
 
    if (machine == NULL) {
-      fprintf(stderr, "Usage: ewm --machine apple1|replica1|apple2plus\n");
+      fprintf(stderr, "Usage: ewm --machine apple1|replica1|apple2plus|apple2e\n");
       exit(1);
    }
 
