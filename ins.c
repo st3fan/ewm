@@ -1094,7 +1094,7 @@ cpu_instruction_t instructions[256] = {
   /* 0xee */ { "INC", 0xee, 3, 6,  0, (void*) inc_abs },
   /* 0xef */ { "???", 0xef, 1, 2,  0, (void*) NULL },
   /* 0xf0 */ { "BEQ", 0xf0, 2, 2,  0, (void*) beq },
-  /* 0xf1 */ { "SBC", 0xf1, 1, 2,  0, (void*) sbc_indy },
+  /* 0xf1 */ { "SBC", 0xf1, 2, 2,  0, (void*) sbc_indy },
   /* 0xf2 */ { "???", 0xf2, 1, 2,  0, (void*) NULL },
   /* 0xf3 */ { "???", 0xf3, 1, 2,  0, (void*) NULL },
   /* 0xf4 */ { "???", 0xf4, 1, 2,  0, (void*) NULL },
