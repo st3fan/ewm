@@ -97,7 +97,7 @@ static struct ewm_machine_t *machine_with_name(char *name) {
 }
 
 int main(int argc, char **argv) {
-   struct ewm_machine_t *machine = NULL;
+   struct ewm_machine_t *machine = &machines[0];
    bool strict = false;
    char *trace_path = NULL;
 
@@ -129,7 +129,7 @@ int main(int argc, char **argv) {
    cpu_strict(&cpu, strict);
    cpu_trace(&cpu, trace_path);
 
-   (void) setup_replica1(&cpu);
+   machine->setup(&cpu);
 
    switch (cpu_boot(&cpu)) {
       case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
