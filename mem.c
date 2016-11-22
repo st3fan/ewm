@@ -102,7 +102,7 @@ uint8_t mem_get_byte_zpgy(struct cpu_t *cpu, uint8_t addr) {
 }
 
 uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
-  return mem_get_byte(cpu, mem_get_word(cpu, addr + cpu->state.x)); // TODO: Does this wrap?
+  return mem_get_byte(cpu, mem_get_word(cpu, (uint8_t)(addr + cpu->state.x)));
 }
 
 uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
@@ -141,7 +141,8 @@ void mem_set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
 }
 
 void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-  mem_set_byte(cpu, mem_get_word(cpu, addr+cpu->state.x), v); // TODO: Does this wrap?
+  //uint8_t a = ;
+  mem_set_byte(cpu, mem_get_word(cpu, (uint8_t)(addr + cpu->state.x)), v);
 }
 
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
