@@ -325,7 +325,7 @@ void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t length, void *obj, 
 }
 
 void cpu_strict(struct cpu_t *cpu, bool strict) {
-   cpu->strict = true;
+   cpu->strict = strict;
 }
 
 int cpu_trace(struct cpu_t *cpu, char *path) {
