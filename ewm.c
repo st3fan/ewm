@@ -31,9 +31,10 @@
 #include "mem.h"
 #include "pia.h"
 
-// Apple 1 / 8K RAM / WOZ Monitor
+// Apple 1 / 6502 / 8K RAM / WOZ Monitor
 
 static int setup_apple1(struct cpu_t *cpu) {
+   cpu_init(cpu, EWM_CPU_MODEL_6502);
    struct pia_t *pia = malloc(sizeof(struct pia_t));
    pia_init(pia);
    cpu_add_ram(cpu, 0x0000, 8 * 1024 - 1);
@@ -42,9 +43,10 @@ static int setup_apple1(struct cpu_t *cpu) {
    return 0;
 }
 
-// Replica 1 / 32K RAM / Krusader Assembler & Monitor
+// Replica 1 / 65C02 / 32K RAM / Krusader Assembler & Monitor
 
 static int setup_replica1(struct cpu_t *cpu) {
+   cpu_init(cpu, EWM_CPU_MODEL_65C02);
    struct pia_t *pia = malloc(sizeof(struct pia_t));
    pia_init(pia);
    cpu_add_ram(cpu, 0x0000, 32 * 1024 - 1);
@@ -53,9 +55,10 @@ static int setup_replica1(struct cpu_t *cpu) {
    return 0;
 }
 
-// Apple ][+ / 48K RAM / Original ROMs
+// Apple ][+ / 6502 / 48K RAM / Original ROMs
 
 static int setup_apple2plus(struct cpu_t *cpu) {
+   cpu_init(cpu, EWM_CPU_MODEL_6502);
    cpu_add_ram(cpu, 0x0000, 48 * 1024);
    cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
    return 0;
@@ -122,12 +125,13 @@ int main(int argc, char **argv) {
       exit(1);
    }
 
+   cpu_setup();
+
    struct cpu_t cpu;
-   cpu_init(&cpu);
-   cpu_strict(&cpu, strict);
-   cpu_trace(&cpu, trace_path);
 
    machine->setup(&cpu);
+   cpu_strict(&cpu, strict);
+   cpu_trace(&cpu, trace_path);
 
    cpu_reset(&cpu);
 

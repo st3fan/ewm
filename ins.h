@@ -25,15 +25,16 @@
 
 #include <stdint.h>
 
-typedef struct {
+struct cpu_instruction_t {
   char *name;
   uint8_t opcode;
   uint8_t bytes;
   uint8_t cycles;
   int8_t stack; // How much stack does this instruction need. Negative means pull, positive push
   void *handler;
-} cpu_instruction_t;
+};
 
-extern cpu_instruction_t instructions[256];
+extern struct cpu_instruction_t instructions[256];
+extern struct cpu_instruction_t instructions_65C02[256];
 
 #endif

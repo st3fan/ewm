@@ -36,6 +36,7 @@ uint8_t mem_get_byte_zpgx(struct cpu_t *cpu, uint8_t addr);
 uint8_t mem_get_byte_zpgy(struct cpu_t *cpu, uint8_t addr);
 uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr);
 uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr);
+uint8_t mem_get_byte_ind(struct cpu_t *cpu, uint8_t addr);
 
 void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v);
 void mem_set_byte_zpg(struct cpu_t *cpu, uint8_t addr, uint8_t v);
@@ -46,6 +47,7 @@ void mem_set_byte_absx(struct cpu_t *cpu, uint16_t addr, uint8_t v);
 void mem_set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v);
 void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v);
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v);
+void mem_set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v);
 
 void mem_mod_byte_zpg(struct cpu_t *cpu, uint8_t addr, mem_mod_t op);
 void mem_mod_byte_zpgx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op);

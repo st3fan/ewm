@@ -27,29 +27,35 @@
 #include "cpu.h"
 #include "mem.h"
 
-int main(int argc, char **argv) {
+int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) {
    struct cpu_t cpu;
-   cpu_init(&cpu);
-   cpu_add_ram_file(&cpu, 0x0000, "roms/6502_functional_test.bin");
-
+   cpu_init(&cpu, model);
+   cpu_add_ram_file(&cpu, 0x0000, rom_path);
    cpu_reset(&cpu);
-   cpu.state.pc = 0x0400;
+   cpu.state.pc = start_addr;
 
    uint16_t last_pc = cpu.state.pc;
 
    while (true) {
       int ret = cpu_step(&cpu);
       if (ret != 0) {
-         fprintf(stderr, "TEST Unexpected error %d\n", ret);
-         exit(1);
+         switch (ret) {
+            case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
+               fprintf(stderr, "TEST   Unimplemented instruction 0x%.2x at 0x%.4x\n",
+                       mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
+               return -1;
+            default:
+               fprintf(stderr, "TEST   Unexpected error %d\n", ret);
+               return -1;
+         }
       }
 
       // End of the tests is at 0x3399. This is hard coded and not
       // ideal. Is there a better way to detect this?
 
-      if (cpu.state.pc == 0x3399) {
-         fprintf(stderr, "TEST Success\n");
-         exit(1);
+      if (cpu.state.pc == success_addr) {
+         fprintf(stderr, "TEST   Success\n");
+         return 0;
       }
 
       // We detect a test failure because we are in a branch deadlock,
@@ -60,12 +66,20 @@ int main(int argc, char **argv) {
          uint8_t i = mem_get_byte(&cpu, cpu.state.pc);
          if (i == 0x10 || i == 0x30 || i == 0x50 || i == 0x70 || i == 0x90 || i == 0xb0 || i == 0xd0 || i == 0xf0) {
             if (mem_get_byte(&cpu, cpu.state.pc + 1) == 0xfe) {
-               fprintf(stderr, "TEST Failure at 0x%.4x \n", cpu.state.pc);
-               exit(1);
+               fprintf(stderr, "TEST   Failure at 0x%.4x \n", cpu.state.pc);
+               return -1;
             }
          }
       }
 
       last_pc = cpu.state.pc;
    }
+}
+
+int main(int argc, char **argv) {
+   cpu_setup();
+   fprintf(stderr, "TEST Running 6502 tests\n");
+   test(EWM_CPU_MODEL_6502,  0x0400, 0x3399, "roms/6502_functional_test.bin");
+   fprintf(stderr, "TEST Running 65C02 tests\n");
+   test(EWM_CPU_MODEL_65C02, 0x0400, 0x24a8, "roms/65C02_extended_opcodes_test.bin");
 }
