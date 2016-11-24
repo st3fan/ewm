@@ -38,7 +38,7 @@ static int setup_apple1(struct cpu_t *cpu) {
    struct pia_t *pia = malloc(sizeof(struct pia_t));
    pia_init(pia);
    cpu_add_ram(cpu, 0x0000, 8 * 1024 - 1);
-   cpu_add_rom_file(cpu, 0xff00, "roms/apple1.com");
+   cpu_add_rom_file(cpu, 0xff00, "roms/apple1.rom");
    cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
    return 0;
 }
