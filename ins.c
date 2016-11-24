@@ -32,6 +32,8 @@ static void update_zn(struct cpu_t *cpu, uint8_t v) {
   cpu->state.n = (v & 0x80);
 }
 
+// EWM_CPU_MODEL_6502
+
 /* ADC */
 
 static void adc(struct cpu_t *cpu, uint8_t m) {
@@ -55,7 +57,7 @@ static void adc(struct cpu_t *cpu, uint8_t m) {
 
       cpu->state.c = (high > 15);
       cpu->state.z = (r == 0);
-      cpu->state.n = 0;
+      cpu->state.n = (r & 0b10000000); // TODO Only on 6502? Does the 6502 test still pass?
       cpu->state.v = 0;
 
       cpu->state.a = r;
@@ -241,6 +243,9 @@ static void bvs(struct cpu_t *cpu, uint8_t oper) {
 
 static void brk(struct cpu_t *cpu) {
   cpu->state.b = 1;
+  if (cpu->model == EWM_CPU_MODEL_65C02) {
+     cpu->state.d = 0;
+  }
   cpu_irq(cpu);
 }
 
@@ -734,7 +739,7 @@ static void sbc(struct cpu_t *cpu, uint8_t m) {
    uint8_t c = cpu->state.c ? 1 : 0;
    if (cpu->state.d) {
       uint8_t cb = 0;
-      
+
       if (c == 0) {
          c = 1;
       } else {
@@ -758,7 +763,7 @@ static void sbc(struct cpu_t *cpu, uint8_t m) {
 
       cpu->state.c = (high & 0xff) < 15;
       cpu->state.z = (result == 0);
-      cpu->state.n = 0;
+      cpu->state.n = (result & 0b10000000); // TODO Only on 6502? Does the 6502 test still pass?
       cpu->state.v = 0;
 
       cpu->state.a = result;
@@ -904,7 +909,7 @@ static void tya(struct cpu_t *cpu) {
 
 /* Instruction dispatch table */
 
-cpu_instruction_t instructions[256] = {
+struct cpu_instruction_t instructions[256] = {
   /* 0x00 */ { "BRK", 0x00, 1, 2,  3, (void*) brk },
   /* 0x01 */ { "ORA", 0x01, 2, 6,  0, (void*) ora_indx },
   /* 0x02 */ { "???", 0x02, 1, 2,  0, (void*) NULL },
@@ -1168,4 +1173,552 @@ cpu_instruction_t instructions[256] = {
   /* 0xfd */ { "SBC", 0xfd, 3, 2,  0, (void*) sbc_absx },
   /* 0xfe */ { "INC", 0xfe, 3, 7,  0, (void*) inc_absx },
   /* 0xff */ { "???", 0xff, 1, 2,  0, (void*) NULL }
+};
+
+// EWM_CPU_MODEL_65C02
+
+static void ora_ind(struct cpu_t *cpu, uint8_t oper) {
+   ora(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void and_ind(struct cpu_t *cpu, uint8_t oper) {
+   and(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void eor_ind(struct cpu_t *cpu, uint8_t oper) {
+   eor(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void adc_ind(struct cpu_t *cpu, uint8_t oper) {
+   adc(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void sta_ind(struct cpu_t *cpu, uint8_t oper) {
+   mem_set_byte_ind(cpu, oper, cpu->state.a);
+}
+
+static void lda_ind(struct cpu_t *cpu, uint8_t oper) {
+   cpu->state.a = mem_get_byte_ind(cpu, oper);
+   update_zn(cpu, cpu->state.a);
+}
+
+static void cmp_ind(struct cpu_t *cpu, uint8_t oper) {
+   cmp(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void sbc_ind(struct cpu_t *cpu, uint8_t oper) {
+   sbc(cpu, mem_get_byte_ind(cpu, oper));
+}
+
+static void bit_imm(struct cpu_t *cpu, uint8_t oper) {
+  uint8_t t = cpu->state.a & oper;
+  cpu->state.z = (t == 0);
+}
+
+static void bit_zpgx(struct cpu_t *cpu, uint8_t oper) {
+   bit(cpu, mem_get_byte_zpgx(cpu, oper));
+}
+
+static void bit_absx(struct cpu_t *cpu, uint16_t oper) {
+   bit(cpu, mem_get_byte_absx(cpu, oper));
+}
+
+static void dec_acc(struct cpu_t *cpu) {
+   cpu->state.a--;
+   update_zn(cpu, cpu->state.a);
+}
+
+static void inc_acc(struct cpu_t *cpu) {
+   cpu->state.a++;
+   update_zn(cpu, cpu->state.a);
+}
+
+static void jmp_absx(struct cpu_t *cpu, uint16_t oper) {
+   cpu->state.pc = mem_get_word(cpu, oper + cpu->state.x);
+}
+
+static void bra(struct cpu_t *cpu, uint8_t oper) {
+   cpu->state.pc += (int8_t) oper;
+}
+
+static void phx(struct cpu_t *cpu) {
+   _cpu_push_byte(cpu, cpu->state.x);
+}
+
+static void phy(struct cpu_t *cpu) {
+   _cpu_push_byte(cpu, cpu->state.y);
+}
+
+static void plx(struct cpu_t *cpu) {
+  cpu->state.x = _cpu_pull_byte(cpu);
+  update_zn(cpu, cpu->state.x);
+}
+
+static void ply(struct cpu_t *cpu) {
+  cpu->state.y = _cpu_pull_byte(cpu);
+  update_zn(cpu, cpu->state.y);
+}
+
+static void stz_zpg(struct cpu_t *cpu, uint8_t oper) {
+   mem_set_byte_zpg(cpu, oper, 0x00);
+}
+
+static void stz_zpgx(struct cpu_t *cpu, uint8_t oper) {
+   mem_set_byte_zpgx(cpu, oper, 0x00);
+}
+
+static void stz_abs(struct cpu_t *cpu, uint16_t oper) {
+   mem_set_byte_abs(cpu, oper, 0x00);
+}
+
+static void stz_absx(struct cpu_t *cpu, uint16_t oper) {
+   mem_set_byte_absx(cpu, oper, 0x00);
+}
+
+static void trb_zpg(struct cpu_t *cpu, uint8_t oper) {
+   cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
+   uint8_t r = mem_get_byte(cpu, oper) & ~cpu->state.a;
+   mem_set_byte_zpg(cpu, oper, r);
+}
+
+static void trb_abs(struct cpu_t *cpu, uint16_t oper) {
+   cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
+   uint8_t r = mem_get_byte(cpu, oper) & (cpu->state.a ^ 0xff);
+   mem_set_byte_abs(cpu, oper, r);
+}
+
+static void tsb_zpg(struct cpu_t *cpu, uint8_t oper) {
+   cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
+   uint8_t r = mem_get_byte(cpu, oper) | cpu->state.a;
+   mem_set_byte_zpg(cpu, oper, r);
+}
+
+static void tsb_abs(struct cpu_t *cpu, uint16_t oper) {
+   cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
+   uint8_t r = mem_get_byte(cpu, oper) | cpu->state.a;
+   mem_set_byte_abs(cpu, oper, r);
+}
+
+static void bbr(struct cpu_t *cpu, uint8_t bit, uint8_t zp, int8_t label) {
+   if ((mem_get_byte_zpg(cpu, zp) & bit) == 0) {
+      cpu->state.pc += label;
+   }
+}
+
+static void bbr0(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00000001, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr1(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00000010, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr2(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00000100, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr3(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00001000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr4(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00010000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr5(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b00100000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr6(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b01000000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbr7(struct cpu_t *cpu, uint16_t oper) {
+   bbr(cpu, 0b10000000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs(struct cpu_t *cpu, uint8_t bit, uint8_t zp, int8_t label) {
+   if ((mem_get_byte_zpg(cpu, zp) & bit) != 0) {
+      cpu->state.pc += label;
+   }
+}
+
+static void bbs0(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00000001, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs1(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00000010, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs2(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00000100, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs3(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00001000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs4(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00010000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs5(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b00100000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs6(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b01000000, oper & 0x00ff, oper >> 8);
+}
+
+static void bbs7(struct cpu_t *cpu, uint16_t oper) {
+   bbs(cpu, 0b10000000, oper & 0x00ff, oper >> 8);
+}
+
+static void rmb(struct cpu_t *cpu, uint8_t bit, uint8_t zp) {
+   mem_set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) & ~bit);
+}
+
+static void rmb0(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00000001, oper);
+}
+
+static void rmb1(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00000010, oper);
+}
+
+static void rmb2(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00000100, oper);
+}
+
+static void rmb3(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00001000, oper);
+}
+
+static void rmb4(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00010000, oper);
+}
+
+static void rmb5(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b00100000, oper);
+}
+
+static void rmb6(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b01000000, oper);
+}
+
+static void rmb7(struct cpu_t *cpu, uint8_t oper) {
+   rmb(cpu, 0b10000000, oper);
+}
+
+static void smb(struct cpu_t *cpu, uint8_t bit, uint8_t zp) {
+   mem_set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) | bit);
+}
+
+static void smb0(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00000001, oper);
+}
+
+static void smb1(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00000010, oper);
+}
+
+static void smb2(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00000100, oper);
+}
+
+static void smb3(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00001000, oper);
+}
+
+static void smb4(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00010000, oper);
+}
+
+static void smb5(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b00100000, oper);
+}
+
+static void smb6(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b01000000, oper);
+}
+
+static void smb7(struct cpu_t *cpu, uint8_t oper) {
+   smb(cpu, 0b10000000, oper);
+}
+
+/* Instruction dispatch table */
+
+struct cpu_instruction_t instructions_65C02[256] = {
+  /* 0x00 */ { "???", 0x00, 0, 0,  0, NULL },
+  /* 0x01 */ { "???", 0x01, 0, 0,  0, NULL },
+  /* 0x02 */ { "NOP", 0x02, 2, 2,  0, (void*) nop },
+  /* 0x03 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x04 */ { "TSB", 0x04, 2, 5,  0, (void*) tsb_zpg },
+  /* 0x05 */ { "???", 0x05, 0, 0,  0, NULL },
+  /* 0x06 */ { "???", 0x06, 0, 0,  0, NULL },
+  /* 0x07 */ { "RMB", 0x07, 2, 5,  0, (void*) rmb0 },
+  /* 0x08 */ { "???", 0x08, 0, 0,  0, NULL },
+  /* 0x09 */ { "???", 0x09, 0, 0,  0, NULL },
+  /* 0x0a */ { "???", 0x0a, 0, 0,  0, NULL },
+  /* 0x0b */ { "NOP", 0x0b, 1, 1,  0, (void*) nop },
+  /* 0x0c */ { "TSB", 0x0c, 3, 6,  0, (void*) tsb_abs },
+  /* 0x0d */ { "???", 0x0d, 0, 0,  0, NULL },
+  /* 0x0e */ { "???", 0x0e, 0, 0,  0, NULL },
+  /* 0x0f */ { "BBR", 0x0f, 3, 5,  0, (void*) bbr0 },
+
+  /* 0x10 */ { "???", 0x10, 0, 0,  0, NULL },
+  /* 0x11 */ { "???", 0x12, 0, 0,  0, NULL },
+  /* 0x12 */ { "ORA", 0x12, 2, 5,  0, (void*) ora_ind },
+  /* 0x13 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x14 */ { "TRB", 0x14, 2, 5,  0, (void*) trb_zpg },
+  /* 0x15 */ { "???", 0x15, 0, 0,  0, NULL },
+  /* 0x16 */ { "???", 0x16, 0, 0,  0, NULL },
+  /* 0x17 */ { "RMB", 0x17, 2, 5,  0, (void*) rmb1 },
+  /* 0x18 */ { "???", 0x18, 0, 0,  0, NULL },
+  /* 0x19 */ { "???", 0x19, 0, 0,  0, NULL },
+  /* 0x1a */ { "INC", 0x1a, 1, 2,  0, (void*) inc_acc },
+  /* 0x1b */ { "NOP", 0x1b, 1, 1,  0, (void*) nop },
+  /* 0x1c */ { "TRB", 0x1c, 3, 6,  0, (void*) trb_abs },
+  /* 0x1d */ { "???", 0x1d, 0, 0,  0, NULL },
+  /* 0x1e */ { "???", 0x1e, 0, 0,  0, NULL },
+  /* 0x1f */ { "BBR", 0x1f, 3, 5,  0, (void*) bbr1 },
+
+  /* 0x20 */ { "???", 0x20, 0, 0,  0, NULL },
+  /* 0x21 */ { "???", 0x21, 0, 0,  0, NULL },
+  /* 0x22 */ { "NOP", 0x22, 2, 2,  0, (void*) nop },
+  /* 0x23 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x24 */ { "???", 0x24, 0, 0,  0, NULL },
+  /* 0x25 */ { "???", 0x25, 0, 0,  0, NULL },
+  /* 0x26 */ { "???", 0x26, 0, 0,  0, NULL },
+  /* 0x27 */ { "RMB", 0x27, 2, 5,  0, (void*) rmb2 },
+  /* 0x28 */ { "???", 0x28, 0, 0,  0, NULL },
+  /* 0x29 */ { "???", 0x29, 0, 0,  0, NULL },
+  /* 0x2a */ { "???", 0x2a, 0, 0,  0, NULL },
+  /* 0x2b */ { "NOP", 0x2b, 1, 1,  0, (void*) nop },
+  /* 0x2c */ { "???", 0x2c, 0, 0,  0, NULL },
+  /* 0x2d */ { "???", 0x2d, 0, 0,  0, NULL },
+  /* 0x2e */ { "???", 0x2e, 0, 0,  0, NULL },
+  /* 0x2f */ { "BBR", 0x2f, 3, 5,  0, (void*) bbr2 },
+
+  /* 0x30 */ { "???", 0x30, 0, 0,  0, NULL },
+  /* 0x31 */ { "???", 0x31, 0, 0,  0, NULL },
+  /* 0x32 */ { "AND", 0x32, 2, 5,  0, (void*) and_ind },
+  /* 0x33 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x34 */ { "BIT", 0x34, 2, 4,  0, (void*) bit_zpgx },
+  /* 0x35 */ { "???", 0x35, 0, 0,  0, NULL },
+  /* 0x36 */ { "???", 0x36, 0, 0,  0, NULL },
+  /* 0x37 */ { "RMB", 0x37, 2, 5,  0, (void*) rmb3 },
+  /* 0x38 */ { "???", 0x38, 0, 0,  0, NULL },
+  /* 0x39 */ { "???", 0x39, 0, 0,  0, NULL },
+  /* 0x3a */ { "DEC", 0x3a, 1, 2,  0, (void*) dec_acc },
+  /* 0x3b */ { "NOP", 0x3b, 1, 1,  0, (void*) nop },
+  /* 0x3c */ { "BIT", 0x3c, 3, 4,  0, (void*) bit_absx },
+  /* 0x3d */ { "???", 0x3d, 0, 0,  0, NULL },
+  /* 0x3e */ { "???", 0x3e, 0, 0,  0, NULL },
+  /* 0x3f */ { "BBR", 0x3f, 3, 5,  0, (void*) bbr3 },
+
+  /* 0x40 */ { "???", 0x40, 0, 0,  0, NULL },
+  /* 0x41 */ { "???", 0x41, 0, 0,  0, NULL },
+  /* 0x42 */ { "NOP", 0x42, 2, 2,  0, (void*) nop },
+  /* 0x43 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x44 */ { "NOP", 0x44, 2, 3,  0, (void*) nop },
+  /* 0x45 */ { "???", 0x45, 0, 0,  0, NULL },
+  /* 0x46 */ { "???", 0x46, 0, 0,  0, NULL },
+  /* 0x47 */ { "RMB", 0x47, 2, 5,  0, (void*) rmb4 },
+  /* 0x48 */ { "???", 0x48, 0, 0,  0, NULL },
+  /* 0x49 */ { "???", 0x49, 0, 0,  0, NULL },
+  /* 0x4a */ { "???", 0x4a, 0, 0,  0, NULL },
+  /* 0x4b */ { "NOP", 0x4b, 1, 1,  0, (void*) nop },
+  /* 0x4c */ { "???", 0x4c, 0, 0,  0, NULL },
+  /* 0x4d */ { "???", 0x4d, 0, 0,  0, NULL },
+  /* 0x4e */ { "???", 0x4e, 0, 0,  0, NULL },
+  /* 0x4f */ { "BBR", 0x4f, 3, 5,  0, (void*) bbr4 },
+
+  /* 0x50 */ { "???", 0x50, 0, 0,  0, NULL },
+  /* 0x51 */ { "???", 0x51, 0, 0,  0, NULL },
+  /* 0x52 */ { "EOR", 0x52, 2, 5,  0, (void*) eor_ind },
+  /* 0x53 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x54 */ { "NOP", 0x54, 2, 4,  0, (void*) nop },
+  /* 0x55 */ { "???", 0x55, 0, 0,  0, NULL },
+  /* 0x56 */ { "???", 0x56, 0, 0,  0, NULL },
+  /* 0x57 */ { "RMB", 0x57, 2, 5,  0, (void*) rmb5 },
+  /* 0x58 */ { "???", 0x58, 0, 0,  0, NULL },
+  /* 0x59 */ { "???", 0x59, 0, 0,  0, NULL },
+  /* 0x5a */ { "PHY", 0x5a, 1, 3,  0, (void*) phy },
+  /* 0x5b */ { "NOP", 0x5b, 1, 1,  0, (void*) nop },
+  /* 0x5c */ { "NOP", 0x5c, 3, 8,  0, (void*) nop },
+  /* 0x5d */ { "???", 0x5d, 0, 0,  0, NULL },
+  /* 0x5e */ { "???", 0x5e, 0, 0,  0, NULL },
+  /* 0x5f */ { "BBR", 0x5f, 3, 5,  0, (void*) bbr5 },
+
+  /* 0x60 */ { "???", 0x60, 0, 0,  0, NULL },
+  /* 0x61 */ { "???", 0x61, 0, 0,  0, NULL },
+  /* 0x62 */ { "NOP", 0x62, 2, 2,  0, (void*) nop },
+  /* 0x63 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x64 */ { "STZ", 0x64, 2, 3,  0, (void*) stz_zpg },
+  /* 0x65 */ { "???", 0x65, 0, 0,  0, NULL },
+  /* 0x66 */ { "???", 0x66, 0, 0,  0, NULL },
+  /* 0x67 */ { "RMB", 0x67, 2, 5,  0, (void*) rmb6 },
+  /* 0x68 */ { "???", 0x68, 0, 0,  0, NULL },
+  /* 0x69 */ { "???", 0x69, 0, 0,  0, NULL },
+  /* 0x6a */ { "???", 0x6a, 0, 0,  0, NULL },
+  /* 0x6b */ { "NOP", 0x6b, 1, 1,  0, (void*) nop },
+  /* 0x6c */ { "???", 0x6c, 0, 0,  0, NULL },
+  /* 0x6d */ { "???", 0x6d, 0, 0,  0, NULL },
+  /* 0x6e */ { "???", 0x6e, 0, 0,  0, NULL },
+  /* 0x6f */ { "BBR", 0x6f, 3, 5,  0, (void*) bbr6 },
+
+  /* 0x70 */ { "???", 0x70, 0, 0,  0, NULL },
+  /* 0x71 */ { "???", 0x71, 0, 0,  0, NULL },
+  /* 0x72 */ { "ADC", 0x72, 2, 5,  0, (void*) adc_ind },
+  /* 0x73 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x74 */ { "STZ", 0x74, 2, 4,  0, (void*) stz_zpgx },
+  /* 0x75 */ { "???", 0x75, 0, 0,  0, NULL },
+  /* 0x76 */ { "???", 0x76, 0, 0,  0, NULL },
+  /* 0x77 */ { "RMB", 0x77, 2, 5,  0, (void*) rmb7 },
+  /* 0x78 */ { "???", 0x78, 0, 0,  0, NULL },
+  /* 0x79 */ { "???", 0x79, 0, 0,  0, NULL },
+  /* 0x7a */ { "PLY", 0x7a, 1, 4,  0, (void*) ply },
+  /* 0x7b */ { "NOP", 0x7b, 1, 1,  0, (void*) nop },
+  /* 0x7c */ { "JMP", 0x7c, 3, 6,  0, (void*) jmp_absx },
+  /* 0x7d */ { "???", 0x7d, 0, 0,  0, NULL },
+  /* 0x7e */ { "???", 0x7e, 0, 0,  0, NULL },
+  /* 0x7f */ { "BBR", 0x7f, 3, 5,  0, (void*) bbr7 },
+
+  /* 0x80 */ { "BRA", 0x80, 2, 3,  0, (void*) bra },
+  /* 0x81 */ { "???", 0x81, 0, 0,  0, NULL },
+  /* 0x82 */ { "NOP", 0x82, 2, 2,  0, (void*) nop },
+  /* 0x83 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x84 */ { "???", 0x84, 0, 0,  0, NULL },
+  /* 0x85 */ { "???", 0x85, 0, 0,  0, NULL },
+  /* 0x86 */ { "???", 0x86, 0, 0,  0, NULL },
+  /* 0x87 */ { "SMB", 0x87, 2, 5,  0, (void*) smb0 },
+  /* 0x88 */ { "???", 0x88, 0, 0,  0, NULL },
+  /* 0x89 */ { "BIT", 0x89, 2, 2,  0, (void*) bit_imm },
+  /* 0x8a */ { "???", 0x8a, 0, 0,  0, NULL },
+  /* 0x8b */ { "NOP", 0x8b, 1, 1,  0, (void*) nop },
+  /* 0x8c */ { "???", 0x8c, 0, 0,  0, NULL },
+  /* 0x8d */ { "???", 0x8d, 0, 0,  0, NULL },
+  /* 0x8e */ { "???", 0x8e, 0, 0,  0, NULL },
+  /* 0x8f */ { "BBS", 0x8f, 3, 5,  0, (void*) bbs0 },
+
+  /* 0x90 */ { "???", 0x90, 0, 0,  0, NULL },
+  /* 0x91 */ { "???", 0x91, 0, 0,  0, NULL },
+  /* 0x92 */ { "STA", 0x92, 2, 5,  0, (void*) sta_ind },
+  /* 0x93 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0x94 */ { "???", 0x94, 0, 0,  0, NULL },
+  /* 0x95 */ { "???", 0x95, 0, 0,  0, NULL },
+  /* 0x96 */ { "???", 0x96, 0, 0,  0, NULL },
+  /* 0x97 */ { "SMB", 0x97, 2, 5,  0, (void*) smb1 },
+  /* 0x98 */ { "???", 0x98, 0, 0,  0, NULL },
+  /* 0x99 */ { "???", 0x99, 0, 0,  0, NULL },
+  /* 0x9a */ { "???", 0x9a, 0, 0,  0, NULL },
+  /* 0x9b */ { "NOP", 0x9b, 1, 1,  0, (void*) nop },
+  /* 0x9c */ { "STZ", 0x9c, 3, 4,  0, (void*) stz_abs },
+  /* 0x9d */ { "???", 0x9d, 0, 0,  0, NULL },
+  /* 0x9e */ { "STZ", 0x9e, 3, 5,  0, (void*) stz_absx },
+  /* 0x9f */ { "BBS", 0x9f, 3, 5,  0, (void*) bbs1 },
+
+  /* 0xa0 */ { "???", 0xa0, 0, 0,  0, NULL },
+  /* 0xa1 */ { "???", 0xa1, 0, 0,  0, NULL },
+  /* 0xa2 */ { "???", 0xa2, 0, 0,  0, NULL },
+  /* 0xa3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xa4 */ { "???", 0xa4, 0, 0,  0, NULL },
+  /* 0xa5 */ { "???", 0xa5, 0, 0,  0, NULL },
+  /* 0xa6 */ { "???", 0xa6, 0, 0,  0, NULL },
+  /* 0xa7 */ { "SMB", 0xa7, 2, 5,  0, (void*) smb2 },
+  /* 0xa8 */ { "???", 0xa8, 0, 0,  0, NULL },
+  /* 0xa9 */ { "???", 0xa9, 0, 0,  0, NULL },
+  /* 0xaa */ { "???", 0xaa, 0, 0,  0, NULL },
+  /* 0xab */ { "NOP", 0xab, 1, 1,  0, (void*) nop },
+  /* 0xac */ { "???", 0xac, 0, 0,  0, NULL },
+  /* 0xad */ { "???", 0xad, 0, 0,  0, NULL },
+  /* 0xae */ { "???", 0xae, 0, 0,  0, NULL },
+  /* 0xaf */ { "BBS", 0xaf, 3, 5,  0, (void*) bbs2 },
+
+  /* 0xb0 */ { "???", 0xb0, 0, 0,  0, NULL },
+  /* 0xb1 */ { "???", 0xb1, 0, 0,  0, NULL },
+  /* 0xb2 */ { "LDA", 0xb2, 2, 5,  0, (void*) lda_ind },
+  /* 0xb3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xb4 */ { "???", 0xb4, 0, 0,  0, NULL },
+  /* 0xb5 */ { "???", 0xb5, 0, 0,  0, NULL },
+  /* 0xb6 */ { "???", 0xb6, 0, 0,  0, NULL },
+  /* 0xb7 */ { "SMB", 0xb7, 2, 5,  0, (void*) smb3 },
+  /* 0xb8 */ { "???", 0xb8, 0, 0,  0, NULL },
+  /* 0xb9 */ { "???", 0xb9, 0, 0,  0, NULL },
+  /* 0xba */ { "???", 0xba, 0, 0,  0, NULL },
+  /* 0xbb */ { "NOP", 0xbb, 1, 1,  0, (void*) nop },
+  /* 0xbc */ { "???", 0xbc, 0, 0,  0, NULL },
+  /* 0xbd */ { "???", 0xbd, 0, 0,  0, NULL },
+  /* 0xbe */ { "???", 0xbe, 0, 0,  0, NULL },
+  /* 0xbf */ { "BBS", 0xbf, 3, 5,  0, (void*) bbs3 },
+
+  /* 0xc0 */ { "???", 0xc0, 0, 0,  0, NULL },
+  /* 0xc1 */ { "???", 0xc1, 0, 0,  0, NULL },
+  /* 0xc2 */ { "NOP", 0xc2, 2, 2,  0, (void*) nop },
+  /* 0xc3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xc4 */ { "???", 0xc4, 0, 0,  0, NULL },
+  /* 0xc5 */ { "???", 0xc5, 0, 0,  0, NULL },
+  /* 0xc6 */ { "???", 0xc6, 0, 0,  0, NULL },
+  /* 0xc7 */ { "SMB", 0xc7, 2, 5,  0, (void*) smb4 },
+  /* 0xc8 */ { "???", 0xc8, 0, 0,  0, NULL },
+  /* 0xc9 */ { "???", 0xc9, 0, 0,  0, NULL },
+  /* 0xca */ { "???", 0xca, 0, 0,  0, NULL },
+  /* 0xcb */ { "NOP", 0xcb, 1, 1,  0, (void*) nop },
+  /* 0xcc */ { "???", 0xcc, 0, 0,  0, NULL },
+  /* 0xcd */ { "???", 0xcd, 0, 0,  0, NULL },
+  /* 0xce */ { "???", 0xce, 0, 0,  0, NULL },
+  /* 0xcf */ { "BBS", 0xcf, 3, 5,  0, (void*) bbs4 },
+
+  /* 0xd0 */ { "???", 0xd0, 0, 0,  0, NULL },
+  /* 0xd1 */ { "???", 0xd1, 0, 0,  0, NULL },
+  /* 0xd2 */ { "CMP", 0xd2, 2, 5,  0, (void*) cmp_ind },
+  /* 0xd3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xd4 */ { "NOP", 0xd4, 2, 4,  0, (void*) nop },
+  /* 0xd5 */ { "???", 0xd5, 0, 0,  0, NULL },
+  /* 0xd6 */ { "???", 0xd6, 0, 0,  0, NULL },
+  /* 0xd7 */ { "SMB", 0xd7, 2, 5,  0, (void*) smb5 },
+  /* 0xd8 */ { "???", 0xd8, 0, 0,  0, NULL },
+  /* 0xd9 */ { "???", 0xd9, 0, 0,  0, NULL },
+  /* 0xda */ { "PHX", 0xda, 1, 3,  0, (void*) phx },
+  /* 0xdb */ { "NOP", 0xdb, 1, 1,  0, (void*) nop },
+  /* 0xdc */ { "NOP", 0xdc, 3, 4,  0, (void*) nop },
+  /* 0xdd */ { "???", 0xdd, 0, 0,  0, NULL },
+  /* 0xde */ { "???", 0xde, 0, 0,  0, NULL },
+  /* 0xdf */ { "BBS", 0xdf, 3, 5,  0, (void*) bbs5 },
+
+  /* 0xe0 */ { "???", 0xe0, 0, 0,  0, NULL },
+  /* 0xe1 */ { "???", 0xe1, 0, 0,  0, NULL },
+  /* 0xe2 */ { "NOP", 0xe2, 2, 2,  0, (void*) nop },
+  /* 0xe3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xe4 */ { "???", 0xe4, 0, 0,  0, NULL },
+  /* 0xe5 */ { "???", 0xe5, 0, 0,  0, NULL },
+  /* 0xe6 */ { "???", 0xe6, 0, 0,  0, NULL },
+  /* 0xe7 */ { "SMB", 0xe7, 2, 5,  0, (void*) smb6 },
+  /* 0xe8 */ { "???", 0xe8, 0, 0,  0, NULL },
+  /* 0xe9 */ { "???", 0xe9, 0, 0,  0, NULL },
+  /* 0xea */ { "???", 0xea, 0, 0,  0, NULL },
+  /* 0xeb */ { "NOP", 0xeb, 1, 1,  0, (void*) nop },
+  /* 0xec */ { "???", 0xec, 0, 0,  0, NULL },
+  /* 0xed */ { "???", 0xed, 0, 0,  0, NULL },
+  /* 0xee */ { "???", 0xee, 0, 0,  0, NULL },
+  /* 0xef */ { "BBS", 0xef, 3, 5,  0, (void*) bbs6 },
+
+  /* 0xf0 */ { "???", 0xf0, 0, 0,  0, NULL },
+  /* 0xf1 */ { "???", 0xf1, 0, 0,  0, NULL },
+  /* 0xf2 */ { "SBC", 0xf2, 2, 5,  0, (void*) sbc_ind },
+  /* 0xf3 */ { "NOP", 0x03, 1, 1,  0, (void*) nop },
+  /* 0xf4 */ { "NOP", 0xf4, 2, 4,  0, (void*) nop },
+  /* 0xf5 */ { "???", 0xf5, 0, 0,  0, NULL },
+  /* 0xf6 */ { "???", 0xf6, 0, 0,  0, NULL },
+  /* 0xf7 */ { "SMB", 0xf7, 2, 5,  0, (void*) smb7 },
+  /* 0xf8 */ { "???", 0xf8, 0, 0,  0, NULL },
+  /* 0xf9 */ { "???", 0xf9, 0, 0,  0, NULL },
+  /* 0xfa */ { "PLX", 0xfa, 1, 4,  0, (void*) plx },
+  /* 0xfb */ { "NOP", 0xfb, 1, 1,  0, (void*) nop },
+  /* 0xfc */ { "NOP", 0xfc, 3, 4,  0, (void*) nop },
+  /* 0xfd */ { "???", 0xfd, 0, 0,  0, NULL },
+  /* 0xfe */ { "???", 0xfe, 0, 0,  0, NULL },
+  /* 0xff */ { "BBS", 0xff, 3, 5,  0, (void*) bbs7 }
 };

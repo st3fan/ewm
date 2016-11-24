@@ -110,7 +110,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
    }
 
    /* Fetch instruction */
-   cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
+   struct cpu_instruction_t *i = &cpu->instructions[mem_get_byte(cpu, cpu->state.pc)];
    if (i->handler == NULL) {
       return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
    }
@@ -165,8 +165,8 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
             snprintf(bytes, sizeof bytes, "%.2X %.2X %.2X", mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), mem_get_byte(cpu, pc+2));
             break;
       }
-      
-      fprintf(cpu->trace, "%.4X: %-8s  %-11s  %-20s  %s\n",
+
+      fprintf(cpu->trace, "%.4X: %-8s  %-14s  %-20s  %s\n",
               pc, bytes, trace_instruction, trace_state, trace_stack);
    }
 
@@ -175,8 +175,18 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
 /* Public API */
 
-void cpu_init(struct cpu_t *cpu) {
+void cpu_setup() {
+   for (int i = 0; i <= 255; i++) {
+      if (instructions_65C02[i].handler == NULL) {
+         instructions_65C02[i] = instructions[i];
+      }
+   }
+}
+
+void cpu_init(struct cpu_t *cpu, int model) {
    memset(cpu, 0x00, sizeof(struct cpu_t));
+   cpu->model = model;
+   cpu->instructions = (cpu->model == EWM_CPU_MODEL_6502) ? instructions : instructions_65C02;
 }
 
 void cpu_shutdown(struct cpu_t *cpu) {

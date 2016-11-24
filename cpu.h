@@ -27,6 +27,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#define EWM_CPU_MODEL_6502  0
+#define EWM_CPU_MODEL_65C02 1
+
 #define EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION (-1)
 #define EWM_CPU_ERR_STACK_OVERFLOW            (-2)
 #define EWM_CPU_ERR_STACK_UNDERFLOW           (-3)
@@ -35,6 +38,8 @@
 #define EWM_VECTOR_RES 0xfffc
 #define EWM_VECTOR_IRQ 0xfffe
 
+struct cpu_instruction_t;
+
 struct cpu_state_t {
   uint8_t a, x, y, s, sp;
   uint16_t pc;
@@ -42,11 +47,13 @@ struct cpu_state_t {
 };
 
 struct cpu_t {
+   int model;
    struct cpu_state_t state;
    FILE *trace;
    bool strict;
    struct mem_t *mem;
    uint8_t *memory; // This is pointing to the first 2 pages of memory, zero page and stack.
+   struct cpu_instruction_t *instructions;
 };
 
 #define MEM_TYPE_RAM 0
@@ -79,7 +86,9 @@ uint8_t _cpu_stack_used(struct cpu_t *cpu);
 uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
-void cpu_init(struct cpu_t *cpu);
+void cpu_setup();
+
+void cpu_init(struct cpu_t *cpu, int model);
 void cpu_shutdown(struct cpu_t *cpu);
 
 void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem);

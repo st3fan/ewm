@@ -109,6 +109,10 @@ uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
   return mem_get_byte(cpu, mem_get_word(cpu, addr) + cpu->state.y);
 }
 
+uint8_t mem_get_byte_ind(struct cpu_t *cpu, uint8_t addr) {
+  return mem_get_byte(cpu, mem_get_word(cpu, addr));
+}
+
 uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr) {
   // TODO Did I do this right?
   return ((uint16_t) mem_get_byte(cpu, addr+1) << 8) | (uint16_t) mem_get_byte(cpu, addr);
@@ -147,6 +151,10 @@ void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
 
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
   mem_set_byte(cpu, mem_get_word(cpu, addr)+cpu->state.y, v);
+}
+
+void mem_set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+  mem_set_byte(cpu, mem_get_word(cpu, addr), v);
 }
 
 void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v) {

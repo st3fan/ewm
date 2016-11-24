@@ -63,51 +63,113 @@ void cpu_format_stack(struct cpu_t *cpu, char buffer[764]) {
 void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    *buffer = 0x00;
 
-   cpu_instruction_t *i = &instructions[mem_get_byte(cpu, cpu->state.pc)];
    uint8_t opcode = mem_get_byte(cpu, cpu->state.pc);
+   struct cpu_instruction_t *i = &cpu->instructions[opcode];
+
+   if (i->handler == NULL) {
+      sprintf(buffer, "???");
+      return;
+   }
 
    /* Single byte instructions */
    if (i->bytes == 1) {
-      sprintf(buffer, "%s", i->name);
+      sprintf(buffer, "%-4s", i->name);
    }
 
+   /* 65C02 ADC, AND, CMP, EOR, LDA, ORA, SBC, STA */
+   else if ((opcode & 0b00011111) == 0b00010010) {
+      sprintf(buffer, "%-4s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 RMB / SMB */
+   else if ((opcode & 0b00001111) == 0b00000111) {
+      sprintf(buffer, "%s%d $%.2X",
+              (opcode & 0b10000000) == 0b00000000 ?  "RMB" : "SMB",
+              (opcode & 0b01110000) >> 4,
+              mem_get_byte(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 BBR / BBS */
+   else if ((opcode & 0b00001111) == 0b00001111) {
+      sprintf(buffer, "%s%d $%.2X,$%.4X",
+              (opcode & 0b10000000) == 0b00000000 ? "BBR" : "BBS",
+              (opcode & 0b01110000) >> 4,
+              mem_get_byte(cpu, cpu->state.pc+1),
+              cpu->state.pc + 2 + (int8_t) mem_get_byte(cpu, cpu->state.pc+2));
+   }
+
+   /* 65C02 JMP (ABS,X) */
+   else if (opcode == 0x7c) {
+      sprintf(buffer, "JMP ($%.4X,X)", mem_get_word(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 BRA */
+   else if (opcode == 0x80) {
+      sprintf(buffer, "BRA $%.4X", cpu->state.pc + 2 + (int8_t) mem_get_byte(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 STZ ABS */
+   else if (opcode == 0x9c) {
+      sprintf(buffer, "JMP  $%.4X", mem_get_word(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 TRB ZP */
+   else if (opcode == 0x14) {
+      sprintf(buffer, "TRB  $%.2X", mem_get_byte(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 TRB ABS */
+   else if (opcode == 0x1c) {
+      sprintf(buffer, "TRB  $%.4X", mem_get_word(cpu, cpu->state.pc+1));
+   }
+
+   /* 65C02 TSB ZP */
+   else if (opcode == 0x04) {
+      sprintf(buffer, "TSB  $%.2X", mem_get_byte(cpu, cpu->state.pc+1));
+   }
+   
+   /* 65C02 TSB ABS */
+   else if (opcode == 0x0c) {
+      sprintf(buffer, "TSB  $%.4X", mem_get_word(cpu, cpu->state.pc+1));
+   }
+   
    /* JSR is the only exception */
    else if (opcode == 0x20) {
-     sprintf(buffer, "%s $%.4X", i->name, mem_get_word(cpu, cpu->state.pc+1));
+     sprintf(buffer, "%-4s $%.4X", i->name, mem_get_word(cpu, cpu->state.pc+1));
    }
 
    /* Branches */
    else if ((opcode & 0b00011111) == 0b00010000) {
       int8_t offset = (int8_t) mem_get_byte(cpu, cpu->state.pc+1);
       uint16_t addr = cpu->state.pc + 2 + offset;
-      sprintf(buffer, "%s $%.4X", i->name, addr);
+      sprintf(buffer, "%-4s $%.4X", i->name, addr);
    }
 
    else if ((opcode & 0b00000011) == 0b00000001) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s ($%.2X,X)", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s ($%.2X,X)", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b010:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b100:
-            sprintf(buffer, "%s ($%.2X),Y", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s ($%.2X),Y", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b110:
-            sprintf(buffer, "%s $%.2X%.2X,Y", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X,Y", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
@@ -115,22 +177,22 @@ void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    else if ((opcode & 0b00000011) == 0b00000010) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b010:
-            sprintf(buffer, "%s", i->name);
+            sprintf(buffer, "%-4s", i->name);
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
@@ -138,19 +200,20 @@ void cpu_format_instruction(struct cpu_t *cpu, char *buffer) {
    else if ((opcode & 0b00000011) == 0b00000000) {
       switch ((opcode & 0b00011100) >> 2) {
          case 0b000:
-            sprintf(buffer, "%s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s #$%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b001:
-            sprintf(buffer, "%s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b011:
-            sprintf(buffer, "%s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X%.2X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b101:
-            sprintf(buffer, "%s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
+            sprintf(buffer, "%-4s $%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+1));
             break;
          case 0b111:
-            sprintf(buffer, "%s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
+            
+            sprintf(buffer, "%-4s $%.2X%.2X,X", i->name, mem_get_byte(cpu, cpu->state.pc+2), mem_get_byte(cpu, cpu->state.pc+1));
             break;
       }
    }
