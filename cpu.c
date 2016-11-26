@@ -196,7 +196,7 @@ void cpu_shutdown(struct cpu_t *cpu) {
    }
 }
 
-void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
+struct mem_t *cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
   if (cpu->mem == NULL) {
     cpu->mem = mem;
     mem->next = NULL;
@@ -218,6 +218,8 @@ void cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
       cpu->memory = mem->obj;
     }
   }
+
+  return mem;
 }
 
 // RAM Memory
@@ -230,11 +232,11 @@ static void _ram_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint
   ((uint8_t*) mem->obj)[addr - mem->start] = b;
 }
 
-void cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end) {
-   cpu_add_ram_data(cpu, start, end, calloc(end-start+1, 0x01));
+struct mem_t *cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end) {
+   return cpu_add_ram_data(cpu, start, end, calloc(end-start+1, 0x01));
 }
 
-void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
+struct mem_t *cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_RAM;
   mem->obj = data;
@@ -243,35 +245,35 @@ void cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *
   mem->read_handler = _ram_read;
   mem->write_handler = _ram_write;
   mem->next = NULL;
-  cpu_add_mem(cpu, mem);
+  return cpu_add_mem(cpu, mem);
 }
 
-void cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path) {
+struct mem_t *cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path) {
    int fd = open(path, O_RDONLY);
    if (fd == -1) {
-      return;
+      return NULL;
    }
 
    struct stat file_info;
    if (fstat(fd, &file_info) == -1) {
       close(fd);
-      return;
+      return NULL;
    }
 
    if (file_info.st_size  > (64 * 1024 - start)) {
       close(fd);
-      return;
+      return NULL;
    }
 
    char *data = calloc(file_info.st_size, 1);
    if (read(fd, data, file_info.st_size) != file_info.st_size) {
       close(fd);
-      return;
+      return NULL;
    }
 
    close(fd);
 
-   cpu_add_ram_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
+   return cpu_add_ram_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
 }
 
 // ROM Memory
@@ -280,7 +282,7 @@ static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
   return ((uint8_t*) mem->obj)[addr - mem->start];
 }
 
-void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
+struct mem_t *cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_ROM;
   mem->obj = data;
@@ -289,40 +291,40 @@ void cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *
   mem->read_handler = _rom_read;
   mem->write_handler = NULL;
   mem->next = NULL;
-  cpu_add_mem(cpu, mem);
+  return cpu_add_mem(cpu, mem);
 }
 
-void cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
+struct mem_t *cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
    int fd = open(path, O_RDONLY);
    if (fd == -1) {
-      return;
+      return NULL;
    }
 
    struct stat file_info;
    if (fstat(fd, &file_info) == -1) {
       close(fd);
-      return;
+      return NULL;
    }
 
    if (file_info.st_size  > (64 * 1024 - start)) {
       close(fd);
-      return;
+      return NULL;
    }
 
    char *data = calloc(file_info.st_size, 1);
    if (read(fd, data, file_info.st_size) != file_info.st_size) {
       close(fd);
-      return;
+      return NULL;
    }
 
    close(fd);
 
-   cpu_add_rom_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
+   return cpu_add_rom_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
 }
 
 // IO Memory
 
-void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
+struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
   mem->type = MEM_TYPE_IOM;
   mem->obj = obj;
@@ -331,7 +333,7 @@ void cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem
   mem->read_handler = read_handler;
   mem->write_handler = write_handler;
   mem->next = NULL;
-  cpu_add_mem(cpu, mem);
+  return cpu_add_mem(cpu, mem);
 }
 
 void cpu_strict(struct cpu_t *cpu, bool strict) {

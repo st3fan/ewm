@@ -31,6 +31,9 @@
 #include "mem.h"
 #include "pia.h"
 
+#include "a2p.h"
+#include "scr.h"
+
 // Apple 1 / 6502 / 8K RAM / WOZ Monitor
 
 static int setup_apple1(struct cpu_t *cpu) {
@@ -57,10 +60,12 @@ static int setup_replica1(struct cpu_t *cpu) {
 
 // Apple ][+ / 6502 / 48K RAM / Original ROMs
 
+static struct a2p_t *a2p;
+
 static int setup_apple2plus(struct cpu_t *cpu) {
    cpu_init(cpu, EWM_CPU_MODEL_6502);
-   cpu_add_ram(cpu, 0x0000, 48 * 1024);
-   cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
+   a2p = malloc(sizeof(struct a2p_t));
+   a2p_init(a2p, cpu);
    return 0;
 }
 
@@ -71,14 +76,15 @@ typedef int (*ewm_machine_setup_f)(struct cpu_t *cpu);
 struct ewm_machine_t {
    char *name;
    char *description;
+   int graphics;
    ewm_machine_setup_f setup;
 };
 
 static struct ewm_machine_t machines[] = {
-   { "apple1",     "Apple 1",   setup_apple1 },
-   { "replica1",   "Replica 1", setup_replica1 },
-   { "apple2plus", "Apple ][+", setup_apple2plus },
-   { NULL,         NULL,        NULL }
+   { "apple1",     "Apple 1",   false, setup_apple1 },
+   { "replica1",   "Replica 1", false, setup_replica1 },
+   { "apple2plus", "Apple ][+", true,  setup_apple2plus },
+   { NULL,         NULL,        false, NULL }
 };
 
 static struct option options[] = {
@@ -135,17 +141,24 @@ int main(int argc, char **argv) {
 
    cpu_reset(&cpu);
 
-   switch (cpu_run(&cpu)) {
-      case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
-         fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
-                 mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
-         break;
-      case EWM_CPU_ERR_STACK_OVERFLOW:
-         fprintf(stderr, "CPU: Exited because of stack overflow at 0x%.4x\n", cpu.state.pc);
-         break;
-      case EWM_CPU_ERR_STACK_UNDERFLOW:
-         fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", cpu.state.pc);
-         break;
+   if (machine->graphics) {
+      scr_init();
+      scr_main(&cpu, a2p);
+   } else {
+      while (true) {
+         switch (cpu_step(&cpu)) {
+            case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
+               fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
+                       mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
+               break;
+            case EWM_CPU_ERR_STACK_OVERFLOW:
+               fprintf(stderr, "CPU: Exited because of stack overflow at 0x%.4x\n", cpu.state.pc);
+               break;
+            case EWM_CPU_ERR_STACK_UNDERFLOW:
+               fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", cpu.state.pc);
+               break;
+         }
+      }
    }
 
    cpu_shutdown(&cpu);

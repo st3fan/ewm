@@ -21,13 +21,13 @@
 # SOFTWARE.
 
 CC=cc
-CFLAGS=-std=c11 -O2 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
-LDFLAGS=-g
+CFLAGS=-std=c11 -O3 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
+LDFLAGS=-g -L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c a2p.c scr.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
-EWM_LIBS=-lcurses
+EWM_LIBS=-lcurses -lSDL2 -lSDL2_ttf
 
 CPU_TEST_EXECUTABLE=cpu_test
 CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c cpu_test.c
