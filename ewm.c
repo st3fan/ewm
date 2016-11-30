@@ -33,6 +33,7 @@
 
 #include "a2p.h"
 #include "scr.h"
+#include "dsk.h"
 
 // Apple 1 / 6502 / 8K RAM / WOZ Monitor
 
@@ -130,6 +131,8 @@ static struct option options[] = {
    { "strict",  no_argument,       NULL, 's' },
    { "trace",   optional_argument, NULL, 't' },
    { "memory",  required_argument, NULL, 'x' },
+   { "drive1",  required_argument, NULL, 'a' },
+   { "drive2",  required_argument, NULL, 'b' },
    { NULL,      0,                 NULL, 0   }
 };
 
@@ -147,6 +150,8 @@ int main(int argc, char **argv) {
    bool strict = false;
    char *trace_path = NULL;
    struct ewm_memory_t *memory;
+   char *drive1 = NULL;
+   char *drive2 = NULL;
 
    char ch;
    while ((ch = getopt_long(argc, argv, "m:", options, NULL)) != -1) {
@@ -172,6 +177,12 @@ int main(int argc, char **argv) {
             }
             break;
          }
+         case 'a':
+            drive1 = optarg;
+            break;
+         case 'b':
+            drive2 = optarg;
+            break;
       }
    }
 
@@ -190,6 +201,26 @@ int main(int argc, char **argv) {
    struct cpu_t cpu;
 
    machine->setup(&cpu);
+
+   // TODO This really does not belong here. it is probably better to
+   // pass arguments to setup_apple2plus so that it can handle its
+   // specific arguments like --drive1/drive2 and probably some more
+   // in the future.
+
+   if (a2p != NULL) {
+      if (drive1 != NULL) {
+         if (a2p_load_disk(a2p, EWM_DSK_DRIVE1, drive1) != 0) {
+            fprintf(stderr, "[A2P] Cannot load Drive 1 with %s\n", drive1);
+            exit(1);
+         }
+      }
+      if (drive2 != NULL) {
+         if (a2p_load_disk(a2p, EWM_DSK_DRIVE2, drive2) != 0) {
+            fprintf(stderr, "[A2P] Cannot load Drive 2 with %s\n", drive2);
+            exit(1);
+         }
+      }
+   }
 
    struct ewm_memory_t *m = memory;
    while (m != NULL) {

@@ -26,6 +26,7 @@
 #include "cpu.h"
 #include "mem.h"
 
+#include "dsk.h"
 #include "a2p.h"
 
 #define EWM_A2P_SS_KBD       0xc000
@@ -108,9 +109,15 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    a2p->rom = cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
    a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc0ff, a2p, a2p_iom_read, a2p_iom_write);
 
+   a2p->dsk = ewm_dsk_create(cpu);
+
    a2p->screen1_data = malloc(1 * 1024);
    a2p->screen1 = cpu_add_iom(cpu, 0x0400, 0x07ff, a2p, a2p_screen1_read, a2p_screen1_write);
 
    a2p->screen2_data = malloc(1 * 1024);
    a2p->screen2 = cpu_add_iom(cpu, 0x0800, 0x0bff, a2p, a2p_screen2_read, a2p_screen2_write);
+}
+
+int a2p_load_disk(struct a2p_t *a2p, int drive, char *path) {
+   return ewm_dsk_set_disk_file(a2p->dsk, drive, false, path);
 }

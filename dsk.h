@@ -20,34 +20,51 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_A2P_H
-#define EWM_A2P_H
+#ifndef EWM_DSK_H
+#define EWM_DSK_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
+struct cpu_t;
 struct mem_t;
-struct ewm_dsk_t;
 
-struct a2p_t {
-   struct mem_t *ram;
-   struct mem_t *rom;
-   struct mem_t *iom;
-   struct ewm_dsk_t *dsk;
+#define EWM_DSK_DRIVE1 0
+#define EWM_DSK_DRIVE2 1
 
-   struct mem_t *screen1;
-   uint8_t *screen1_data;
-   bool screen1_dirty;
+#define EWM_DSK_TRACKS 35
+#define EWM_DSK_SECTORS 16
+#define EWM_DSK_SECTOR_SIZE 256
 
-   struct mem_t *screen2;
-   uint8_t *screen2_data;
-   bool screen2_dirty;
-
-   int current_screen;
-
-   uint8_t key;
+struct ewm_dsk_track_t {
+   size_t length;
+   uint8_t *data;
 };
 
-void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu);
-int a2p_load_disk(struct a2p_t *a2p, int drive, char *path);
+struct ewm_dsk_drive_t {
+   bool loaded;
+   uint8_t volume;
+   int track, head, phase;
+   bool readonly;
+   bool dirty;
+   struct ewm_dsk_track_t tracks[EWM_DSK_TRACKS];
+};
+
+struct ewm_dsk_t {
+   struct mem_t *rom;
+   struct mem_t *iom;
+   bool on;
+   int active_drive;
+   int mode;
+   uint8_t latch;
+   struct ewm_dsk_drive_t drives[2];
+   uint8_t drive; // 0 based
+   int skip;
+};
+
+int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu);
+struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu);
+int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length);
+int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, char *path);
 
 #endif
