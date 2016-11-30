@@ -23,6 +23,8 @@
 #ifndef MEM_H
 #define MEM_H
 
+#include <stdint.h>
+
 struct cpu_t;
 
 typedef uint8_t (*mem_mod_t)(struct cpu_t *cpu, uint8_t b);
