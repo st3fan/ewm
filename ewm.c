@@ -80,6 +80,44 @@ struct ewm_machine_t {
    ewm_machine_setup_f setup;
 };
 
+#define EWM_MEMORY_TYPE_RAM 0
+#define EWM_MEMORY_TYPE_ROM 1
+
+struct ewm_memory_t {
+   int type;
+   char *path;
+   uint16_t address;
+   struct ewm_memory_t *next;
+};
+
+struct ewm_memory_t *parse_memory(char *s) {
+   char *type = strsep(&s, ":");
+   if (type == NULL) { // || (strcmp(type, "ram") && strcmp(type, "rom"))) {
+      printf("type fail\n");
+      return NULL;
+   }
+
+   char *address = strsep(&s, ":");
+   if (address == NULL) {
+      printf("address fail\n");
+      return NULL;
+   }
+
+   char *path = strsep(&s, ":");
+   if (path == NULL) {
+      printf("path fail\n");
+      return NULL;
+   }
+
+   struct ewm_memory_t *m = (struct ewm_memory_t*) malloc(sizeof(struct ewm_memory_t));
+   m->type = strcmp(type, "ram") ? EWM_MEMORY_TYPE_RAM : EWM_MEMORY_TYPE_ROM;
+   m->path = path;
+   m->address = atoi(address);
+   m->next = NULL;
+
+   return m;
+}
+
 static struct ewm_machine_t machines[] = {
    { "apple1",     "Apple 1",   false, setup_apple1 },
    { "replica1",   "Replica 1", false, setup_replica1 },
@@ -91,6 +129,7 @@ static struct option options[] = {
    { "machine", required_argument, NULL, 'm' },
    { "strict",  no_argument,       NULL, 's' },
    { "trace",   optional_argument, NULL, 't' },
+   { "memory",  required_argument, NULL, 'x' },
    { NULL,      0,                 NULL, 0   }
 };
 
@@ -107,6 +146,7 @@ int main(int argc, char **argv) {
    struct ewm_machine_t *machine = &machines[0];
    bool strict = false;
    char *trace_path = NULL;
+   struct ewm_memory_t *memory;
 
    char ch;
    while ((ch = getopt_long(argc, argv, "m:", options, NULL)) != -1) {
@@ -120,6 +160,18 @@ int main(int argc, char **argv) {
          case 't':
             trace_path = optarg ? optarg : "/dev/stderr";
             break;
+         case 'x': {
+            struct ewm_memory_t *m = parse_memory(optarg);
+            if (m == NULL) {
+               exit(1);
+            }
+            if (memory == NULL) {
+               memory = m;
+            } else {
+               memory->next = m;
+            }
+            break;
+         }
       }
    }
 
@@ -133,9 +185,29 @@ int main(int argc, char **argv) {
 
    cpu_setup();
 
+   fprintf(stderr, "[EWM] Starting up %s\n", machine->description);
+
    struct cpu_t cpu;
 
    machine->setup(&cpu);
+
+   struct ewm_memory_t *m = memory;
+   while (m != NULL) {
+      fprintf(stderr, "[EWM] Adding %s $%.4X %s\n", m->type == EWM_MEMORY_TYPE_RAM ? "RAM" : "ROM", m->address, m->path);
+      if (m->type == EWM_MEMORY_TYPE_RAM) {
+         if (cpu_add_ram_file(&cpu, m->address, m->path) == NULL) {
+            fprintf(stderr, "[EWM] Failed to add RAM from %s\n", m->path);
+            exit(1);
+         }
+      } else {
+         if (cpu_add_rom_file(&cpu, m->address, m->path) == NULL) {
+            fprintf(stderr, "[EWM] Failed to add ROM from %s\n", m->path);
+            exit(1);
+         }
+      }
+      m = m->next;
+   }
+
    cpu_strict(&cpu, strict);
    cpu_trace(&cpu, trace_path);
 
