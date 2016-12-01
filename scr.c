@@ -23,57 +23,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include <SDL2/SDL_ttf.h>
 #include <SDL2/SDL.h>
 
 #include "mem.h"
 #include "cpu.h"
 #include "a2p.h"
+#include "chr.h"
 #include "scr.h"
-
-SDL_Texture *prerender_character(SDL_Renderer *renderer, TTF_Font *font, char c, bool inverse) {
-  char text[2];
-  text[0] = c;
-  text[1] = 0x00;
-
-  SDL_Color white;
-  white.a = 0;
-  white.r = 255;
-  white.g = 255;
-  white.b = 255;
-
-  SDL_Color black;
-  black.a = 0;
-  black.r = 0;
-  black.g = 0;
-  black.b = 0;
-
-  SDL_Surface *surface;
-  if (inverse) {
-     surface = TTF_RenderText_Shaded(font, text, black, white);
-  } else {
-     surface = TTF_RenderText_Shaded(font, text, white, black);
-  }
-  SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
-
-  SDL_FreeSurface(surface);
-
-  return texture;
-}
-
-SDL_Texture *characters[256];
-
-void render_character(SDL_Texture *texture, SDL_Renderer *renderer, int x, int y) {
-   SDL_Rect dst;
-   dst.x = x * 21;
-   dst.y = y * 24;
-   dst.w = 21;
-   dst.h = 24;
-   SDL_RenderCopy(renderer, texture, NULL, &dst);
-}
 
 SDL_Window *window;
 SDL_Renderer *renderer;
+
+struct ewm_chr_t *chr = NULL;
 
 void scr_init() {
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
@@ -97,49 +58,11 @@ void scr_init() {
 
   //
 
-  TTF_Init();
-  TTF_Font *font = TTF_OpenFont("Apple2Forever.ttf", 48);
-
-  memset(characters, 0x00, sizeof(characters));
-
-  // normal text
-  for (int c = 0x20; c <= 0x60; c++) {
-    SDL_Texture *texture = prerender_character(renderer, font, (char) c, false);
-    if (texture == NULL) {
-       fprintf(stderr, "Failed to create character texture (%.2x): %s\n", c, SDL_GetError());
-      exit(1);
-    }
-    characters[0xa0 + (c - 0x20)] = texture;
+  chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+  if (chr == NULL) {
+     fprintf(stderr, "[SCR] Failed to initialize character generator\n");
+     exit(1);
   }
-
-  // inverse text
-  for (int c = 0x40; c <= 0x60; c++) {
-    SDL_Texture *texture = prerender_character(renderer, font, (char) c, true);
-    if (texture == NULL) {
-      fprintf(stderr, "Failed to create character texture: %s\n", SDL_GetError());
-      exit(1);
-    }
-    characters[0x00 + (c - 0x40)] = texture;
-  }
-  for (int c = 0x20; c <= 0x3f; c++) {
-    SDL_Texture *texture = prerender_character(renderer, font, (char) c, true);
-    if (texture == NULL) {
-      fprintf(stderr, "Failed to create character texture: %s\n", SDL_GetError());
-      exit(1);
-    }
-    characters[0x20 + (c - 0x20)] = texture;
-  }
-
-  //
-
-  /* SDL_Surface *surface = SDL_GetWindowSurface(window); */
-  /* if (surface == NULL) { */
-  /*    fprintf(stderr, "Could not get window surface: %s\n", SDL_GetError()); */
-  /*    exit(1); */
-  /* } */
-
-  /* SDL_FillRect(surface, NULL, SDL_MapRGB(surface->format, 0x00, 0x00, 0x00)); */
-  /* SDL_UpdateWindowSurface(window); */
 }
 
 static int screen1_offsets[24] = {
@@ -254,7 +177,14 @@ void scr_main(struct cpu_t *cpu, struct a2p_t *a2p) {
                     uint16_t row_offset = screen1_offsets[row] - 0x0400;
                     for (int column = 0; column < 40; column++) {
                        uint8_t c = a2p->screen1_data[row_offset + column];
-                       render_character(characters[c], renderer, column, row);
+                       if (chr->characters[c] != NULL) {
+                          SDL_Rect dst;
+                          dst.x = column * 21;
+                          dst.y = row * 24;
+                          dst.w = 21;
+                          dst.h = 24;
+                          SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
+                       }
                     }
                  }
               }
@@ -265,7 +195,14 @@ void scr_main(struct cpu_t *cpu, struct a2p_t *a2p) {
                     uint16_t row_offset = screen2_offsets[row] - 0x0800;
                     for (int column = 0; column < 40; column++) {
                        uint8_t c = a2p->screen2_data[row_offset + column];
-                       render_character(characters[c], renderer, column, row);
+                       if (chr->characters[c] != NULL) {
+                          SDL_Rect dst;
+                          dst.x = column * 21;
+                          dst.y = row * 24;
+                          dst.w = 21;
+                          dst.h = 24;
+                          SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
+                       }
                     }
                  }
               }
