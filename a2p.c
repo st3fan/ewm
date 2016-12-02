@@ -29,23 +29,27 @@
 #include "dsk.h"
 #include "a2p.h"
 
-#define EWM_A2P_SS_KBD       0xc000
-#define EWM_A2P_SS_KBDSTRB   0xc010
-#define EWM_A2P_SS_SPKR      0xc030
-#define EWM_A2P_SS_TXTCLR  0xc050
-#define EWM_A2P_SS_TXTSET    0xc051
-#define EWM_A2P_SS_LOSCR     0xc054
-#define EWM_A2P_SS_HISCR     0xc055
-#define EWM_A2P_SS_LORES     0xc056
-#define EWM_A2P_SS_HIRES   0xc057
-#define EWM_A2P_SS_SETAN0    0xc058
+#define EWM_A2P_SS_KBD                  0xc000
+#define EWM_A2P_SS_KBDSTRB              0xc010
+#define EWM_A2P_SS_SPKR                 0xc030
+
+#define EWM_A2P_SS_SCREEN_MODE_GRAPHICS 0xc050
+#define EWM_A2P_SS_SCREEN_MODE_TEXT     0xc051
+#define EWM_A2P_SS_GRAPHICS_STYLE_FULL  0xc052
+#define EWM_A2P_SS_GRAPHICS_STYLE_MIXED 0xc053
+#define EWM_A2P_SS_SCREEN_PAGE1         0xc054
+#define EWM_A2P_SS_SCREEN_PAGE2         0xc055
+#define EWM_A2P_SS_GRAPHICS_MODE_LGR    0xc056
+#define EWM_A2P_SS_GRAPHICS_MODE_HGR    0xc057
+
+#define EWM_A2P_SS_SETAN0  0xc058
 #define EWM_A2P_SS_CLRAN0  0xc059
-#define EWM_A2P_SS_SETAN1    0xc05a
+#define EWM_A2P_SS_SETAN1  0xc05a
 #define EWM_A2P_SS_CLRAN1  0xc05b
 #define EWM_A2P_SS_SETAN2  0xc05c
-#define EWM_A2P_SS_CLRAN2    0xc05d
+#define EWM_A2P_SS_CLRAN2  0xc05d
 #define EWM_A2P_SS_SETAN3  0xc05e
-#define EWM_A2P_SS_CLRAN3    0xc05f
+#define EWM_A2P_SS_CLRAN3  0xc05f
 
 uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
@@ -56,16 +60,48 @@ uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
          a2p->key &= 0x7f;
          return 0x00;
 
-      case EWM_A2P_SS_LOSCR:
-         a2p->current_screen = 0;
-         a2p->screen1_dirty = true;
-         a2p->screen2_dirty = false;
+      case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
+         a2p->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_SCREEN_MODE_TEXT:
+         a2p->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+         a2p->screen_dirty = true;
          break;
 
-      case EWM_A2P_SS_HISCR:
-         a2p->current_screen = 1;
-         a2p->screen1_dirty = false;
-         a2p->screen2_dirty = true;
+      case EWM_A2P_SS_GRAPHICS_MODE_LGR:
+         a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_GRAPHICS_MODE_HGR:
+         a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_GRAPHICS_STYLE_FULL:
+         a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_GRAPHICS_STYLE_MIXED:
+         a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_SCREEN_PAGE1:
+         a2p->screen_page = EWM_A2P_SCREEN_PAGE1;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_SCREEN_PAGE2:
+         a2p->screen_page = EWM_A2P_SCREEN_PAGE2;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_SPKR:
+         // TODO Implement speaker support
+         break;
+
+      default:
+         printf("[A2P] Unexpected read at $%.4X\n", addr);
          break;
    }
    return 0;
@@ -77,33 +113,26 @@ void a2p_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t 
       case EWM_A2P_SS_KBDSTRB:
          a2p->key &= 0x7f;
          break;
+      default:
+         printf("[A2P] Unexpected write at $%.4X\n", addr);
+         break;
    }
 }
 
-uint8_t a2p_screen1_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+uint8_t a2p_screen_txt_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
-   return a2p->screen1_data[addr - mem->start];
+   return a2p->screen_txt_data[addr - mem->start];
 }
 
-void a2p_screen1_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
+void a2p_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
-   a2p->screen1_data[addr - mem->start] = b;
-   a2p->screen1_dirty = true;
-}
-
-uint8_t a2p_screen2_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct a2p_t *a2p = (struct a2p_t*) mem->obj;
-   return a2p->screen2_data[addr - mem->start];
-}
-
-void a2p_screen2_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct a2p_t *a2p = (struct a2p_t*) mem->obj;
-   a2p->screen2_data[addr - mem->start] = b;
-   a2p->screen2_dirty = true;
+   a2p->screen_txt_data[addr - mem->start] = b;
+   a2p->screen_dirty = true;
+   //printf("[A2P] $%.4X = $%.2X\n", addr, b);
 }
 
 void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
-   memset(a2p, sizeof(struct a2p_t), 0x00);
+   memset(a2p, 0x00, sizeof(struct a2p_t));
 
    a2p->ram = cpu_add_ram(cpu, 0x0000, 48 * 1024);
    a2p->rom = cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
@@ -111,11 +140,13 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
 
    a2p->dsk = ewm_dsk_create(cpu);
 
-   a2p->screen1_data = malloc(1 * 1024);
-   a2p->screen1 = cpu_add_iom(cpu, 0x0400, 0x07ff, a2p, a2p_screen1_read, a2p_screen1_write);
+   // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used.
 
-   a2p->screen2_data = malloc(1 * 1024);
-   a2p->screen2 = cpu_add_iom(cpu, 0x0800, 0x0bff, a2p, a2p_screen2_read, a2p_screen2_write);
+   a2p->screen_txt_data = malloc(2 * 1024);
+   a2p->screen_txt_iom = cpu_add_iom(cpu, 0x0400, 0x0bff, a2p, a2p_screen_txt_read, a2p_screen_txt_write);
+
+   //a2p->screen_hgr_data = malloc(16 * 1024);
+   //a2p->screen_hgr_iom = cpu_add_iom(cpu, 0x2000, 0x7fff, a2p, a2p_screen_hgr_read, a2p_screen_hgr_write);
 }
 
 int a2p_load_disk(struct a2p_t *a2p, int drive, char *path) {
