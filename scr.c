@@ -44,7 +44,7 @@ void scr_init() {
 
   //
 
-  window = SDL_CreateWindow("Test", 40, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+  window = SDL_CreateWindow("Test", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
   if (window == NULL) {
     fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
     exit(1);
@@ -74,6 +74,113 @@ static int screen2_offsets[24] = {
    0x800, 0x880, 0x900, 0x980, 0xa00, 0xa80, 0xb00, 0xb80, 0x828, 0x8a8, 0x928, 0x9a8,
    0xa28, 0xaa8, 0xb28, 0xba8, 0x850, 0x8d0, 0x950, 0x9d0, 0xa50, 0xad0, 0xb50, 0xbd0
 };
+
+static inline void _render_character(struct a2p_t *a2p, int row, int column, int *offsets) {
+   uint8_t c = a2p->screen_txt_data[(offsets[row] + column) - 0x0400];
+   if (chr->characters[c] != NULL) {
+      SDL_Rect dst;
+      dst.x = column * 21;
+      dst.y = row * 24;
+      dst.w = 21;
+      dst.h = 24;
+      SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
+   }
+}
+
+static SDL_Color lores_colors[16] = {
+   { 0,   0,   0,   0 }, // 0 Black
+   { 255, 0,   255, 0 }, // 1 Magenta
+   { 0,   0,   204, 0 }, // 2 Dark Blue
+   { 128, 0,   128, 0 }, // 3 Purple
+   { 0,   100, 0,   0 }, // 4 Dark Green
+   { 128, 128, 128, 0 }, // 5 Grey 1
+   { 0,   0,   205, 0 }, // 6 Medium Blue
+   { 173, 216, 230, 0 }, // 7 Light Blue
+   { 165, 42,  42,  0 }, // 8 Brown
+   { 255, 165, 0,   0 }, // 9 Orange
+   { 211, 211, 211, 0 }, // 10 Grey 2
+   { 255, 192, 203, 0 }, // 11 Pink
+   { 144, 238, 144, 0 }, // 12 Light Green
+   { 255, 255, 0,   0 }, // 13 Yellow
+   { 127, 255, 212, 0 }, // 14 Aquamarine
+   { 255, 255, 255, 0 }, // 15 White
+};
+
+static inline void _render_lores_block(struct a2p_t *a2p, int row, int column, int *offsets) {
+   uint8_t block = a2p->screen_txt_data[(offsets[row] + column) - 0x0400];
+   if (block != 0) {
+      SDL_Rect dst;
+      dst.x = column * 21;
+      dst.y = row * 24;
+      dst.w = 21;
+      dst.h = 12;
+
+      uint c = block & 0x0f;
+      if (c != 0) {
+         SDL_SetRenderDrawColor(renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
+         SDL_RenderFillRect(renderer, &dst);
+      }
+
+      c = (block & 0xf0) >> 4;
+      if (c != 0) {
+         dst.y += 12;
+         SDL_SetRenderDrawColor(renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
+         SDL_RenderFillRect(renderer, &dst);
+      }
+   }
+}
+
+static void _render_txt_screen1(struct a2p_t *a2p) {
+   for (int row = 0; row < 24; row++) {
+      for (int column = 0; column < 40; column++) {
+         _render_character(a2p, row, column, screen1_offsets);
+      }
+   }
+}
+
+static void _render_txt_screen2(struct a2p_t *a2p) {
+   for (int row = 0; row < 24; row++) {
+      for (int column = 0; column < 40; column++) {
+         _render_character(a2p, row, column, screen2_offsets);
+      }
+   }
+}
+
+static void _render_lgr_screen1(struct a2p_t *a2p, bool mixed) {
+   // Render graphics
+   int rows = mixed ? 20 : 24;
+   for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < 40; column++) {
+         _render_lores_block(a2p, row, column, screen1_offsets);
+      }
+   }
+   // Render bottom 4 lines
+   if (mixed) {
+      for (int row = 20; row < 24; row++) {
+         for (int column = 0; column < 40; column++) {
+            _render_character(a2p, row, column, screen1_offsets);
+         }
+      }
+   }
+}
+
+static void _render_lgr_screen2(struct a2p_t *a2p, bool mixed) {
+   // Render graphics
+   int rows = mixed ? 20 : 24;
+   for (int row = 0; row < rows; row++) {
+      for (int column = 0; column < 40; column++) {
+         _render_lores_block(a2p, row, column, screen2_offsets);
+      }
+   }
+   // Render bottom 4 lines
+   if (mixed) {
+      for (int row = 20; row < 24; row++) {
+         for (int column = 0; column < 40; column++) {
+            _render_character(a2p, row, column, screen2_offsets);
+         }
+      }
+   }
+}
 
 void scr_main(struct cpu_t *cpu, struct a2p_t *a2p) {
   bool quit = false;
@@ -166,53 +273,43 @@ void scr_main(struct cpu_t *cpu, struct a2p_t *a2p) {
 
      // Render
 
-     if (a2p->screen1_dirty || a2p->screen2_dirty) {
+     if (a2p->screen_dirty) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderClear(renderer);
 
-        switch (a2p->current_screen) {
-           case 0:
-              if (a2p->screen1_dirty) {
-                 for (int row = 0; row < 24; row++) {
-                    uint16_t row_offset = screen1_offsets[row] - 0x0400;
-                    for (int column = 0; column < 40; column++) {
-                       uint8_t c = a2p->screen1_data[row_offset + column];
-                       if (chr->characters[c] != NULL) {
-                          SDL_Rect dst;
-                          dst.x = column * 21;
-                          dst.y = row * 24;
-                          dst.w = 21;
-                          dst.h = 24;
-                          SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
-                       }
-                    }
-                 }
+        switch (a2p->screen_mode) {
+           case EWM_A2P_SCREEN_MODE_TEXT:
+              switch (a2p->screen_page) {
+                 case EWM_A2P_SCREEN_PAGE1:
+                    _render_txt_screen1(a2p);
+                    break;
+                 case EWM_A2P_SCREEN_PAGE2:
+                    _render_txt_screen2(a2p);
+                    break;
               }
               break;
-           case 1:
-              if (a2p->screen2_dirty) {
-                 for (int row = 0; row < 24; row++) {
-                    uint16_t row_offset = screen2_offsets[row] - 0x0800;
-                    for (int column = 0; column < 40; column++) {
-                       uint8_t c = a2p->screen2_data[row_offset + column];
-                       if (chr->characters[c] != NULL) {
-                          SDL_Rect dst;
-                          dst.x = column * 21;
-                          dst.y = row * 24;
-                          dst.w = 21;
-                          dst.h = 24;
-                          SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
-                       }
+           case EWM_A2P_SCREEN_MODE_GRAPHICS:
+              switch (a2p->screen_graphics_mode) {
+                 case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
+                    switch (a2p->screen_page) {
+                       case EWM_A2P_SCREEN_PAGE1:
+                          _render_lgr_screen1(a2p, a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
+                          break;
+                       case EWM_A2P_SCREEN_PAGE2:
+                          _render_lgr_screen2(a2p, a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
+                          break;
                     }
-                 }
+                    break;
+                 case EWM_A2P_SCREEN_GRAPHICS_MODE_HGR:
+                    // TODO Implement
+                    break;
               }
               break;
         }
 
-        a2p->screen1_dirty = false;
-        a2p->screen2_dirty = false;
-
         SDL_RenderPresent(renderer);
+
+        a2p->screen_dirty = false;
      }
   }
 

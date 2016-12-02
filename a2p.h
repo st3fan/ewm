@@ -28,21 +28,32 @@
 struct mem_t;
 struct ewm_dsk_t;
 
+#define EWM_A2P_SCREEN_MODE_TEXT 0
+#define EWM_A2P_SCREEN_MODE_GRAPHICS 1
+
+#define EWM_A2P_SCREEN_GRAPHICS_MODE_LGR 0
+#define EWM_A2P_SCREEN_GRAPHICS_MODE_HGR 1
+
+#define EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL 0
+#define EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED 1
+
+#define EWM_A2P_SCREEN_PAGE1 0
+#define EWM_A2P_SCREEN_PAGE2 1
+
 struct a2p_t {
    struct mem_t *ram;
    struct mem_t *rom;
    struct mem_t *iom;
    struct ewm_dsk_t *dsk;
 
-   struct mem_t *screen1;
-   uint8_t *screen1_data;
-   bool screen1_dirty;
+   uint8_t *screen_txt_data;
+   struct mem_t *screen_txt_iom;
 
-   struct mem_t *screen2;
-   uint8_t *screen2_data;
-   bool screen2_dirty;
-
-   int current_screen;
+   int screen_mode;
+   int screen_graphics_mode;
+   int screen_graphics_style;
+   int screen_page;
+   int screen_dirty;
 
    uint8_t key;
 };
