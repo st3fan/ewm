@@ -131,6 +131,184 @@ void a2p_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
    //printf("[A2P] $%.4X = $%.2X\n", addr, b);
 }
 
+// Apple Language Card
+struct ewm_alc_t {
+   struct mem_t *ram1; // $D000 - $DFFF RAM Bank #1
+   struct mem_t *ram2; // $D000 - $DFFF RAM Bank #2
+   struct mem_t *ram3; // $E000 - $FFFF RAM Bank #3
+   struct mem_t *rom;  // $F800 - $FFFF Autostart ROM
+   struct mem_t *iom;  // $C080 - $C08F
+   int wrtcount;
+};
+
+uint8_t alc_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+   struct ewm_alc_t *alc = (struct ewm_alc_t*) mem->obj;
+
+   // Always enable the right banks
+   if (addr & 0b00001000) {
+      alc->ram1->enabled = true;
+      alc->ram2->enabled = false;
+      alc->ram3->enabled = true;
+   } else {
+      alc->ram1->enabled = false;
+      alc->ram2->enabled = true;
+      alc->ram3->enabled = true;
+   }
+
+   switch (addr) {
+      // WRTCOUNT = 0, WRITE DISABLE, READ ENABLE
+      case 0xc080:
+      case 0xc084:
+         alc->wrtcount = 0;
+         alc->ram1->flags = MEM_FLAGS_READ;
+         alc->ram2->flags = MEM_FLAGS_READ;
+         alc->ram3->flags = MEM_FLAGS_READ;
+         break;
+
+      // WRTCOUNT++, READ DISABLE, WRITE ENABLE IF WRTCOUNT >= 2
+      case 0xc081:
+      case 0xc085:
+         alc->wrtcount = alc->wrtcount + 1;
+         alc->ram1->flags &= ~MEM_FLAGS_READ;
+         alc->ram2->flags &= ~MEM_FLAGS_READ;
+         alc->ram3->flags &= ~MEM_FLAGS_READ;
+         if (alc->wrtcount >= 2) {
+            alc->ram1->flags |= MEM_FLAGS_WRITE;
+            alc->ram2->flags |= MEM_FLAGS_WRITE;
+            alc->ram3->flags |= MEM_FLAGS_WRITE;
+         }
+         break;
+
+      // WRTCOUNT = 0, WRITE DISABLE, READ DISABLE
+      case 0xc082:
+      case 0xc086:
+         alc->wrtcount = 0;
+         alc->ram1->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram2->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram3->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram1->flags &= MEM_FLAGS_WRITE;
+         alc->ram2->flags &= MEM_FLAGS_WRITE;
+         alc->ram3->flags &= MEM_FLAGS_WRITE;
+         break;
+
+      // WRTCOUNT++, READ ENABLE, WRITE ENABLE IF WRTCOUNT >= 2
+      case 0xc083:
+      case 0xc08b:
+         alc->wrtcount = alc->wrtcount + 1;
+         alc->ram1->flags |= MEM_FLAGS_READ;
+         alc->ram2->flags |= MEM_FLAGS_READ;
+         alc->ram3->flags |= MEM_FLAGS_READ;
+         if (alc->wrtcount >= 2) {
+            alc->ram1->flags |= MEM_FLAGS_WRITE;
+            alc->ram2->flags |= MEM_FLAGS_WRITE;
+            alc->ram3->flags |= MEM_FLAGS_WRITE;
+         }
+         break;
+
+      default:
+         fprintf(stderr, "[ALC] Unexpected read at $%.4X\n", addr);
+         break;
+   }
+
+   return 0;
+}
+
+static void alc_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
+   struct ewm_alc_t *alc = (struct ewm_alc_t*) mem->obj;
+
+   // Always enable the right banks
+   if (addr & 0b00001000) {
+      alc->ram1->enabled = true;
+      alc->ram2->enabled = false;
+      alc->ram3->enabled = true;
+   } else {
+      alc->ram1->enabled = false;
+      alc->ram2->enabled = true;
+      alc->ram3->enabled = true;
+   }
+
+   switch (addr) {
+      // WRTCOUNT = 0, WRITE DISABLE, READ ENABLE
+      case 0xc080:
+      case 0xc084:
+         alc->wrtcount = 0;
+         alc->ram1->flags = MEM_FLAGS_READ;
+         alc->ram2->flags = MEM_FLAGS_READ;
+         alc->ram3->flags = MEM_FLAGS_READ;
+         break;
+
+      // WRTCOUNT = 0, READ DISABLE
+      case 0xc081:
+      case 0xc085:
+         alc->wrtcount = 0;
+         alc->ram1->flags &= ~MEM_FLAGS_READ;
+         alc->ram2->flags &= ~MEM_FLAGS_READ;
+         alc->ram3->flags &= ~MEM_FLAGS_READ;
+         break;
+
+      // WRTCOUNT = 0, WRITE DISABLE, READ DISABLE
+      case 0xc082:
+      case 0xc086:
+         alc->wrtcount = 0;
+         alc->ram1->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram2->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram3->flags &= ~MEM_FLAGS_WRITE;
+         alc->ram1->flags &= MEM_FLAGS_WRITE;
+         alc->ram2->flags &= MEM_FLAGS_WRITE;
+         alc->ram3->flags &= MEM_FLAGS_WRITE;
+         break;
+
+      // WRTCOUNT = 0, READ ENABLE
+      case 0xc083:
+      case 0xc08b:
+         alc->wrtcount = 0;
+         alc->ram1->flags |= MEM_FLAGS_READ;
+         alc->ram2->flags |= MEM_FLAGS_READ;
+         alc->ram3->flags |= MEM_FLAGS_READ;
+         break;
+
+      default:
+         fprintf(stderr, "[ALC] Unexpected write at $%.4X\n", addr);
+         break;
+   }
+}
+
+int ewm_alc_init(struct ewm_alc_t *alc, struct cpu_t *cpu) {
+   memset(alc, 0x00, sizeof(struct ewm_alc_t));
+
+   // Order is important. First added is last tried when looking up
+   // addresses. So we register the ROM first, which means we never
+   // have to disable it.
+
+   alc->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin");
+   alc->ram3 = cpu_add_ram(cpu, 0xe000, 0xe000 + 8192 - 1);
+   alc->ram2 = cpu_add_ram(cpu, 0xd000, 0xd000 + 4096 - 1);
+   alc->ram1 = cpu_add_ram(cpu, 0xd000, 0xd000 + 4096 - 1);
+   alc->iom = cpu_add_iom(cpu, 0xc080, 0xc08f, alc, alc_iom_read, alc_iom_write);
+
+   // TODO Is this correct? Is everyting disabled at boot?
+
+   alc->ram1->enabled = false;
+   alc->ram2->enabled = false;
+   alc->ram3->enabled = false;
+
+   //cpu_mem_disable(cpu, alc->ram1, MEM_ENABLED_READ | MEM_ENABLED_WRITE);
+   //cpu_mem_disable(cpu, alc->ram2, MEM_ENABLED_READ | MEM_ENABLED_WRITE);
+   //cpu_mem_disable(cpu, alc->ram3, MEM_ENABLED_READ | MEM_ENABLED_WRITE);
+   //cpu_mem_disable(cpu, alc->rom, MEM_ENABLED_READ | MEM_ENABLED_WRITE);
+
+   return 0;
+}
+
+struct ewm_alc_t *ewm_alc_create(struct cpu_t *cpu) {
+   struct ewm_alc_t *alc = malloc(sizeof(struct ewm_alc_t));
+   if (ewm_alc_init(alc, cpu) != 0) {
+      free(alc);
+      alc = NULL;
+   }
+   return alc;
+}
+
 void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    memset(a2p, 0x00, sizeof(struct a2p_t));
 
@@ -141,9 +319,14 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    a2p->rom = cpu_add_rom_file(cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
    a2p->rom = cpu_add_rom_file(cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
    a2p->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
-   a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc0ff, a2p, a2p_iom_read, a2p_iom_write);
+   a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc07f, a2p, a2p_iom_read, a2p_iom_write);
 
    a2p->dsk = ewm_dsk_create(cpu);
+
+   struct ewm_alc_t *alc = ewm_alc_create(cpu);
+   if (alc == NULL) {
+      fprintf(stderr, "[A2P] Could not create Apple Language Card\n");
+   }
 
    // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used.
 
