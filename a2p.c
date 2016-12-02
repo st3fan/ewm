@@ -135,7 +135,12 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    memset(a2p, 0x00, sizeof(struct a2p_t));
 
    a2p->ram = cpu_add_ram(cpu, 0x0000, 48 * 1024);
-   a2p->rom = cpu_add_rom_file(cpu, 0xd000, "roms/a2p.rom");
+   a2p->rom = cpu_add_rom_file(cpu, 0xd000, "roms/341-0011.bin"); // AppleSoft BASIC D000
+   a2p->rom = cpu_add_rom_file(cpu, 0xd800, "roms/341-0012.bin"); // AppleSoft BASIC D800
+   a2p->rom = cpu_add_rom_file(cpu, 0xe000, "roms/341-0013.bin"); // AppleSoft BASIC E000
+   a2p->rom = cpu_add_rom_file(cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
+   a2p->rom = cpu_add_rom_file(cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
+   a2p->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
    a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc0ff, a2p, a2p_iom_read, a2p_iom_write);
 
    a2p->dsk = ewm_dsk_create(cpu);
