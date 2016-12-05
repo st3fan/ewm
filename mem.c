@@ -32,47 +32,38 @@
 // take more time but do the right thing.
 
 uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
-  struct mem_t *mem = cpu->mem;
-  while (mem != NULL) {
-    if (addr >= mem->start && addr <= mem->end) {
-      if (mem->read_handler) {
-        return ((mem_read_handler_t) mem->read_handler)((struct cpu_t*) cpu, mem, addr);
-      } else {
-        if (cpu->strict) {
-          // TODO: Signal an error about reading to write-only region (does that even exist?)
-        }
-        return 0;
+   struct mem_t *mem = cpu->mem;
+   while (mem != NULL) {
+      if (mem->enabled && addr >= mem->start && addr <= mem->end) {
+         if (mem->read_handler != NULL && mem->flags & MEM_FLAGS_READ) {
+            return ((mem_read_handler_t) mem->read_handler)((struct cpu_t*) cpu, mem, addr);
+         }
       }
-    }
-    mem = mem->next;
-  }
+      mem = mem->next;
+   }
 
-  if (cpu->strict) {
-     // TODO: Signal an error about reading non-existent memory
-  }
+   if (cpu->strict) {
+      // TODO: Signal an error about reading non-existent memory?
+   }
 
-  return 0; // TODO What should the default be if we read from non-existent memory?
+   return 0;
 }
 
 void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  struct mem_t *mem = cpu->mem;
-  while (mem != NULL) {
-    if (addr >= mem->start && addr <= mem->end) {
-      if (mem->write_handler) {
-        ((mem_write_handler_t) mem->write_handler)((struct cpu_t*) cpu, mem, addr, v);
-      } else {
-        if (cpu->strict) {
-          // TODO: Signal an error about writing to read-only region
-        }
+   struct mem_t *mem = cpu->mem;
+   while (mem != NULL) {
+      if (mem->enabled && addr >= mem->start && addr <= mem->end) {
+         if (mem->write_handler && mem->flags & MEM_FLAGS_WRITE) {
+            ((mem_write_handler_t) mem->write_handler)((struct cpu_t*) cpu, mem, addr, v);
+         }
+         return;
       }
-      return;
-    }
-    mem = mem->next;
-  }
+      mem = mem->next;
+   }
 
-  if (cpu->strict) {
-     // TODO: Signal an error about writing non-existent memory
-  }
+   if (cpu->strict) {
+      // TODO: Signal an error about writing non-existent memory?
+   }
 }
 
 // Getters
@@ -194,28 +185,4 @@ void mem_mod_byte_indx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
 
 void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
   mem_set_byte_indy(cpu, addr, op(cpu, mem_get_byte_indy(cpu, addr)));
-}
-
-// The following get and set memory directly. There are no checks, so
-// make sure you are doing the right thing. Mainly used for managing
-// the stack, reading instructions, reading vectors and tracing code.
-
-uint8_t _mem_get_byte_direct(struct cpu_t *cpu, uint16_t addr) {
-  assert(addr <= 0x200);
-  return cpu->memory[addr];
-}
-
-uint16_t _mem_get_word_direct(struct cpu_t *cpu, uint16_t addr) {
-  assert(addr <= 0x200);
-  return *((uint16_t*) &cpu->memory[addr]);
-}
-
-void _mem_set_byte_direct(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  assert(addr <= 0x200);
-  cpu->memory[addr] = v;
-}
-
-void _mem_set_word_direct(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
-  assert(addr <= 0x200);
-  *((uint16_t*) &cpu->memory[addr]) = v;
 }

@@ -53,7 +53,7 @@ void cpu_format_stack(struct cpu_t *cpu, char buffer[764]) {
             p = strcat(p, " ");
          }
          char tmp[8];
-         sprintf(tmp, "%.2X", _mem_get_byte_direct(cpu, 0x0100 + sp + 1));
+         sprintf(tmp, "%.2X", mem_get_byte(cpu, 0x0100 + sp + 1));
          p = strcat(p, tmp);
       }
       strcat(p, "]");
