@@ -27,6 +27,7 @@
 #include "mem.h"
 
 #include "dsk.h"
+#include "alc.h"
 #include "a2p.h"
 
 #define EWM_A2P_SS_KBD                  0xc000
@@ -128,7 +129,6 @@ void a2p_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
    a2p->screen_txt_data[addr - mem->start] = b;
    a2p->screen_dirty = true;
-   //printf("[A2P] $%.4X = $%.2X\n", addr, b);
 }
 
 void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
@@ -141,9 +141,14 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    a2p->rom = cpu_add_rom_file(cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
    a2p->rom = cpu_add_rom_file(cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
    a2p->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
-   a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc0ff, a2p, a2p_iom_read, a2p_iom_write);
+   a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc07f, a2p, a2p_iom_read, a2p_iom_write);
 
    a2p->dsk = ewm_dsk_create(cpu);
+
+   struct ewm_alc_t *alc = ewm_alc_create(cpu);
+   if (alc == NULL) {
+      fprintf(stderr, "[A2P] Could not create Apple Language Card\n");
+   }
 
    // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used.
 

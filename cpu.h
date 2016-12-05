@@ -52,19 +52,18 @@ struct cpu_t {
    FILE *trace;
    bool strict;
    struct mem_t *mem;
-   uint8_t *memory; // This is pointing to the first 2 pages of memory, zero page and stack.
    struct cpu_instruction_t *instructions;
 };
 
-#define MEM_TYPE_RAM 0
-#define MEM_TYPE_ROM 1
-#define MEM_TYPE_IOM 2
+#define MEM_FLAGS_READ  0x01
+#define MEM_FLAGS_WRITE 0x02
 
 typedef uint8_t (*mem_read_handler_t)(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr);
 typedef void (*mem_write_handler_t)(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b);
 
 struct mem_t {
-  uint8_t type;
+  bool enabled;
+  uint8_t flags;
   uint16_t start;
   uint16_t end;
   void *obj;

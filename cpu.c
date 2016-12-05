@@ -46,7 +46,7 @@ typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper)
 // Stack management.
 
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {
-  _mem_set_byte_direct(cpu, 0x0100 + cpu->state.sp, b);
+   mem_set_byte(cpu, 0x0100 + cpu->state.sp, b);
   cpu->state.sp -= 1;
 }
 
@@ -57,7 +57,7 @@ void _cpu_push_word(struct cpu_t *cpu, uint16_t w) {
 
 uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
   cpu->state.sp += 1;
-  return _mem_get_byte_direct(cpu, 0x0100 + cpu->state.sp);
+  return mem_get_byte(cpu, 0x0100 + cpu->state.sp);
 }
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
@@ -204,21 +204,6 @@ struct mem_t *cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
     mem->next = cpu->mem;
     cpu->mem = mem;
   }
-
-  // If this is RAM mapped to the zero-page and to the stack then we
-  // keep a shortcut to it so that we can do direct and fast access
-  // with our _mem_get/set_byte/word_direct functions.
-  //
-  // This makes two assumptions: when RAM is added, it covers both
-  // pages. And that mem->obj points to a block of memory. This is
-  // fine for the Apple I and Apple II emulators.
-
-  if (mem->type == MEM_TYPE_RAM) {
-    if (mem->start == 0x0000 && mem->end >= 0x0200) {
-      cpu->memory = mem->obj;
-    }
-  }
-
   return mem;
 }
 
@@ -238,7 +223,8 @@ struct mem_t *cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end) {
 
 struct mem_t *cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
-  mem->type = MEM_TYPE_RAM;
+  mem->enabled = true;
+  mem->flags = MEM_FLAGS_READ | MEM_FLAGS_WRITE;
   mem->obj = data;
   mem->start = start;
   mem->end = end;
@@ -284,7 +270,8 @@ static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
 
 struct mem_t *cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
-  mem->type = MEM_TYPE_ROM;
+  mem->enabled = true;
+  mem->flags = MEM_FLAGS_READ;
   mem->obj = data;
   mem->start = start;
   mem->end = end;
@@ -326,7 +313,8 @@ struct mem_t *cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
 
 struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
-  mem->type = MEM_TYPE_IOM;
+  mem->enabled = true;
+  mem->flags = MEM_FLAGS_READ | MEM_FLAGS_WRITE;
   mem->obj = obj;
   mem->start = start;
   mem->end = end;
