@@ -49,6 +49,10 @@ struct a2p_t {
    uint8_t *screen_txt_data;
    struct mem_t *screen_txt_iom;
 
+   uint8_t *screen_hgr_data;
+   struct mem_t *screen_hgr_iom;
+   int screen_hgr_page;
+
    int screen_mode;
    int screen_graphics_mode;
    int screen_graphics_style;

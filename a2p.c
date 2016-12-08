@@ -131,6 +131,17 @@ void a2p_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
    a2p->screen_dirty = true;
 }
 
+uint8_t a2p_screen_hgr_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+   struct a2p_t *a2p = (struct a2p_t*) mem->obj;
+   return a2p->screen_hgr_data[addr - mem->start];
+}
+
+void a2p_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
+   struct a2p_t *a2p = (struct a2p_t*) mem->obj;
+   a2p->screen_hgr_data[addr - mem->start] = b;
+   a2p->screen_dirty = true;
+}
+
 void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    memset(a2p, 0x00, sizeof(struct a2p_t));
 
@@ -155,8 +166,8 @@ void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    a2p->screen_txt_data = malloc(2 * 1024);
    a2p->screen_txt_iom = cpu_add_iom(cpu, 0x0400, 0x0bff, a2p, a2p_screen_txt_read, a2p_screen_txt_write);
 
-   //a2p->screen_hgr_data = malloc(16 * 1024);
-   //a2p->screen_hgr_iom = cpu_add_iom(cpu, 0x2000, 0x7fff, a2p, a2p_screen_hgr_read, a2p_screen_hgr_write);
+   a2p->screen_hgr_data = malloc(16 * 1024);
+   a2p->screen_hgr_iom = cpu_add_iom(cpu, 0x2000, 0x5fff, a2p, a2p_screen_hgr_read, a2p_screen_hgr_write);
 }
 
 int a2p_load_disk(struct a2p_t *a2p, int drive, char *path) {
