@@ -408,7 +408,9 @@ static struct ewm_dsk_track_t dsk_convert_track(struct ewm_dsk_t *disk, struct e
 int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu) {
    memset(dsk, 0x00, sizeof(struct ewm_dsk_t));
    dsk->rom = cpu_add_rom_data(cpu, 0xc600, 0xc6ff, dsk_rom);
+   dsk->rom->description = "rom/dsk/$C600";
    dsk->iom = cpu_add_iom(cpu, 0xc0e0, 0xc0ef, dsk, dsk_read, dsk_write);
+   dsk->rom->description = "iom/dsk/$C0E0";
    return 0;
 }
 

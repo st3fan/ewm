@@ -20,54 +20,19 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_A2P_H
-#define EWM_A2P_H
+#ifndef EWM_SDL_H
+#define EWM_SDL_H
 
-#include <stdint.h>
+#include <SDL2/SDL.h>
 
-struct mem_t;
-struct ewm_dsk_t;
+extern SDL_Window *window;
+extern SDL_Renderer *renderer;
 
-#define EWM_A2P_SCREEN_MODE_TEXT 0
-#define EWM_A2P_SCREEN_MODE_GRAPHICS 1
+struct cpu_t;
+struct a2p_t;
+struct scr_t;
 
-#define EWM_A2P_SCREEN_GRAPHICS_MODE_LGR 0
-#define EWM_A2P_SCREEN_GRAPHICS_MODE_HGR 1
+void sdl_initialize();
+void sdl_main(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr);
 
-#define EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL 0
-#define EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED 1
-
-#define EWM_A2P_SCREEN_PAGE1 0
-#define EWM_A2P_SCREEN_PAGE2 1
-
-struct a2p_t {
-   struct cpu_t *cpu;
-
-   struct mem_t *ram;
-   struct mem_t *roms[6];
-   struct mem_t *iom;
-   struct ewm_dsk_t *dsk;
-
-   uint8_t *screen_txt_data;
-   struct mem_t *screen_txt_iom;
-
-   uint8_t *screen_hgr_data;
-   struct mem_t *screen_hgr_iom;
-   int screen_hgr_page;
-
-   int screen_mode;
-   int screen_graphics_mode;
-   int screen_graphics_style;
-   int screen_page;
-   int screen_dirty;
-
-   uint8_t key;
-};
-
-int a2p_init(struct a2p_t *a2p, struct cpu_t *cpu);
-struct a2p_t *a2p_create(struct cpu_t *cpu);
-void a2p_destroy(struct a2p_t *a2p);
-
-int a2p_load_disk(struct a2p_t *a2p, int drive, char *path);
-
-#endif
+#endif // EWM_SDL_H

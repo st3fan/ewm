@@ -77,7 +77,6 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
 }
 
 int main(int argc, char **argv) {
-   cpu_setup();
    fprintf(stderr, "TEST Running 6502 tests\n");
    test(EWM_CPU_MODEL_6502,  0x0400, 0x3399, "roms/6502_functional_test.bin");
    fprintf(stderr, "TEST Running 65C02 tests\n");

@@ -69,6 +69,7 @@ struct mem_t {
   void *obj;
   mem_read_handler_t read_handler;
   mem_write_handler_t write_handler;
+  char *description;
   struct mem_t *next;
 };
 
@@ -85,10 +86,9 @@ uint8_t _cpu_stack_used(struct cpu_t *cpu);
 uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
-void cpu_setup();
-
-void cpu_init(struct cpu_t *cpu, int model);
-void cpu_shutdown(struct cpu_t *cpu);
+int cpu_init(struct cpu_t *cpu, int model);
+struct cpu_t *cpu_create(int model);
+void cpu_destroy(struct cpu_t *cpu);
 
 struct mem_t *cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem);
 struct mem_t *cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end);

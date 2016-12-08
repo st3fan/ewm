@@ -140,13 +140,6 @@ int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Render
    return 0;
 }
 
-/* for (int i = 0; i < 8; i++) { */
-/*    for (int b = 0; b < 8; b++) { */
-/*       printf("%s", (character_data[i] & (1 << b)) ? "X" : " "); */
-/*    } */
-/*    printf("\n"); */
-/* } */
-
 #if 0
 int main() {
    struct ewm_chr_t *chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716);
