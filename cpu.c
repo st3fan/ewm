@@ -175,7 +175,9 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
 /* Public API */
 
-void cpu_setup() {
+static bool cpu_initialized = false;
+
+static void cpu_initialize() {
    for (int i = 0; i <= 255; i++) {
       if (instructions_65C02[i].handler == NULL) {
          instructions_65C02[i] = instructions[i];
@@ -183,13 +185,29 @@ void cpu_setup() {
    }
 }
 
-void cpu_init(struct cpu_t *cpu, int model) {
+int cpu_init(struct cpu_t *cpu, int model) {
+   if (!cpu_initialized) {
+      cpu_initialize();
+      cpu_initialized = true;
+   }
+
    memset(cpu, 0x00, sizeof(struct cpu_t));
    cpu->model = model;
    cpu->instructions = (cpu->model == EWM_CPU_MODEL_6502) ? instructions : instructions_65C02;
+
+   return 0;
 }
 
-void cpu_shutdown(struct cpu_t *cpu) {
+struct cpu_t *cpu_create(int model) {
+   struct cpu_t *cpu = malloc(sizeof(struct cpu_t));
+   if (cpu_init(cpu, model) != 0) {
+      free(cpu);
+      cpu = NULL;
+   }
+   return cpu;
+}
+
+void cpu_destroy(struct cpu_t *cpu) {
    if (cpu->trace != NULL) {
       (void) fclose(cpu->trace);
       cpu->trace = NULL;
@@ -223,6 +241,7 @@ struct mem_t *cpu_add_ram(struct cpu_t *cpu, uint16_t start, uint16_t end) {
 
 struct mem_t *cpu_add_ram_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  memset(mem, 0, sizeof(struct mem_t));
   mem->enabled = true;
   mem->flags = MEM_FLAGS_READ | MEM_FLAGS_WRITE;
   mem->obj = data;
@@ -270,6 +289,7 @@ static uint8_t _rom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
 
 struct mem_t *cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  memset(mem, 0, sizeof(struct mem_t));
   mem->enabled = true;
   mem->flags = MEM_FLAGS_READ;
   mem->obj = data;
@@ -306,13 +326,16 @@ struct mem_t *cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path) {
 
    close(fd);
 
-   return cpu_add_rom_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
+   struct mem_t *result = cpu_add_rom_data(cpu, start, start + file_info.st_size - 1, (uint8_t*) data);
+   result->description = path;
+   return result;
 }
 
 // IO Memory
 
 struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler) {
   struct mem_t *mem = (struct mem_t*) malloc(sizeof(struct mem_t));
+  memset(mem, 0, sizeof(struct mem_t));
   mem->enabled = true;
   mem->flags = MEM_FLAGS_READ | MEM_FLAGS_WRITE;
   mem->obj = obj;

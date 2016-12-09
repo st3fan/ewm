@@ -34,51 +34,28 @@
 #include "a2p.h"
 #include "scr.h"
 #include "dsk.h"
+#include "scr.h"
+#include "sdl.h"
 
-// Apple 1 / 6502 / 8K RAM / WOZ Monitor
+// TODO Get rid of these, use a struct ewm_t?
 
-static int setup_apple1(struct cpu_t *cpu) {
-   cpu_init(cpu, EWM_CPU_MODEL_6502);
-   struct pia_t *pia = malloc(sizeof(struct pia_t));
-   pia_init(pia);
-   cpu_add_ram(cpu, 0x0000, 8 * 1024 - 1);
-   cpu_add_rom_file(cpu, 0xff00, "roms/apple1.rom");
-   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
-   return 0;
-}
-
-// Replica 1 / 65C02 / 32K RAM / Krusader Assembler & Monitor
-
-static int setup_replica1(struct cpu_t *cpu) {
-   cpu_init(cpu, EWM_CPU_MODEL_65C02);
-   struct pia_t *pia = malloc(sizeof(struct pia_t));
-   pia_init(pia);
-   cpu_add_ram(cpu, 0x0000, 32 * 1024 - 1);
-   cpu_add_rom_file(cpu, 0xe000, "roms/krusader.rom");
-   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
-   return 0;
-}
-
-// Apple ][+ / 6502 / 48K RAM / Original ROMs
-
-static struct a2p_t *a2p;
-
-static int setup_apple2plus(struct cpu_t *cpu) {
-   cpu_init(cpu, EWM_CPU_MODEL_6502);
-   a2p = malloc(sizeof(struct a2p_t));
-   a2p_init(a2p, cpu);
-   return 0;
-}
+static struct cpu_t *cpu = NULL;
+static struct a2p_t *a2p = NULL;
+static struct scr_t *scr = NULL;
 
 // Machine Setup
 
-typedef int (*ewm_machine_setup_f)(struct cpu_t *cpu);
+#define EWM_DISPLAY_TYPE_NONE 0
+#define EWM_DISPLAY_TYPE_TTY  1
+#define EWM_DISPLAY_TYPE_SDL  2
+
+typedef int (*ewm_machine_create_f)();
 
 struct ewm_machine_t {
    char *name;
    char *description;
-   int graphics;
-   ewm_machine_setup_f setup;
+   int display_type;
+   ewm_machine_create_f create;
 };
 
 #define EWM_MEMORY_TYPE_RAM 0
@@ -90,6 +67,39 @@ struct ewm_memory_t {
    uint16_t address;
    struct ewm_memory_t *next;
 };
+
+// Apple 1 / 6502 / 8K RAM / WOZ Monitor
+
+static int setup_apple1() {
+   cpu = cpu_create(EWM_CPU_MODEL_6502);
+   struct pia_t *pia = malloc(sizeof(struct pia_t));
+   pia_init(pia);
+   cpu_add_ram(cpu, 0x0000, 8 * 1024 - 1);
+   cpu_add_rom_file(cpu, 0xff00, "roms/apple1.rom");
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
+   return 0;
+}
+
+// Replica 1 / 65C02 / 32K RAM / Krusader Assembler & Monitor
+
+static int setup_replica1() {
+   cpu = cpu_create(EWM_CPU_MODEL_65C02);
+   struct pia_t *pia = malloc(sizeof(struct pia_t));
+   pia_init(pia);
+   cpu_add_ram(cpu, 0x0000, 32 * 1024 - 1);
+   cpu_add_rom_file(cpu, 0xe000, "roms/krusader.rom");
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
+   return 0;
+}
+
+// Apple ][+ / 6502 / 48K RAM / Original ROMs
+
+static int setup_apple2plus() {
+   cpu = cpu_create(EWM_CPU_MODEL_6502);
+   a2p = a2p_create(cpu);
+   scr = ewm_scr_create(a2p, renderer);
+   return 0;
+}
 
 struct ewm_memory_t *parse_memory(char *s) {
    char *type = strsep(&s, ":");
@@ -120,10 +130,10 @@ struct ewm_memory_t *parse_memory(char *s) {
 }
 
 static struct ewm_machine_t machines[] = {
-   { "apple1",     "Apple 1",   false, setup_apple1 },
-   { "replica1",   "Replica 1", false, setup_replica1 },
-   { "apple2plus", "Apple ][+", true,  setup_apple2plus },
-   { NULL,         NULL,        false, NULL }
+   { "apple1",     "Apple 1",   EWM_DISPLAY_TYPE_TTY,  setup_apple1 },
+   { "replica1",   "Replica 1", EWM_DISPLAY_TYPE_TTY,  setup_replica1 },
+   { "apple2plus", "Apple ][+", EWM_DISPLAY_TYPE_SDL,  setup_apple2plus },
+   { NULL,         NULL,        EWM_DISPLAY_TYPE_NONE, NULL }
 };
 
 static struct option options[] = {
@@ -149,7 +159,7 @@ int main(int argc, char **argv) {
    struct ewm_machine_t *machine = &machines[0];
    bool strict = false;
    char *trace_path = NULL;
-   struct ewm_memory_t *memory;
+   struct ewm_memory_t *memory = NULL;
    char *drive1 = NULL;
    char *drive2 = NULL;
 
@@ -194,13 +204,28 @@ int main(int argc, char **argv) {
       exit(1);
    }
 
-   cpu_setup();
+   //
+   // Initialize the display
+   //
 
-   fprintf(stderr, "[EWM] Starting up %s\n", machine->description);
+   switch (machine->display_type) {
+      case EWM_DISPLAY_TYPE_NONE:
+         fprintf(stderr, "[EWM] TODO EWM_DISPLAY_TYPE_NONE\n");
+         exit(1);
+         break;
+      case EWM_DISPLAY_TYPE_TTY:
+         fprintf(stderr, "[EWM] TODO EWM_DISPLAY_TYPE_TTY\n");
+         break;
+      case EWM_DISPLAY_TYPE_SDL:
+         sdl_initialize();
+         break;
+   }
 
-   struct cpu_t cpu;
+   // Create the machine and initialize it
 
-   machine->setup(&cpu);
+   fprintf(stderr, "[EWM] Creating %s\n", machine->description);
+
+   machine->create(cpu);
 
    // TODO This really does not belong here. it is probably better to
    // pass arguments to setup_apple2plus so that it can handle its
@@ -226,12 +251,12 @@ int main(int argc, char **argv) {
    while (m != NULL) {
       fprintf(stderr, "[EWM] Adding %s $%.4X %s\n", m->type == EWM_MEMORY_TYPE_RAM ? "RAM" : "ROM", m->address, m->path);
       if (m->type == EWM_MEMORY_TYPE_RAM) {
-         if (cpu_add_ram_file(&cpu, m->address, m->path) == NULL) {
+         if (cpu_add_ram_file(cpu, m->address, m->path) == NULL) {
             fprintf(stderr, "[EWM] Failed to add RAM from %s\n", m->path);
             exit(1);
          }
       } else {
-         if (cpu_add_rom_file(&cpu, m->address, m->path) == NULL) {
+         if (cpu_add_rom_file(cpu, m->address, m->path) == NULL) {
             fprintf(stderr, "[EWM] Failed to add ROM from %s\n", m->path);
             exit(1);
          }
@@ -239,32 +264,38 @@ int main(int argc, char **argv) {
       m = m->next;
    }
 
-   cpu_strict(&cpu, strict);
-   cpu_trace(&cpu, trace_path);
+   cpu_strict(cpu, strict);
+   cpu_trace(cpu, trace_path);
 
-   cpu_reset(&cpu);
+   cpu_reset(cpu);
 
-   if (machine->graphics) {
-      scr_init();
-      scr_main(&cpu, a2p);
-   } else {
-      while (true) {
-         switch (cpu_step(&cpu)) {
-            case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
-               fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
-                       mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
-               break;
-            case EWM_CPU_ERR_STACK_OVERFLOW:
-               fprintf(stderr, "CPU: Exited because of stack overflow at 0x%.4x\n", cpu.state.pc);
-               break;
-            case EWM_CPU_ERR_STACK_UNDERFLOW:
-               fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", cpu.state.pc);
-               break;
-         }
-      }
+   switch (machine->display_type) {
+      case EWM_DISPLAY_TYPE_NONE:
+         fprintf(stderr, "[EWM] TODO EWM_DISPLAY_TYPE_NONE\n");
+         exit(1);
+         break;
+      case EWM_DISPLAY_TYPE_TTY:
+         fprintf(stderr, "[EWM] TODO EWM_DISPLAY_TYPE_TTY\n");
+         exit(1);
+         break;
+      case EWM_DISPLAY_TYPE_SDL:
+         sdl_main(cpu, a2p, scr);
+         break;
    }
 
-   cpu_shutdown(&cpu);
+   // Clean up
+
+   if (scr != NULL) {
+      ewm_scr_destroy(scr);
+      scr = NULL;
+   }
+
+   if (a2p != NULL) {
+      a2p_destroy(a2p);
+      a2p = NULL;
+   }
+
+   cpu_destroy(cpu);
 
    return 0;
 }

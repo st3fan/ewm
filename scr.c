@@ -31,61 +31,35 @@
 #include "chr.h"
 #include "scr.h"
 
-SDL_Window *window;
-SDL_Renderer *renderer;
+// Text rendering
 
-struct ewm_chr_t *chr = NULL;
-
-void scr_init() {
-  if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-    fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
-    exit(1);
-  }
-
-  //
-
-  window = SDL_CreateWindow("Test", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
-  if (window == NULL) {
-    fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
-    exit(1);
-  }
-
-  renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-  if (renderer == NULL) {
-    fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
-    exit(1);
-  }
-
-  //
-
-  chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
-  if (chr == NULL) {
-     fprintf(stderr, "[SCR] Failed to initialize character generator\n");
-     exit(1);
-  }
-}
-
-static int screen1_offsets[24] = {
-   0x400, 0x480, 0x500, 0x580, 0x600, 0x680, 0x700, 0x780, 0x428, 0x4a8, 0x528, 0x5a8,
-   0x628, 0x6a8, 0x728, 0x7a8, 0x450, 0x4d0, 0x550, 0x5d0, 0x650, 0x6d0, 0x750, 0x7d0
+static int txt_line_offsets[24] = {
+   0x000, 0x080, 0x100, 0x180, 0x200, 0x280, 0x300, 0x380, 0x028, 0x0a8, 0x128, 0x1a8,
+   0x228, 0x2a8, 0x328, 0x3a8, 0x050, 0x0d0, 0x150, 0x1d0, 0x250, 0x2d0, 0x350, 0x3d0
 };
 
-static int screen2_offsets[24] = {
-   0x800, 0x880, 0x900, 0x980, 0xa00, 0xa80, 0xb00, 0xb80, 0x828, 0x8a8, 0x928, 0x9a8,
-   0xa28, 0xaa8, 0xb28, 0xba8, 0x850, 0x8d0, 0x950, 0x9d0, 0xa50, 0xad0, 0xb50, 0xbd0
-};
-
-static inline void _render_character(struct a2p_t *a2p, int row, int column, int *offsets) {
-   uint8_t c = a2p->screen_txt_data[(offsets[row] + column) - 0x0400];
-   if (chr->characters[c] != NULL) {
+static inline void scr_render_character(struct scr_t *scr, int row, int column) {
+   uint16_t base = (scr->a2p->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
+   uint8_t c = scr->a2p->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+   if (scr->chr->characters[c] != NULL) {
       SDL_Rect dst;
       dst.x = column * 21;
       dst.y = row * 24;
       dst.w = 21;
       dst.h = 24;
-      SDL_RenderCopy(renderer, chr->characters[c], NULL, &dst);
+      SDL_RenderCopy(scr->renderer, scr->chr->characters[c], NULL, &dst);
    }
 }
+
+static inline void scr_render_txt_screen(struct scr_t *scr) {
+   for (int row = 0; row < 24; row++) {
+      for (int column = 0; column < 40; column++) {
+         scr_render_character(scr, row, column);
+      }
+   }
+}
+
+// Lores Rendering
 
 static SDL_Color lores_colors[16] = {
    { 0,   0,   0,   0 }, // 0 Black
@@ -106,8 +80,9 @@ static SDL_Color lores_colors[16] = {
    { 255, 255, 255, 0 }, // 15 White
 };
 
-static inline void _render_lores_block(struct a2p_t *a2p, int row, int column, int *offsets) {
-   uint8_t block = a2p->screen_txt_data[(offsets[row] + column) - 0x0400];
+static inline void scr_render_lores_block(struct scr_t *scr, int row, int column) {
+   uint16_t base = (scr->a2p->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
+   uint8_t block = scr->a2p->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
    if (block != 0) {
       SDL_Rect dst;
       dst.x = column * 21;
@@ -117,70 +92,40 @@ static inline void _render_lores_block(struct a2p_t *a2p, int row, int column, i
 
       uint c = block & 0x0f;
       if (c != 0) {
-         SDL_SetRenderDrawColor(renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
-         SDL_RenderFillRect(renderer, &dst);
+         SDL_SetRenderDrawColor(scr->renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
+         SDL_RenderFillRect(scr->renderer, &dst);
       }
 
       c = (block & 0xf0) >> 4;
       if (c != 0) {
          dst.y += 12;
-         SDL_SetRenderDrawColor(renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
-         SDL_RenderFillRect(renderer, &dst);
+         SDL_SetRenderDrawColor(scr->renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
+         SDL_RenderFillRect(scr->renderer, &dst);
       }
    }
 }
 
-static void _render_txt_screen1(struct a2p_t *a2p) {
-   for (int row = 0; row < 24; row++) {
-      for (int column = 0; column < 40; column++) {
-         _render_character(a2p, row, column, screen1_offsets);
-      }
-   }
-}
+static inline void scr_render_lgr_screen(struct scr_t *scr) {
+   bool mixed = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
 
-static void _render_txt_screen2(struct a2p_t *a2p) {
-   for (int row = 0; row < 24; row++) {
-      for (int column = 0; column < 40; column++) {
-         _render_character(a2p, row, column, screen2_offsets);
-      }
-   }
-}
-
-static void _render_lgr_screen1(struct a2p_t *a2p, bool mixed) {
    // Render graphics
    int rows = mixed ? 20 : 24;
    for (int row = 0; row < rows; row++) {
       for (int column = 0; column < 40; column++) {
-         _render_lores_block(a2p, row, column, screen1_offsets);
+         scr_render_lores_block(scr, row, column);
       }
    }
    // Render bottom 4 lines
    if (mixed) {
       for (int row = 20; row < 24; row++) {
          for (int column = 0; column < 40; column++) {
-            _render_character(a2p, row, column, screen1_offsets);
+            scr_render_character(scr, row, column);
          }
       }
    }
 }
 
-static void _render_lgr_screen2(struct a2p_t *a2p, bool mixed) {
-   // Render graphics
-   int rows = mixed ? 20 : 24;
-   for (int row = 0; row < rows; row++) {
-      for (int column = 0; column < 40; column++) {
-         _render_lores_block(a2p, row, column, screen2_offsets);
-      }
-   }
-   // Render bottom 4 lines
-   if (mixed) {
-      for (int row = 20; row < 24; row++) {
-         for (int column = 0; column < 40; column++) {
-            _render_character(a2p, row, column, screen2_offsets);
-         }
-      }
-   }
-}
+// Hires rendering
 
 static uint16_t hgr_page_offsets[2] = {
    0x0000, // $0000 in our buffer, $2000 in emulator
@@ -214,10 +159,10 @@ static uint16_t hgr_line_offsets[192] = {
    0x03d0, 0x07d0, 0x0bd0, 0x0fd0, 0x13d0, 0x17d0, 0x1bd0, 0x1fd0
 };
 
-static void _render_hgr_line(struct a2p_t *a2p, int line, uint16_t line_base) {
+static void inline scr_render_hgr_line(struct scr_t *scr, int line, uint16_t line_base) {
    int x = 0;
    for (int i = 0; i < 40; i++) {
-      uint8_t c = a2p->screen_hgr_data[line_base + i];
+      uint8_t c = scr->a2p->screen_hgr_data[line_base + i];
       for (int j = 0; j < 7; j++) {
          SDL_Rect dst;
          dst.x = x * 3;
@@ -225,166 +170,79 @@ static void _render_hgr_line(struct a2p_t *a2p, int line, uint16_t line_base) {
          dst.w = 3;
          dst.h = 3;
          if (c & (1 << j)) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 0, 0);
+            SDL_SetRenderDrawColor(scr->renderer, 0, 255, 0, 0);
          } else {
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 0);
          }
-         SDL_RenderFillRect(renderer, &dst);
+         SDL_RenderFillRect(scr->renderer, &dst);
          x++;
       }
    }
 }
 
-static void _render_hgr_screen(struct a2p_t *a2p) {
+static void inline scr_render_hgr_screen(struct scr_t *scr) {
    // Render graphics
-   int lines = (a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 168  : 192;
-   uint16_t hgr_base = hgr_page_offsets[a2p->screen_page];
+   int lines = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 168  : 192;
+   uint16_t hgr_base = hgr_page_offsets[scr->a2p->screen_page];
    for (int line = 0; line < lines; line++) {
       uint16_t line_base = hgr_base + hgr_line_offsets[line];
-      _render_hgr_line(a2p, line, line_base);
+      scr_render_hgr_line(scr, line, line_base);
    }
 
    // Render bottom 4 lines of text
-   if (a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) {
+   if (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) {
       for (int row = 20; row < 24; row++) {
          for (int column = 0; column < 40; column++) {
-            _render_character(a2p, row, column, screen1_offsets);
+            scr_render_character(scr, row, column);
          }
       }
    }
 }
 
-void scr_main(struct cpu_t *cpu, struct a2p_t *a2p) {
-  bool quit = false;
-  //bool running = true;
+// TODO This is the only actual API exposed
 
-  SDL_StartTextInput();
+int ewm_scr_init(struct scr_t *scr, struct a2p_t *a2p, SDL_Renderer *renderer) {
+   memset(scr, 0x00, sizeof(struct scr_t));
+   scr->a2p = a2p;
+   scr->renderer = renderer;
+   scr->chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   if (scr->chr == NULL) {
+      fprintf(stderr, "[SCR] Failed to initialize character generator\n");
+      return -1;
+   }
+   return 0;
+}
 
-  while (quit == false)
-  {
-     // Events
+struct scr_t *ewm_scr_create(struct a2p_t *a2p, SDL_Renderer *renderer) {
+   struct scr_t *scr = malloc(sizeof(struct scr_t));
+   if (ewm_scr_init(scr, a2p, renderer) != 0) {
+      free(scr);
+      scr = NULL;
+   }
+   return scr;
+}
 
-     SDL_Event event;
-     while (SDL_PollEvent(&event) != 0) {
-        switch (event.type) {
-           case SDL_QUIT:
-              quit = true;
-              break;
-           case SDL_KEYDOWN:
-              if (event.key.keysym.mod & KMOD_CTRL) {
-                 if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {
-                    a2p->key = (event.key.keysym.sym - SDLK_a) | 0x80;
-                 } else {
-                    // TODO Implement control codes 1b - 1f
-                 }
-              } else if (event.key.keysym.mod & KMOD_GUI) {
-                 switch (event.key.keysym.sym) {
-                    case SDLK_ESCAPE:
-                       cpu_reset(cpu);
-                       break;
-                 }
-              } else if (event.key.keysym.mod == KMOD_NONE) {
-                 switch (event.key.keysym.sym) {
-                    case SDLK_RETURN:
-                       a2p->key = 0x0d | 0x80; // CR
-                       break;
-                    case SDLK_TAB:
-                       a2p->key = 0x09 | 0x80; // HT
-                    case SDLK_DELETE:
-                       a2p->key = 0x7f | 0x80; // DEL
-                       break;
-                    case SDLK_LEFT:
-                       a2p->key = 0x08 | 0x80; // BS
-                       break;
-                    case SDLK_RIGHT:
-                       a2p->key = 0x15 | 0x80; // NAK
-                       break;
-                    case SDLK_UP:
-                       a2p->key = 0x0b | 0x80; // VT
-                       break;
-                    case SDLK_DOWN:
-                       a2p->key = 0x0a | 0x80; // LF
-                       break;
-                    case SDLK_ESCAPE:
-                       a2p->key = 0x1b | 0x80; // ESC
-                       break;
-                 }
-              }
-              break;
-           case SDL_TEXTINPUT:
-              if (strlen(event.text.text) == 1) {
-                 a2p->key = toupper(event.text.text[0]) | 0x80;
-              }
-              break;
-        }
-     }
+void ewm_scr_destroy(struct scr_t *scr) {
+   // TODO
+}
 
-     // Logic
+void ewm_scr_update(struct scr_t *scr) {
+   SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 255);
+   SDL_RenderClear(scr->renderer);
 
-     for (int i = 0; i < 1000; i++) {
-        int ret = cpu_step(cpu);
-        if (ret != 0) {
-           switch (ret) {
-              case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
-                 fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
-                         mem_get_byte(cpu, cpu->state.pc), cpu->state.pc);
-                 break;
-              case EWM_CPU_ERR_STACK_OVERFLOW:
-                 fprintf(stderr, "CPU: Exited because of stack overflow at 0x%.4x\n", cpu->state.pc);
-                 break;
-              case EWM_CPU_ERR_STACK_UNDERFLOW:
-                 fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", cpu->state.pc);
-                 break;
-           }
-
-           cpu_nmi(cpu);
-
-           //exit(1);
-        }
-     }
-
-     // Render
-
-     if (a2p->screen_dirty) {
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
-
-        switch (a2p->screen_mode) {
-           case EWM_A2P_SCREEN_MODE_TEXT:
-              switch (a2p->screen_page) {
-                 case EWM_A2P_SCREEN_PAGE1:
-                    _render_txt_screen1(a2p);
-                    break;
-                 case EWM_A2P_SCREEN_PAGE2:
-                    _render_txt_screen2(a2p);
-                    break;
-              }
-              break;
-           case EWM_A2P_SCREEN_MODE_GRAPHICS:
-              switch (a2p->screen_graphics_mode) {
-                 case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
-                    switch (a2p->screen_page) {
-                       case EWM_A2P_SCREEN_PAGE1:
-                          _render_lgr_screen1(a2p, a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
-                          break;
-                       case EWM_A2P_SCREEN_PAGE2:
-                          _render_lgr_screen2(a2p, a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
-                          break;
-                    }
-                    break;
-                 case EWM_A2P_SCREEN_GRAPHICS_MODE_HGR:
-                    _render_hgr_screen(a2p);
-                    break;
-              }
-              break;
-        }
-
-        SDL_RenderPresent(renderer);
-
-        a2p->screen_dirty = false;
-     }
-  }
-
-  SDL_DestroyWindow(window);
-  SDL_Quit();
+   switch (scr->a2p->screen_mode) {
+      case EWM_A2P_SCREEN_MODE_TEXT:
+         scr_render_txt_screen(scr);
+         break;
+      case EWM_A2P_SCREEN_MODE_GRAPHICS:
+         switch (scr->a2p->screen_graphics_mode) {
+            case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
+               scr_render_lgr_screen(scr);
+               break;
+            case EWM_A2P_SCREEN_GRAPHICS_MODE_HGR:
+               scr_render_hgr_screen(scr);
+               break;
+         }
+         break;
+   }
 }

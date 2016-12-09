@@ -23,10 +23,25 @@
 #ifndef EWM_SCR_H
 #define EWM_SCR_H
 
+#include <SDL2/SDL.h>
+
+struct ewm_chr_t;
 struct cpu_t;
 struct a2p_t;
 
-void scr_init();
-void scr_main(struct cpu_t *cpu, struct a2p_t *a2p);
+// The 'scr' object represents the screen. It renders the contents of
+// the machine. It has pluggable renders.
+
+struct scr_t {
+   struct a2p_t *a2p;
+   SDL_Renderer *renderer;
+   struct ewm_chr_t *chr;
+};
+
+struct scr_t *ewm_scr_create(struct a2p_t *a2p, SDL_Renderer *renderer);
+int ewm_scr_init(struct scr_t *scr, struct a2p_t *a2p, SDL_Renderer *renderer);
+void ewm_scr_destroy(struct scr_t *scr);
+void ewm_scr_update(struct scr_t *scr);
+
 
 #endif

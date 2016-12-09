@@ -142,32 +142,55 @@ void a2p_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
    a2p->screen_dirty = true;
 }
 
-void a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
+int a2p_init(struct a2p_t *a2p, struct cpu_t *cpu) {
    memset(a2p, 0x00, sizeof(struct a2p_t));
 
+   a2p->cpu = cpu;
+
    a2p->ram = cpu_add_ram(cpu, 0x0000, 48 * 1024);
-   a2p->rom = cpu_add_rom_file(cpu, 0xd000, "roms/341-0011.bin"); // AppleSoft BASIC D000
-   a2p->rom = cpu_add_rom_file(cpu, 0xd800, "roms/341-0012.bin"); // AppleSoft BASIC D800
-   a2p->rom = cpu_add_rom_file(cpu, 0xe000, "roms/341-0013.bin"); // AppleSoft BASIC E000
-   a2p->rom = cpu_add_rom_file(cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
-   a2p->rom = cpu_add_rom_file(cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
-   a2p->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
+   a2p->ram->description = "ram/a2p/$0000";
+   a2p->roms[0] = cpu_add_rom_file(cpu, 0xd000, "roms/341-0011.bin"); // AppleSoft BASIC D000
+   a2p->roms[1] = cpu_add_rom_file(cpu, 0xd800, "roms/341-0012.bin"); // AppleSoft BASIC D800
+   a2p->roms[2] = cpu_add_rom_file(cpu, 0xe000, "roms/341-0013.bin"); // AppleSoft BASIC E000
+   a2p->roms[3] = cpu_add_rom_file(cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
+   a2p->roms[4] = cpu_add_rom_file(cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
+   a2p->roms[5] = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
    a2p->iom = cpu_add_iom(cpu, 0xc000, 0xc07f, a2p, a2p_iom_read, a2p_iom_write);
+   a2p->iom->description = "iom/a2p/$C000";
 
    a2p->dsk = ewm_dsk_create(cpu);
 
+   // TODO Move into a2p_t
    struct ewm_alc_t *alc = ewm_alc_create(cpu);
    if (alc == NULL) {
       fprintf(stderr, "[A2P] Could not create Apple Language Card\n");
+      return -1;
    }
 
    // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used.
 
    a2p->screen_txt_data = malloc(2 * 1024);
    a2p->screen_txt_iom = cpu_add_iom(cpu, 0x0400, 0x0bff, a2p, a2p_screen_txt_read, a2p_screen_txt_write);
+   a2p->screen_txt_iom->description = "ram/a2p/$0400";
 
    a2p->screen_hgr_data = malloc(16 * 1024);
    a2p->screen_hgr_iom = cpu_add_iom(cpu, 0x2000, 0x5fff, a2p, a2p_screen_hgr_read, a2p_screen_hgr_write);
+   a2p->screen_hgr_iom->description = "ram/a2p/$2000";
+
+   return 0;
+}
+
+struct a2p_t *a2p_create(struct cpu_t *cpu) {
+   struct a2p_t *a2p = malloc(sizeof(struct a2p_t));
+   if (a2p_init(a2p, cpu) != 0) {
+      free(a2p);
+      a2p = NULL;
+   }
+   return a2p;
+}
+
+void a2p_destroy(struct a2p_t *a2p) {
+   // TODO
 }
 
 int a2p_load_disk(struct a2p_t *a2p, int drive, char *path) {
