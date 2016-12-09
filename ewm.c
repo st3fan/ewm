@@ -98,6 +98,7 @@ static int setup_apple2plus() {
    cpu = cpu_create(EWM_CPU_MODEL_6502);
    a2p = a2p_create(cpu);
    scr = ewm_scr_create(a2p, renderer);
+   ewm_scr_color_scheme(scr, EWM_SCR_COLOR_SCHEME_COLOR);
    return 0;
 }
 
