@@ -52,6 +52,11 @@
 #define EWM_A2P_SS_SETAN3  0xc05e
 #define EWM_A2P_SS_CLRAN3  0xc05f
 
+#define EWM_A2P_SS_PB0 0xC061
+#define EWM_A2P_SS_PB1 0xC062
+#define EWM_A2P_SS_PB2 0xC063
+#define EWM_A2P_SS_PB3 0xC060 // TODO On the gs only?
+
 uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
    switch (addr) {
@@ -100,6 +105,15 @@ uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
       case EWM_A2P_SS_SPKR:
          // TODO Implement speaker support
          break;
+
+      case EWM_A2P_SS_PB0:
+         return a2p->buttons[0];
+      case EWM_A2P_SS_PB1:
+         return a2p->buttons[1];
+      case EWM_A2P_SS_PB2:
+         return a2p->buttons[2];
+      case EWM_A2P_SS_PB3:
+         return a2p->buttons[3];
 
       default:
          printf("[A2P] Unexpected read at $%.4X\n", addr);

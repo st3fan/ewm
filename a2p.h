@@ -40,6 +40,12 @@ struct ewm_dsk_t;
 #define EWM_A2P_SCREEN_PAGE1 0
 #define EWM_A2P_SCREEN_PAGE2 1
 
+#define EWM_A2P_BUTTON1 0
+#define EWM_A2P_BUTTON2 1
+#define EWM_A2P_BUTTON3 2
+#define EWM_A2P_BUTTON4 3 // Only exists on the gs?
+#define EWM_A2P_BUTTON_COUNT 4
+
 struct a2p_t {
    struct cpu_t *cpu;
 
@@ -62,6 +68,7 @@ struct a2p_t {
    int screen_dirty;
 
    uint8_t key;
+   uint8_t buttons[EWM_A2P_BUTTON_COUNT];
 };
 
 int a2p_init(struct a2p_t *a2p, struct cpu_t *cpu);
