@@ -170,7 +170,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
               pc, bytes, trace_instruction, trace_state, trace_stack);
    }
 
-   return 0;
+   return i->cycles;
 }
 
 /* Public API */

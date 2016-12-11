@@ -177,10 +177,11 @@ static bool sdl_poll_event(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *s
    return true;
 }
 
-static bool sdl_step_cpu(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr) {
-   for (int i = 0; i < 5000; i++) {
+static bool sdl_step_cpu(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr, int cycles) {
+   int i = 0;
+   while (true) {
       int ret = cpu_step(cpu);
-      if (ret != 0) {
+      if (ret < 0) {
          switch (ret) {
             case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
                fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
@@ -195,6 +196,13 @@ static bool sdl_step_cpu(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr
          }
          cpu_nmi(cpu);
       }
+
+      i++;
+
+      cycles -= ret;
+      if (cycles <= 0) {
+         break;
+      }
    }
    return true;
 }
@@ -202,21 +210,25 @@ static bool sdl_step_cpu(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr
 void sdl_main(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr) {
    SDL_StartTextInput();
 
+   Uint32 ticks = SDL_GetTicks();
+
    while (true) {
       if (!sdl_poll_event(cpu, a2p, scr)) {
          break;
       }
 
-      if (!sdl_step_cpu(cpu, a2p, scr)) {
-         break;
-      }
+      if ((SDL_GetTicks() - ticks) >= (1000 / EWM_SDL_FPS)) {
+         if (!sdl_step_cpu(cpu, a2p, scr, 1000000 / EWM_SDL_FPS)) {
+            break;
+         }
 
-      SDL_Delay(10); // TODO This should really not be here. Implement proper throttling.
+         if (a2p->screen_dirty) {
+            ewm_scr_update(scr);
+            a2p->screen_dirty = false;
+            SDL_RenderPresent(scr->renderer);
+         }
 
-      if (a2p->screen_dirty) {
-         ewm_scr_update(scr);
-         a2p->screen_dirty = false;
-         SDL_RenderPresent(scr->renderer);
+         ticks = SDL_GetTicks();
       }
    }
 

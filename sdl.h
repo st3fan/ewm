@@ -25,6 +25,8 @@
 
 #include <SDL2/SDL.h>
 
+#define EWM_SDL_FPS (50)
+
 extern SDL_Window *window;
 extern SDL_Renderer *renderer;
 
