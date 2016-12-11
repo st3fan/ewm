@@ -125,9 +125,47 @@ uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
 void a2p_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
    struct a2p_t *a2p = (struct a2p_t*) mem->obj;
    switch (addr) {
+
       case EWM_A2P_SS_KBDSTRB:
          a2p->key &= 0x7f;
          break;
+
+      case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
+         a2p->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_SCREEN_MODE_TEXT:
+         a2p->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_GRAPHICS_MODE_LGR:
+         a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_GRAPHICS_MODE_HGR:
+         a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_GRAPHICS_STYLE_FULL:
+         a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_GRAPHICS_STYLE_MIXED:
+         a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
+         a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_SCREEN_PAGE1:
+         a2p->screen_page = EWM_A2P_SCREEN_PAGE1;
+         a2p->screen_dirty = true;
+         break;
+      case EWM_A2P_SS_SCREEN_PAGE2:
+         a2p->screen_page = EWM_A2P_SCREEN_PAGE2;
+         a2p->screen_dirty = true;
+         break;
+
       default:
          printf("[A2P] Unexpected write at $%.4X\n", addr);
          break;
