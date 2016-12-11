@@ -115,6 +115,24 @@ uint8_t a2p_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
       case EWM_A2P_SS_PB3:
          return a2p->buttons[3];
 
+      case EWM_A2P_SS_SETAN0:
+         break;
+      case EWM_A2P_SS_SETAN1:
+         break;
+      case EWM_A2P_SS_SETAN2:
+         break;
+      case EWM_A2P_SS_SETAN3:
+         break;
+
+      case EWM_A2P_SS_CLRAN0:
+         break;
+      case EWM_A2P_SS_CLRAN1:
+         break;
+      case EWM_A2P_SS_CLRAN2:
+         break;
+      case EWM_A2P_SS_CLRAN3:
+         break;
+
       default:
          printf("[A2P] Unexpected read at $%.4X\n", addr);
          break;
@@ -164,6 +182,24 @@ void a2p_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t 
       case EWM_A2P_SS_SCREEN_PAGE2:
          a2p->screen_page = EWM_A2P_SCREEN_PAGE2;
          a2p->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_SETAN0:
+         break;
+      case EWM_A2P_SS_SETAN1:
+         break;
+      case EWM_A2P_SS_SETAN2:
+         break;
+      case EWM_A2P_SS_SETAN3:
+         break;
+
+      case EWM_A2P_SS_CLRAN0:
+         break;
+      case EWM_A2P_SS_CLRAN1:
+         break;
+      case EWM_A2P_SS_CLRAN2:
+         break;
+      case EWM_A2P_SS_CLRAN3:
          break;
 
       default:
