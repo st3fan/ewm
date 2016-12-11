@@ -159,7 +159,18 @@ static uint16_t hgr_line_offsets[192] = {
    0x03d0, 0x07d0, 0x0bd0, 0x0fd0, 0x13d0, 0x17d0, 0x1bd0, 0x1fd0
 };
 
-static void inline scr_render_hgr_line(struct scr_t *scr, int line, uint16_t line_base) {
+// CBBBBBBB
+
+static SDL_Color hgr_colors[16] = {
+   { 0,   0,   0,   0 }, // 0 Black
+   { 0,   0,   204, 0 }, // 1 Blue
+   { 128, 0,   128, 0 }, // 2 Purple
+   { 0,   100, 0,   0 }, // 3 Green
+   { 0,   100, 0,   0 }, // 4 Red
+   { 255, 255, 255, 0 }  // 5 White
+};
+
+static void inline scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    int x = 0;
    for (int i = 0; i < 40; i++) {
       uint8_t c = scr->a2p->screen_hgr_data[line_base + i];
@@ -180,13 +191,69 @@ static void inline scr_render_hgr_line(struct scr_t *scr, int line, uint16_t lin
    }
 }
 
+static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
+
+   // Pre process the line. We put the color index in bytes to make it easier to handle them
+
+   int pixels[280], x = 0;
+   for (int i = 0; i < 40; i++) {
+      uint8_t c = scr->a2p->screen_hgr_data[line_base + i];
+      for (int j = 0; j < 7; j++) {
+         if (c & (1 << j)) {
+            if (x % 2 == 0) {
+               if (c & 0x80) {
+                  pixels[x] = 1; // Blue
+               } else {
+                  pixels[x] = 2; // Purple
+               }
+            } else {
+               if (c & 0x80) {
+                  pixels[x] = 4; // Red
+               } else {
+                  pixels[x] = 3; // Green
+               }
+            }
+         } else {
+            pixels[x] = 0; // Black
+         }
+         x++;
+      }
+   }
+
+   // Flip adject pixels to white
+
+   for (int i = 0; i < (280-1); i++) {
+      if (pixels[i] && pixels[i+1]) {
+         pixels[i] = 5; // White
+      }
+   }
+
+   // Now draw them
+
+   for (x = 0; x < 280; x++) {
+      SDL_Rect dst;
+      dst.x = x * 3;
+      dst.y = line * 3;
+      dst.w = 3;
+      dst.h = 3;
+
+      int c = pixels[x];
+      SDL_SetRenderDrawColor(scr->renderer, hgr_colors[c].r, hgr_colors[c].g, hgr_colors[c].b, hgr_colors[c].a);
+      SDL_RenderFillRect(scr->renderer, &dst);
+   }
+}
+
 static void inline scr_render_hgr_screen(struct scr_t *scr) {
    // Render graphics
-   int lines = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 168  : 192;
+   int lines = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
    uint16_t hgr_base = hgr_page_offsets[scr->a2p->screen_page];
    for (int line = 0; line < lines; line++) {
       uint16_t line_base = hgr_base + hgr_line_offsets[line];
-      scr_render_hgr_line(scr, line, line_base);
+      if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_COLOR) {
+         scr_render_hgr_line_color(scr, line, line_base);
+      } else {
+         scr_render_hgr_line_green(scr, line, line_base);
+      }
    }
 
    // Render bottom 4 lines of text
@@ -245,4 +312,8 @@ void ewm_scr_update(struct scr_t *scr) {
          }
          break;
    }
+}
+
+void ewm_scr_color_scheme(struct scr_t *scr, int color_scheme) {
+   scr->color_scheme = color_scheme;
 }
