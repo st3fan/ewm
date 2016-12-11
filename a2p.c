@@ -148,6 +148,10 @@ void a2p_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t 
          a2p->key &= 0x7f;
          break;
 
+      case EWM_A2P_SS_SPKR:
+         // TODO Implement speaker support
+         break;
+
       case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
          a2p->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
          a2p->screen_dirty = true;
