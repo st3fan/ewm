@@ -44,7 +44,7 @@ void sdl_initialize() {
 
   //
 
-  window = SDL_CreateWindow("Test", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+  window = SDL_CreateWindow("EWM v0.1", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
   if (window == NULL) {
     fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
     exit(1);
@@ -55,6 +55,8 @@ void sdl_initialize() {
     fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
     exit(1);
   }
+
+  SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 }
 
 void sdl_destroy() {
@@ -107,6 +109,13 @@ static bool sdl_poll_event(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *s
                   case SDLK_ESCAPE:
                      fprintf(stderr, "[SDL] Reset\n");
                      cpu_reset(cpu);
+                     break;
+                  case SDLK_RETURN:
+                     if (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) {
+                        SDL_SetWindowFullscreen(window, 0);
+                     } else {
+                        SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+                     }
                      break;
                }
             } else if (event.key.keysym.mod == KMOD_NONE) {
