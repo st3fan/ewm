@@ -46,7 +46,9 @@ uint8_t alc_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    switch (addr) {
       // WRTCOUNT = 0, WRITE DISABLE, READ ENABLE
       case 0xc080:
+      case 0xc088:
       case 0xc084:
+      case 0xc08c:
          alc->wrtcount = 0;
          alc->ram1->flags = MEM_FLAGS_READ;
          alc->ram2->flags = MEM_FLAGS_READ;
@@ -55,7 +57,9 @@ uint8_t alc_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
 
       // WRTCOUNT++, READ DISABLE, WRITE ENABLE IF WRTCOUNT >= 2
       case 0xc081:
+      case 0xc089:
       case 0xc085:
+      case 0xc08d:
          alc->wrtcount = alc->wrtcount + 1;
          alc->ram1->flags &= ~MEM_FLAGS_READ;
          alc->ram2->flags &= ~MEM_FLAGS_READ;
@@ -69,7 +73,9 @@ uint8_t alc_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
 
       // WRTCOUNT = 0, WRITE DISABLE, READ DISABLE
       case 0xc082:
+      case 0xc08a:
       case 0xc086:
+      case 0xc08e:
          alc->wrtcount = 0;
          alc->ram1->flags &= ~MEM_FLAGS_WRITE;
          alc->ram2->flags &= ~MEM_FLAGS_WRITE;
@@ -82,6 +88,8 @@ uint8_t alc_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
       // WRTCOUNT++, READ ENABLE, WRITE ENABLE IF WRTCOUNT >= 2
       case 0xc083:
       case 0xc08b:
+      case 0xc087:
+      case 0xc08f:
          alc->wrtcount = alc->wrtcount + 1;
          alc->ram1->flags |= MEM_FLAGS_READ;
          alc->ram2->flags |= MEM_FLAGS_READ;
@@ -118,7 +126,9 @@ static void alc_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
    switch (addr) {
       // WRTCOUNT = 0, WRITE DISABLE, READ ENABLE
       case 0xc080:
+      case 0xc088:
       case 0xc084:
+      case 0xc08c:
          alc->wrtcount = 0;
          alc->ram1->flags = MEM_FLAGS_READ;
          alc->ram2->flags = MEM_FLAGS_READ;
@@ -127,7 +137,9 @@ static void alc_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
 
       // WRTCOUNT = 0, READ DISABLE
       case 0xc081:
+      case 0xc089:
       case 0xc085:
+      case 0xc08d:
          alc->wrtcount = 0;
          alc->ram1->flags &= ~MEM_FLAGS_READ;
          alc->ram2->flags &= ~MEM_FLAGS_READ;
@@ -136,7 +148,9 @@ static void alc_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
 
       // WRTCOUNT = 0, WRITE DISABLE, READ DISABLE
       case 0xc082:
+      case 0xc08a:
       case 0xc086:
+      case 0xc08e:
          alc->wrtcount = 0;
          alc->ram1->flags &= ~MEM_FLAGS_WRITE;
          alc->ram2->flags &= ~MEM_FLAGS_WRITE;
@@ -149,6 +163,8 @@ static void alc_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, u
       // WRTCOUNT = 0, READ ENABLE
       case 0xc083:
       case 0xc08b:
+      case 0xc087:
+      case 0xc08f:
          alc->wrtcount = 0;
          alc->ram1->flags |= MEM_FLAGS_READ;
          alc->ram2->flags |= MEM_FLAGS_READ;
