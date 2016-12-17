@@ -24,109 +24,119 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <curses.h>
+#include <string.h>
 
 #include "cpu.h"
 #include "pia.h"
 
 // This implements a 6820 Peripheral I/O Adapter. On the Apple I this
-// is what connects the keyboard and display logic to the CPU.
+// is what connects the keyboard and display logic to the CPU. The
+// implementation is not complete but does enough to support how the
+// keyboard and display are hooked up.
 
-static void pia_dsp_write(uint8_t b) {
-   b &= 0b01111111;
-   if (b == '\r') {
-      b = '\n';
-   }
-   addch(b);
-   refresh();
-}
-
-void pia_init(struct pia_t *pia) {
-   initscr();
-   raw();
-   noecho();
-   pia->a = 0;
-   pia->cra = 0;
-   pia->b = 0;
-   pia->crb = 0;
-}
-
-void pia_trace(struct pia_t *pia, uint8_t enable) {
-   pia->trace = enable;
-}
-
-uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct pia_t *pia = (struct pia_t*) mem->obj;
-
-   uint8_t result = 0;
-
+static uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
+   struct ewm_pia_t *pia = (struct ewm_pia_t*) mem->obj;
    switch (addr) {
-      case EWM_A1_PIA6820_KBD: {
-         result = pia->a;
-         break;
-      }
-
-      case EWM_A1_PIA6820_KBDCR: {
-         int c = getch();
-         if (c != ERR) {
-            /* TODO: Remove this, this is not how we want to stop the emulator */
-            if (c == 3) {
-               exit(1);
-            }
-            if (c == '\n') {
-               c = '\r';
-            }
-            pia->a = c | 0x80; // Set the high bit - WHat is up with the high bits. Document this.
-         }
-         result = (c == ERR) ? 0x00 : 0x80;
-         break;
-      }
-
-      case EWM_A1_PIA6820_DSP: {
-         result = 0;
-         break;
-      }
-
-      case EWM_A1_PIA6820_DSPCR: {
-         result = 0;
-         break;
-      }
-   }
-
-   if (pia->trace) {
-      fprintf(stderr, "PIA: READ BYTE %.2X FROM %.4X\n", result, addr);
-   }
-
-   return result;
-}
-
-void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct pia_t *pia = (struct pia_t*) mem->obj;
-
-   if (pia->trace) {
-      fprintf(stderr, "PIA: WRITING BYTE %.2X TO %.4X\n", b, addr);
-   }
-
-   switch (addr) {
-      case EWM_A1_PIA6820_KBD: { /* KBD */
-         break;
-      }
-
-      case EWM_A1_PIA6820_KBDCR: { /* KBDCR */
-         pia->cra = b;
-         break;
-      }
-
-      case EWM_A1_PIA6820_DSP: { /* DSP */
-         if (pia->crb != 0x00) { /* TODO: Check the actual flag */
-            pia_dsp_write(b);
+      case EWM_A1_PIA6820_KBD_DDR:
+         if (pia->ctla & 0b00000100) {
+            pia->ctla &= 0b01111111; // Clear IRQA1
+            return (pia->outa & pia->ddra) | (pia->ina & ~pia->ddra);
+         } else {
+            return pia->ddra;
          }
          break;
-      }
-
-      case EWM_A1_PIA6820_DSPCR: { /* DSPCR */
-         pia->crb = b;
+      case EWM_A1_PIA6820_KBD_CTL:
+         return pia->ctla;
          break;
-      }
+      case EWM_A1_PIA6820_DSP_DDR:
+         if (pia->ctlb & 0b00000100) {
+            return (pia->outb & pia->ddrb) | (pia->inb & ~pia->ddrb);
+         } else {
+            return pia->ddrb;
+         }
+         break;
+      case EWM_A1_PIA6820_DSP_CTL:
+         return pia->ctlb;
+         break;
    }
+   return 0;
+}
+
+static void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t v) {
+   struct ewm_pia_t *pia = (struct ewm_pia_t*) mem->obj;
+   switch (addr) {
+      case EWM_A1_PIA6820_KBD_DDR:
+         // Check B2 (DDR Access)
+         if (pia->ctla & 0b00000100) {
+            // Write output register and run callback
+            pia->outa = v;
+            if (pia->callback) {
+               pia->callback(pia, pia->callback_obj, EWM_PIA6820_DDRA, v);
+            }
+         } else {
+            // Write DDR register
+            pia->ddra = v;
+            // TODO Do we need a callback? Not relevant for Apple 1?
+         }
+         break;
+      case EWM_A1_PIA6820_KBD_CTL:
+         pia->ctla = (v & 0b00111111);
+         break;
+      case EWM_A1_PIA6820_DSP_DDR:
+         // Check B2 (DDR Access)
+         if (pia->ctlb & 0b00000100) {
+            // Write output register and run callback
+            pia->outb = v;
+            if (pia->callback) {
+               pia->callback(pia, pia->callback_obj, EWM_PIA6820_DDRB, v);
+            }
+         } else {
+            // Write DDR register
+            pia->ddrb = v;
+            // TODO Do we need a callback? Not relevant for Apple 1?
+         }
+         break;
+      case EWM_A1_PIA6820_DSP_CTL:
+         pia->ctlb = (v & 0b00111111);
+         break;
+   }
+}
+
+struct ewm_pia_t *ewm_pia_create(struct cpu_t *cpu) {
+   struct ewm_pia_t *pia = (struct ewm_pia_t*) malloc(sizeof(struct ewm_pia_t));
+   if (ewm_pia_init(pia, cpu) != 0) {
+      free(pia);
+      pia = NULL;
+   }
+   return pia;
+}
+
+int ewm_pia_init(struct ewm_pia_t *pia, struct cpu_t *cpu) {
+   memset(pia, 0, sizeof(struct ewm_pia_t));
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
+   return 0;
+}
+
+void ewm_pia_destroy(struct ewm_pia_t *pia) {
+   free(pia);
+}
+
+void ewm_pia_set_outa(struct ewm_pia_t *pia, uint8_t v) {
+   pia->outa = v;
+}
+
+void ewm_pia_set_ina(struct ewm_pia_t *pia, uint8_t v) {
+   pia->ina = v;
+}
+
+void ewm_pia_set_outb(struct ewm_pia_t *pia, uint8_t v) {
+   pia->outb = v;
+}
+
+void ewm_pia_set_inb(struct ewm_pia_t *pia, uint8_t v) {
+   pia->inb = v;
+}
+
+void ewm_pia_set_irqa1(struct ewm_pia_t *pia) {
+   pia->ctla |= 0b10000000; // Set IRQA1
 }

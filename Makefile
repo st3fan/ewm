@@ -21,13 +21,13 @@
 # SOFTWARE.
 
 CC=cc
-CFLAGS=-std=c11 -O3 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
+CFLAGS=-std=c11 -O0 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
 LDFLAGS=-g -L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c a2p.c scr.c dsk.c chr.c alc.c sdl.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
-EWM_LIBS=-lcurses -lSDL2
+EWM_LIBS=-lSDL2
 
 CPU_TEST_EXECUTABLE=cpu_test
 CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c cpu_test.c
@@ -35,7 +35,7 @@ CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c a2p.c scr.c dsk.c chr.c alc.c sdl.c scr_test.c
+SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c scr_test.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2
 

@@ -20,21 +20,29 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_SDL_H
-#define EWM_SDL_H
+#ifndef EWM_ONE_H
+#define EWM_ONE_H
+
+#define EWM_ONE_TYPE_APPLE1   0
+#define EWM_ONE_TYPE_REPLICA1 1
 
 #include <SDL2/SDL.h>
 
-#define EWM_SDL_FPS (50)
-
-extern SDL_Window *window;
-extern SDL_Renderer *renderer;
-
 struct cpu_t;
-struct a2p_t;
-struct scr_t;
+struct ewm_tty_t;
+struct ewm_pia_t;
 
-void sdl_initialize();
-void sdl_main(struct cpu_t *cpu, struct a2p_t *a2p, struct scr_t *scr);
+struct ewm_one_t {
+   int type;
+   struct cpu_t *cpu;
+   struct ewm_tty_t *tty;
+   struct ewm_pia_t *pia;
+};
 
-#endif // EWM_SDL_H
+struct ewm_one_t *ewm_one_create(int type, SDL_Renderer *renderer);
+int ewm_one_init(struct ewm_one_t *one, int type, SDL_Renderer *renderer);
+void ewm_one_destroy(struct ewm_one_t *one);
+
+int ewm_one_main(int argc, char **argv);
+
+#endif // EWM_ONE_H

@@ -96,7 +96,11 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, uint8_t rom_data[2
          }
       }
       texture = SDL_CreateTextureFromSurface(renderer, surface);
-      SDL_FreeSurface(surface);
+      if (texture == NULL) {
+         fprintf(stderr, "Cannot generate RGBSurface: %s\n", SDL_GetError());
+      }
+   } else {
+      fprintf(stderr, "Cannot generate Texture: %s\n", SDL_GetError());
    }
 
    return texture;
