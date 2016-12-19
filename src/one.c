@@ -87,6 +87,9 @@ static bool ewm_one_poll_event(struct ewm_one_t *one, SDL_Window *window) {
       switch (event.type) {
          case SDL_QUIT:
             return false;
+         case SDL_WINDOWEVENT:
+            one->tty->screen_dirty = true;
+            break;
          case SDL_KEYDOWN:
             if (event.key.keysym.mod & KMOD_CTRL) {
                if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {

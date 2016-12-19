@@ -326,6 +326,10 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
          case SDL_QUIT:
             return false;
 
+         case SDL_WINDOWEVENT:
+            two->screen_dirty = true;
+            break;
+
          case SDL_JOYBUTTONDOWN:
             if (event.jbutton.button < EWM_A2P_BUTTON_COUNT) {
                two->buttons[event.jbutton.button] = 1;
