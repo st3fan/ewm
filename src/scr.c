@@ -272,7 +272,7 @@ int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *rendere
    memset(scr, 0x00, sizeof(struct scr_t));
    scr->two = two;
    scr->renderer = renderer;
-   scr->chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   scr->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
    if (scr->chr == NULL) {
       fprintf(stderr, "[SCR] Failed to initialize character generator\n");
       return -1;

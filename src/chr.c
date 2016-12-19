@@ -146,9 +146,9 @@ int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Render
 
 #if 0
 int main() {
-   struct ewm_chr_t *chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716);
+   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716);
    if (chr == NULL) {
-      printf("Failed to load character ROM %s\n", "roms/3410036.bin");
+      printf("Failed to load character ROM %s\n", "rom/3410036.bin");
       exit(1);
    }
    return 0;

@@ -51,7 +51,7 @@ int ewm_one_init(struct ewm_one_t *one, int type, SDL_Renderer *renderer) {
       case EWM_ONE_TYPE_APPLE1:
          one->cpu = cpu_create(EWM_CPU_MODEL_6502);
          cpu_add_ram(one->cpu, 0x0000, 8 * 1024 - 1);
-         cpu_add_rom_file(one->cpu, 0xff00, "roms/apple1.rom");
+         cpu_add_rom_file(one->cpu, 0xff00, "rom/apple1.rom");
          one->tty = ewm_tty_create(renderer);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;
@@ -60,7 +60,7 @@ int ewm_one_init(struct ewm_one_t *one, int type, SDL_Renderer *renderer) {
       case EWM_ONE_TYPE_REPLICA1:
          one->cpu = cpu_create(EWM_CPU_MODEL_65C02);
          cpu_add_ram(one->cpu, 0x0000, 32 * 1024 - 1);
-         cpu_add_rom_file(one->cpu, 0xe000, "roms/krusader.rom");
+         cpu_add_rom_file(one->cpu, 0xe000, "rom/krusader.rom");
          one->tty = ewm_tty_create(renderer);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;

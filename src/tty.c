@@ -27,7 +27,7 @@ struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
    struct ewm_tty_t *tty = malloc(sizeof(struct ewm_tty_t));
    memset(tty, 0, sizeof(struct ewm_tty_t));
    tty->renderer = renderer;
-   tty->chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
    ewm_tty_reset(tty);
    return tty;
 }

@@ -184,7 +184,7 @@ int ewm_alc_init(struct ewm_alc_t *alc, struct cpu_t *cpu) {
    // addresses. So we register the ROM first, which means we never
    // have to disable it.
 
-   alc->rom = cpu_add_rom_file(cpu, 0xf800, "roms/341-0020.bin");
+   alc->rom = cpu_add_rom_file(cpu, 0xf800, "rom/341-0020.bin");
    alc->iom = cpu_add_iom(cpu, 0xc080, 0xc08f, alc, alc_iom_read, alc_iom_write);
    alc->iom->description = "iom/alc/$C080";
    alc->ram1 = cpu_add_ram(cpu, 0xd000, 0xd000 + 4096 - 1);

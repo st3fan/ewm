@@ -254,12 +254,12 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer)
          two->cpu = cpu_create(EWM_CPU_MODEL_6502);
 
          two->ram = cpu_add_ram(two->cpu, 0x0000, 48 * 1024);
-         two->roms[0] = cpu_add_rom_file(two->cpu, 0xd000, "roms/341-0011.bin"); // AppleSoft BASIC D000
-         two->roms[1] = cpu_add_rom_file(two->cpu, 0xd800, "roms/341-0012.bin"); // AppleSoft BASIC D800
-         two->roms[2] = cpu_add_rom_file(two->cpu, 0xe000, "roms/341-0013.bin"); // AppleSoft BASIC E000
-         two->roms[3] = cpu_add_rom_file(two->cpu, 0xe800, "roms/341-0014.bin"); // AppleSoft BASIC E800
-         two->roms[4] = cpu_add_rom_file(two->cpu, 0xf000, "roms/341-0015.bin"); // AppleSoft BASIC E800
-         two->roms[5] = cpu_add_rom_file(two->cpu, 0xf800, "roms/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
+         two->roms[0] = cpu_add_rom_file(two->cpu, 0xd000, "rom/341-0011.bin"); // AppleSoft BASIC D000
+         two->roms[1] = cpu_add_rom_file(two->cpu, 0xd800, "rom/341-0012.bin"); // AppleSoft BASIC D800
+         two->roms[2] = cpu_add_rom_file(two->cpu, 0xe000, "rom/341-0013.bin"); // AppleSoft BASIC E000
+         two->roms[3] = cpu_add_rom_file(two->cpu, 0xe800, "rom/341-0014.bin"); // AppleSoft BASIC E800
+         two->roms[4] = cpu_add_rom_file(two->cpu, 0xf000, "rom/341-0015.bin"); // AppleSoft BASIC E800
+         two->roms[5] = cpu_add_rom_file(two->cpu, 0xf800, "rom/341-0020.bin"); // AppleSoft BASIC Autostart Monitor F8000
          two->iom = cpu_add_iom(two->cpu, 0xc000, 0xc07f, two, ewm_two_iom_read, ewm_two_iom_write);
 
          two->dsk = ewm_dsk_create(two->cpu);
