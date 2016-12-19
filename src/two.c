@@ -517,7 +517,7 @@ int ewm_two_main(int argc, char **argv) {
    struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer);
 
    if (color) {
-      ewm_scr_color_scheme(two->scr, EWM_SCR_COLOR_SCHEME_COLOR);
+      ewm_scr_set_color_scheme(two->scr, EWM_SCR_COLOR_SCHEME_COLOR);
    }
 
    if (drive1 != NULL) {

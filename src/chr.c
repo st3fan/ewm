@@ -91,7 +91,7 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, uint8_t rom_data[2
       for (int y = 0; y < 8; y++) {
          for (int x = 0; x < 7; x++) {
             if (character_data[y] & (1 << x)) {
-               _set_pixel(surface, (6-x), y, 0xff00ff00);
+               _set_pixel(surface, (6-x), y, 0xffffffff);
             }
          }
       }

@@ -45,6 +45,7 @@ static inline void ewm_tty_render_character(struct ewm_tty_t *tty, int row, int 
       dst.y = row * 24;
       dst.w = 21;
       dst.h = 24;
+      SDL_SetTextureColorMod(tty->chr->characters[c], 0, 255, 0);
       SDL_RenderCopy(tty->renderer, tty->chr->characters[c], NULL, &dst);
    }
 }

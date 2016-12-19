@@ -47,6 +47,11 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column) 
       dst.y = row * 24;
       dst.w = 21;
       dst.h = 24;
+
+      if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
+         SDL_SetTextureColorMod(scr->chr->characters[c], 0, 255, 0);
+      }
+
       SDL_RenderCopy(scr->renderer, scr->chr->characters[c], NULL, &dst);
    }
 }
@@ -314,6 +319,6 @@ void ewm_scr_update(struct scr_t *scr) {
    }
 }
 
-void ewm_scr_color_scheme(struct scr_t *scr, int color_scheme) {
+void ewm_scr_set_color_scheme(struct scr_t *scr, int color_scheme) {
    scr->color_scheme = color_scheme;
 }

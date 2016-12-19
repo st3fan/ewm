@@ -25,8 +25,9 @@
 
 #include <SDL2/SDL.h>
 
-#define EWM_SCR_COLOR_SCHEME_GREEN 0
-#define EWM_SCR_COLOR_SCHEME_COLOR 1
+#define EWM_SCR_COLOR_SCHEME_MONOCHROME (0)
+#define EWM_SCR_COLOR_SCHEME_COLOR      (1)
+#define EWM_SCR_COLOR_SCHEME_DEFAULT    (EWM_SCR_COLOR_SCHEME_MONOCHROME)
 
 struct ewm_two_t;
 struct ewm_chr_t;
@@ -45,6 +46,6 @@ struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Renderer *renderer);
 int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *renderer);
 void ewm_scr_destroy(struct scr_t *scr);
 void ewm_scr_update(struct scr_t *scr);
-void ewm_scr_color_scheme(struct scr_t *scr, int color_scheme);
+void ewm_scr_set_color_scheme(struct scr_t *scr, int color_scheme);
 
 #endif
