@@ -22,5 +22,10 @@
 
 os: osx
 language: c
-script: make
-
+before_install:
+  - brew update
+  - brew install sdl2
+before_script:
+  - cd src
+script:
+  - make
