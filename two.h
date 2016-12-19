@@ -20,13 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_A2P_H
-#define EWM_A2P_H
+#ifndef EWM_TWO_H
+#define EWM_TWO_H
 
 #include <stdint.h>
 
-struct mem_t;
-struct ewm_dsk_t;
+#include <SDL2/SDL.h>
+
+#define EWM_TWO_TYPE_APPLE2     0
+#define EWM_TWO_TYPE_APPLE2PLUS 1
+#define EWM_TWO_TYPE_APPLE2E    2
 
 #define EWM_A2P_SCREEN_MODE_TEXT 0
 #define EWM_A2P_SCREEN_MODE_GRAPHICS 1
@@ -43,17 +46,25 @@ struct ewm_dsk_t;
 #define EWM_A2P_BUTTON1 0
 #define EWM_A2P_BUTTON2 1
 #define EWM_A2P_BUTTON3 2
-#define EWM_A2P_BUTTON4 3 // Only exists on the gs?
+#define EWM_A2P_BUTTON4 3 // Actually ony exists on the gs?
 #define EWM_A2P_BUTTON_COUNT 4
 
-struct a2p_t {
+struct mem_t;
+struct ewm_dsk_t;
+struct scr;
+
+struct ewm_two_t {
+   int type;
    struct cpu_t *cpu;
+   struct scr_t *scr;
+   struct ewm_dsk_t *dsk;
+   struct ewm_alc_t *alc;
 
    struct mem_t *ram;
    struct mem_t *roms[6];
    struct mem_t *iom;
-   struct ewm_dsk_t *dsk;
 
+   // TODO Should all this move into scr_t
    uint8_t *screen_txt_data;
    struct mem_t *screen_txt_iom;
 
@@ -71,10 +82,12 @@ struct a2p_t {
    uint8_t buttons[EWM_A2P_BUTTON_COUNT];
 };
 
-int a2p_init(struct a2p_t *a2p, struct cpu_t *cpu);
-struct a2p_t *a2p_create(struct cpu_t *cpu);
-void a2p_destroy(struct a2p_t *a2p);
+struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer);
+void ewm_two_destroy(struct ewm_two_t *two);
 
-int a2p_load_disk(struct a2p_t *a2p, int drive, char *path);
+int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path);
 
-#endif
+int ewm_two_main(int argc, char **argv);
+
+#endif // EWM_TWO_H
+

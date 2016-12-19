@@ -20,15 +20,33 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include "one.h"
-#include "two.h"
+#ifndef EWM_TTY_H
+#define EWM_TTY_H
 
-int main(int argc, char **argv) {
-   if (strcmp(argv[1], "one") == 0) {
-      return ewm_one_main(argc-1, &argv[1]);
-   }
-   if (strcmp(argv[1], "two") == 0) {
-      return ewm_two_main(argc-1, &argv[1]);
-   }
-   return 1;
-}
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <SDL2/SDL.h>
+
+#define EWM_ONE_TTY_ROWS 24
+#define EWM_ONE_TTY_COLUMNS 40
+#define EWM_ONE_TTY_CURSOR '@'
+
+struct ewm_chr_t;
+
+struct ewm_tty_t {
+   SDL_Renderer *renderer;
+   struct ewm_chr_t *chr;
+   bool screen_dirty;
+   uint8_t screen_buffer[EWM_ONE_TTY_ROWS * EWM_ONE_TTY_COLUMNS];
+   int screen_cursor_row;
+   int screen_cursor_column;
+};
+
+struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);
+void ewm_tty_destroy(struct ewm_tty_t *tty);
+void ewm_tty_write(struct ewm_tty_t *tty, uint8_t v);
+void ewm_tty_reset(struct ewm_tty_t *tty);
+void ewm_tty_refresh(struct ewm_tty_t *tty);
+
+#endif // EWM_TTY_H

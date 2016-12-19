@@ -34,22 +34,38 @@
 #define EWM_A1_PIA6820_ADDR   0xd010
 #define EWM_A1_PIA6820_LENGTH 0x0100
 
-#define EWM_A1_PIA6820_KBD   (EWM_A1_PIA6820_ADDR + EWM_PIA6820_DDRA)
-#define EWM_A1_PIA6820_KBDCR (EWM_A1_PIA6820_ADDR + EWM_PIA6820_CTLA)
-#define EWM_A1_PIA6820_DSP   (EWM_A1_PIA6820_ADDR + EWM_PIA6820_DDRB)
-#define EWM_A1_PIA6820_DSPCR (EWM_A1_PIA6820_ADDR + EWM_PIA6820_CTLB)
+#define EWM_A1_PIA6820_KBD_DDR (EWM_A1_PIA6820_ADDR + EWM_PIA6820_DDRA)
+#define EWM_A1_PIA6820_KBD_CTL (EWM_A1_PIA6820_ADDR + EWM_PIA6820_CTLA)
+#define EWM_A1_PIA6820_DSP_DDR (EWM_A1_PIA6820_ADDR + EWM_PIA6820_DDRB)
+#define EWM_A1_PIA6820_DSP_CTL (EWM_A1_PIA6820_ADDR + EWM_PIA6820_CTLB)
 
-struct pia_t {
-  uint8_t a;
-  uint8_t cra;
-  uint8_t b;
-  uint8_t crb;
-  uint8_t trace;
+struct ewm_pia_t;
+
+typedef void (*ewm_pia_callback_t)(struct ewm_pia_t *pia, void *obj, uint8_t ddr, uint8_t v);
+
+struct ewm_pia_t {
+   uint8_t ina;
+   uint8_t outa;
+   uint8_t ddra;
+   uint8_t ctla;
+   uint8_t inb;
+   uint8_t outb;
+   uint8_t ddrb;
+   uint8_t ctlb;
+   ewm_pia_callback_t callback;
+   void *callback_obj;
 };
 
-void pia_init(struct pia_t *pia);
-void pia_trace(struct pia_t *pia, uint8_t enable);
-uint8_t pia_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr);
-void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b);
+struct ewm_pia_t *ewm_pia_create(struct cpu_t *cpu);
+int ewm_pia_init(struct ewm_pia_t *pia, struct cpu_t *cpu);
+void ewm_pia_destroy(struct ewm_pia_t *pia);
+
+void ewm_pia_set_outa(struct ewm_pia_t *pia, uint8_t v);
+void ewm_pia_set_ina(struct ewm_pia_t *pia, uint8_t v);
+
+void ewm_pia_set_outb(struct ewm_pia_t *pia, uint8_t v);
+void ewm_pia_set_inb(struct ewm_pia_t *pia, uint8_t v);
+
+void ewm_pia_set_irqa1(struct ewm_pia_t *pia);
 
 #endif

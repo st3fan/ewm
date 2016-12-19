@@ -25,21 +25,20 @@
 
 #include "cpu.h"
 #include "mem.h"
-#include "a2p.h"
+#include "two.h"
 #include "scr.h"
-#include "sdl.h"
 
 typedef void (*test_setup_t)(struct scr_t *scr);
 typedef void (*test_run_t)(struct scr_t *scr);
 
 
 void txt_full_refresh_setup(struct scr_t *scr) {
-   scr->a2p->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
-   scr->a2p->screen_page = EWM_A2P_SCREEN_PAGE1;
+   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
       uint8_t v = 0xa0 + (random() % 64);
-      mem_set_byte(scr->a2p->cpu, a, v);
+      mem_set_byte(scr->two->cpu, a, v);
    }
 }
 
@@ -48,14 +47,14 @@ void txt_full_refresh_test(struct scr_t *scr) {
 }
 
 void lgr_full_refresh_setup(struct scr_t *scr) {
-   scr->a2p->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-   scr->a2p->screen_page = EWM_A2P_SCREEN_PAGE1;
-   scr->a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
-   scr->a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
+   scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+   scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
       uint8_t v = ((random() % 16) << 4) | (random() % 16);
-      mem_set_byte(scr->a2p->cpu, a, v);
+      mem_set_byte(scr->two->cpu, a, v);
    }
 }
 
@@ -64,13 +63,13 @@ void lgr_full_refresh_test(struct scr_t *scr) {
 }
 
 void hgr_full_refresh_setup(struct scr_t *scr) {
-   scr->a2p->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-   scr->a2p->screen_page = EWM_A2P_SCREEN_PAGE1;
-   scr->a2p->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
-   scr->a2p->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
+   scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+   scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x2000; a <= 0x5fff; a++) {
-      mem_set_byte(scr->a2p->cpu, a, random());
+      mem_set_byte(scr->two->cpu, a, random());
    }
 }
 
@@ -94,22 +93,39 @@ void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t tes
 }
 
 int main() {
-   sdl_initialize();
+   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS) < 0) {
+      fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
+      return 1;
+   }
+
+   SDL_Window *window = SDL_CreateWindow("EWM v0.1 / Apple 1", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+   if (window == NULL) {
+      fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
+      return 1;
+   }
+
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+   if (renderer == NULL) {
+      fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
+      return 1;
+   }
+
+   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+
    sleep(3); // Is this ok? Seems to be needed to get the window on the screen
 
    // Setup the CPU, Apple ][+ and it's screen.
 
-   struct cpu_t *cpu = cpu_create(EWM_CPU_MODEL_6502);
-   struct a2p_t *a2p = a2p_create(cpu);
-   struct scr_t *scr = ewm_scr_create(a2p, renderer);
+   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer);
 
-   test(scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
-   test(scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
-   test(scr, "hgr_full_refresh", hgr_full_refresh_setup, hgr_full_refresh_test);
+   test(two->scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
+   test(two->scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
+   test(two->scr, "hgr_full_refresh", hgr_full_refresh_setup, hgr_full_refresh_test);
 
    // Destroy DSL things
 
    SDL_DestroyWindow(window);
+   SDL_DestroyRenderer(renderer);
    SDL_Quit();
 
    return 0;

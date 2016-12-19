@@ -27,7 +27,7 @@
 
 #include "mem.h"
 #include "cpu.h"
-#include "a2p.h"
+#include "two.h"
 #include "chr.h"
 #include "scr.h"
 
@@ -39,8 +39,8 @@ static int txt_line_offsets[24] = {
 };
 
 static inline void scr_render_character(struct scr_t *scr, int row, int column) {
-   uint16_t base = (scr->a2p->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   uint8_t c = scr->a2p->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+   uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
+   uint8_t c = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
    if (scr->chr->characters[c] != NULL) {
       SDL_Rect dst;
       dst.x = column * 21;
@@ -81,8 +81,8 @@ static SDL_Color lores_colors[16] = {
 };
 
 static inline void scr_render_lores_block(struct scr_t *scr, int row, int column) {
-   uint16_t base = (scr->a2p->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   uint8_t block = scr->a2p->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+   uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
+   uint8_t block = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
    if (block != 0) {
       SDL_Rect dst;
       dst.x = column * 21;
@@ -106,7 +106,7 @@ static inline void scr_render_lores_block(struct scr_t *scr, int row, int column
 }
 
 static inline void scr_render_lgr_screen(struct scr_t *scr) {
-   bool mixed = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
+   bool mixed = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
 
    // Render graphics
    int rows = mixed ? 20 : 24;
@@ -173,7 +173,7 @@ static SDL_Color hgr_colors[16] = {
 static void inline scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    int x = 0;
    for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->a2p->screen_hgr_data[line_base + i];
+      uint8_t c = scr->two->screen_hgr_data[line_base + i];
       for (int j = 0; j < 7; j++) {
          SDL_Rect dst;
          dst.x = x * 3;
@@ -197,7 +197,7 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
 
    int pixels[280], x = 0;
    for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->a2p->screen_hgr_data[line_base + i];
+      uint8_t c = scr->two->screen_hgr_data[line_base + i];
       for (int j = 0; j < 7; j++) {
          if (c & (1 << j)) {
             if (x % 2 == 0) {
@@ -245,8 +245,8 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
 
 static void inline scr_render_hgr_screen(struct scr_t *scr) {
    // Render graphics
-   int lines = (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
-   uint16_t hgr_base = hgr_page_offsets[scr->a2p->screen_page];
+   int lines = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
+   uint16_t hgr_base = hgr_page_offsets[scr->two->screen_page];
    for (int line = 0; line < lines; line++) {
       uint16_t line_base = hgr_base + hgr_line_offsets[line];
       if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_COLOR) {
@@ -257,7 +257,7 @@ static void inline scr_render_hgr_screen(struct scr_t *scr) {
    }
 
    // Render bottom 4 lines of text
-   if (scr->a2p->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) {
+   if (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) {
       for (int row = 20; row < 24; row++) {
          for (int column = 0; column < 40; column++) {
             scr_render_character(scr, row, column);
@@ -268,9 +268,9 @@ static void inline scr_render_hgr_screen(struct scr_t *scr) {
 
 // TODO This is the only actual API exposed
 
-int ewm_scr_init(struct scr_t *scr, struct a2p_t *a2p, SDL_Renderer *renderer) {
+int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *renderer) {
    memset(scr, 0x00, sizeof(struct scr_t));
-   scr->a2p = a2p;
+   scr->two = two;
    scr->renderer = renderer;
    scr->chr = ewm_chr_create("roms/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
    if (scr->chr == NULL) {
@@ -280,9 +280,9 @@ int ewm_scr_init(struct scr_t *scr, struct a2p_t *a2p, SDL_Renderer *renderer) {
    return 0;
 }
 
-struct scr_t *ewm_scr_create(struct a2p_t *a2p, SDL_Renderer *renderer) {
+struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Renderer *renderer) {
    struct scr_t *scr = malloc(sizeof(struct scr_t));
-   if (ewm_scr_init(scr, a2p, renderer) != 0) {
+   if (ewm_scr_init(scr, two, renderer) != 0) {
       free(scr);
       scr = NULL;
    }
@@ -297,12 +297,12 @@ void ewm_scr_update(struct scr_t *scr) {
    SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 255);
    SDL_RenderClear(scr->renderer);
 
-   switch (scr->a2p->screen_mode) {
+   switch (scr->two->screen_mode) {
       case EWM_A2P_SCREEN_MODE_TEXT:
          scr_render_txt_screen(scr);
          break;
       case EWM_A2P_SCREEN_MODE_GRAPHICS:
-         switch (scr->a2p->screen_graphics_mode) {
+         switch (scr->two->screen_graphics_mode) {
             case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
                scr_render_lgr_screen(scr);
                break;
