@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include <ctype.h>
+#include <getopt.h>
 #include <stdlib.h>
 
 #include <SDL2/SDL.h>
@@ -31,9 +32,9 @@
 #include "tty.h"
 #include "one.h"
 
-struct ewm_one_t *ewm_one_create(int type, SDL_Renderer *renderer) {
+struct ewm_one_t *ewm_one_create(int model, SDL_Renderer *renderer) {
    struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
-   if (ewm_one_init(one, type, renderer) != 0) {
+   if (ewm_one_init(one, model, renderer) != 0) {
       free(one);
       one = NULL;
    }
@@ -45,10 +46,11 @@ static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, 
    ewm_tty_write(one->tty, v);
 }
 
-int ewm_one_init(struct ewm_one_t *one, int type, SDL_Renderer *renderer) {
+int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
    memset(one, 0, sizeof(struct ewm_one_t));
-   switch (type) {
-      case EWM_ONE_TYPE_APPLE1:
+   one->model = model;
+   switch (model) {
+      case EWM_ONE_MODEL_APPLE1:
          one->cpu = cpu_create(EWM_CPU_MODEL_6502);
          cpu_add_ram(one->cpu, 0x0000, 8 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xff00, "rom/apple1.rom");
@@ -57,7 +59,7 @@ int ewm_one_init(struct ewm_one_t *one, int type, SDL_Renderer *renderer) {
          one->pia->callback = ewm_one_pia_callback;
          one->pia->callback_obj = one;
          break;
-      case EWM_ONE_TYPE_REPLICA1:
+      case EWM_ONE_MODEL_REPLICA1:
          one->cpu = cpu_create(EWM_CPU_MODEL_65C02);
          cpu_add_ram(one->cpu, 0x0000, 32 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xe000, "rom/krusader.rom");
@@ -170,10 +172,35 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
    return true;
 }
 
+#define EWM_ONE_OPT_MODEL 0
+
+static struct option one_options[] = {
+   { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL },
+   { NULL,      0,                 NULL, 0 }
+};
+
 int ewm_one_main(int argc, char **argv) {
    // Parse Apple 1 specific options
 
-   // TODO
+   int model = EWM_ONE_MODEL_DEFAULT;
+
+   char ch;
+   while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
+      switch (ch) {
+         case EWM_ONE_OPT_MODEL:
+            if (strcmp(optarg, "apple1") == 0) {
+               model = EWM_ONE_MODEL_APPLE1;
+            } else if (strcmp(optarg, "replica1") == 0) {
+               model = EWM_ONE_MODEL_REPLICA1;
+            } else {
+               fprintf(stderr, "Unknown --model specified\n");
+               exit(1);
+            }
+            break;
+      }
+   }
+
+
 
    // Setup SDL
 
@@ -198,7 +225,7 @@ int ewm_one_main(int argc, char **argv) {
 
    // Create the machine
 
-   struct ewm_one_t *one = ewm_one_create(EWM_ONE_TYPE_REPLICA1, renderer);
+   struct ewm_one_t *one = ewm_one_create(model, renderer);
    if (one == NULL) {
       fprintf(stderr, "Failed to create ewm_one_t\n");
       return 1;

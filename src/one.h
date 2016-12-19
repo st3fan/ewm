@@ -23,8 +23,9 @@
 #ifndef EWM_ONE_H
 #define EWM_ONE_H
 
-#define EWM_ONE_TYPE_APPLE1   0
-#define EWM_ONE_TYPE_REPLICA1 1
+#define EWM_ONE_MODEL_APPLE1   (0)
+#define EWM_ONE_MODEL_REPLICA1 (1)
+#define EWM_ONE_MODEL_DEFAULT  (EWM_ONE_MODEL_REPLICA1)
 
 #include <SDL2/SDL.h>
 
@@ -33,7 +34,7 @@ struct ewm_tty_t;
 struct ewm_pia_t;
 
 struct ewm_one_t {
-   int type;
+   int model;
    struct cpu_t *cpu;
    struct ewm_tty_t *tty;
    struct ewm_pia_t *pia;
