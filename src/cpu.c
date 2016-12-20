@@ -170,6 +170,8 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
               pc, bytes, trace_instruction, trace_state, trace_stack);
    }
 
+   cpu->counter += i->cycles;
+
    return i->cycles;
 }
 
@@ -406,21 +408,6 @@ int cpu_nmi(struct cpu_t *cpu) {
    cpu->state.pc = mem_get_word(cpu, EWM_VECTOR_NMI);
 
    return 0;
-}
-
-int cpu_run(struct cpu_t *cpu) {
-   uint64_t instruction_count = 0;
-   int err = 0;
-   while ((err = cpu_execute_instruction(cpu)) == 0) {
-      /* TODO: Tick? */
-      instruction_count++;
-   }
-   return err;
-}
-
-int cpu_boot(struct cpu_t *cpu) {
-   cpu_reset(cpu);
-   return cpu_run(cpu);
 }
 
 int cpu_step(struct cpu_t *cpu) {

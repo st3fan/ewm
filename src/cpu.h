@@ -53,6 +53,7 @@ struct cpu_t {
    bool strict;
    struct mem_t *mem;
    struct cpu_instruction_t *instructions;
+   uint64_t counter;
 };
 
 #define MEM_FLAGS_READ  0x01
@@ -105,8 +106,6 @@ void cpu_reset(struct cpu_t *cpu);
 int cpu_irq(struct cpu_t *cpu);
 int cpu_nmi(struct cpu_t *cpu);
 
-int cpu_run(struct cpu_t *cpu);
-int cpu_boot(struct cpu_t *cpu);
 int cpu_step(struct cpu_t *cpu);
 
 uint16_t cpu_memory_get_word(struct cpu_t *cpu, uint16_t addr);

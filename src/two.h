@@ -80,9 +80,20 @@ struct ewm_two_t {
 
    uint8_t key;
    uint8_t buttons[EWM_A2P_BUTTON_COUNT];
+
+   uint64_t padl0_time;
+   uint8_t padl0_value;
+   uint64_t padl1_time;
+   uint8_t padl1_value;
+   uint64_t padl2_time; // Are 2 and 3 actually used? Not sure what to map them to.
+   uint8_t padl2_value;
+   uint64_t padl3_time;
+   uint8_t padl3_value;
+
+   SDL_Joystick *joystick;
 };
 
-struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer);
+struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);
 void ewm_two_destroy(struct ewm_two_t *two);
 
 int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path);

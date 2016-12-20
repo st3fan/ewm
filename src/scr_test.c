@@ -116,7 +116,7 @@ int main() {
 
    // Setup the CPU, Apple ][+ and it's screen.
 
-   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer);
+   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, NULL);
 
    test(two->scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
    test(two->scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
