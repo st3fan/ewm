@@ -27,7 +27,7 @@ Here are some of the things I want to accomplish for each emulated machine:
 *8K / 6502 / Classic ROM*
 
 * ~~Terminal based emulation~~
-* Classic display emulation (SDL based)
+* ~~Classic display emulation (SDL based)~~
 * Cassette interface
 
 ### Replica 1
@@ -35,7 +35,7 @@ Here are some of the things I want to accomplish for each emulated machine:
 *32K / 65C02 / KRUSADER ROM*
 
 * ~~Terminal based emulation~~
-* Classic display emulation (SDL based)
+* ~~Classic display emulation (SDL based)~~
 * Cassette interface
 * [CFFA1](http://dreher.net/?s=projects/CFforApple1&c=projects/CFforApple1/main.php) Support
 
@@ -43,11 +43,14 @@ Here are some of the things I want to accomplish for each emulated machine:
 
 *48K / 6502*
 
-* Basic Apple ][+ architecture implementation - In progress
-* Disk II emulation - In progress
-* Display Emulation - 40 Column mode - In progress
-* Display Emulation - Low resolution graphics
-* Display Emulation - High resolution graphics
+* ~~Basic Apple ][+ architecture implementation - In progress~~
+* ~~Disk II emulation - In progress~~
+* ~~Display Emulation - 40 Column mode~~
+* ~~Display Emulation - Low resolution graphics~~
+* ~~Apple Language Card~~
+* ~~Joystick Support~~
+* Audio Support
+* Display Emulation - High resolution graphics - Mostly works.
 
 ### Apple IIe
 
