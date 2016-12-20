@@ -62,6 +62,13 @@
 #define EWM_A2P_SS_PB2 0xC063
 #define EWM_A2P_SS_PB3 0xC060 // TODO On the gs only?
 
+#define EWM_TWO_SS_PTRIG 0xc070
+#define EWM_TWO_SS_PADL0 0xc064
+#define EWM_TWO_SS_PADL1 0xc065
+#define EWM_TWO_SS_PADL3 0xc066
+#define EWM_TWO_SS_PADL4 0xc067
+
+
 static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
    switch (addr) {
@@ -137,6 +144,31 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
          break;
       case EWM_A2P_SS_CLRAN3:
          break;
+
+      case EWM_TWO_SS_PTRIG: {
+         if (two->joystick != NULL) {
+            int x = 128 + (SDL_JoystickGetAxis(two->joystick, 0) / 256);
+            two->padl0_time = two->cpu->counter + (x * (2820 / 255)); // TODO Remove magic values
+            two->padl0_value = 0xff;
+            int y = 128 + (SDL_JoystickGetAxis(two->joystick, 1) / 256);
+            two->padl1_time = two->cpu->counter + (y * (2820 / 255)); // TODO Remove magic values
+            two->padl1_value = 0xff;
+         }
+         break;
+      }
+      case EWM_TWO_SS_PADL0: {
+         if (two->padl0_time != 0 && two->cpu->counter >= two->padl0_time) {
+            two->padl0_time = 0;
+            two->padl0_value = 0;
+         }
+         return two->padl0_value;
+      }
+      case EWM_TWO_SS_PADL1: {
+         if (two->padl1_time != 0 && two->cpu->counter >= two->padl1_time) {
+            two->padl1_value = 0;
+         }
+         return two->padl1_value;
+      }
 
       default:
          printf("[A2P] Unexpected read at $%.4X\n", addr);
@@ -239,7 +271,7 @@ static void ewm_two_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint1
    two->screen_dirty = true;
 }
 
-static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer) {
+static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
    memset(two, 0, sizeof(struct ewm_two_t));
 
    two->type = type;
@@ -297,12 +329,14 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer)
    two->screen_hgr_data = malloc(16 * 1024);
    two->screen_hgr_iom = cpu_add_iom(two->cpu, 0x2000, 0x5fff, two, ewm_two_screen_hgr_read, ewm_two_screen_hgr_write);
 
+   two->joystick = joystick;
+
    return 0;
 }
 
-struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer) {
+struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
    struct ewm_two_t *two = malloc(sizeof(struct ewm_two_t));
-   if (ewm_two_init(two, type, renderer) != 0) {
+   if (ewm_two_init(two, type, renderer, joystick) != 0) {
       free(two);
       two = NULL;
    }
@@ -330,34 +364,28 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             two->screen_dirty = true;
             break;
 
-         case SDL_JOYBUTTONDOWN:
-            if (event.jbutton.button < EWM_A2P_BUTTON_COUNT) {
-               two->buttons[event.jbutton.button] = 1;
-            }
-            break;
-         case SDL_JOYBUTTONUP:
-            if (event.jbutton.button < EWM_A2P_BUTTON_COUNT) {
-               two->buttons[event.jbutton.button] = 0;
+         case SDL_CONTROLLERBUTTONDOWN:
+         case SDL_CONTROLLERBUTTONUP:
+            switch (event.cbutton.button) {
+               case SDL_CONTROLLER_BUTTON_A:
+               case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+                  two->buttons[0] = event.cbutton.state == SDL_PRESSED ? 0x80 : 0x00;
+                  break;
+               case SDL_CONTROLLER_BUTTON_B:
+               case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+                  two->buttons[1] = event.cbutton.state == SDL_PRESSED ? 0x80 : 0x00;
+                  break;
+               case SDL_CONTROLLER_BUTTON_X:
+                  two->buttons[2] = event.cbutton.state == SDL_PRESSED ? 0x80 : 0x00;
+                  break;
+               case SDL_CONTROLLER_BUTTON_Y:
+                  two->buttons[3] = event.cbutton.state == SDL_PRESSED ? 0x80 : 0x00;
+                  break;
             }
             break;
 
          case SDL_KEYDOWN:
-            if (event.key.keysym.mod & KMOD_ALT) {
-               switch (event.key.keysym.sym) {
-                  case SDLK_1:
-                     two->buttons[0] = 1;
-                     break;
-                  case SDLK_2:
-                     two->buttons[1] = 1;
-                     break;
-                  case SDLK_3:
-                     two->buttons[2] = 1;
-                     break;
-                  case SDLK_4:
-                     two->buttons[3] = 1;
-                     break;
-               }
-            } else if (event.key.keysym.mod & KMOD_CTRL) {
+            if (event.key.keysym.mod & KMOD_CTRL) {
                if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {
                   two->key = (event.key.keysym.sym - SDLK_a) | 0x80;
                } else {
@@ -497,7 +525,7 @@ int ewm_two_main(int argc, char **argv) {
 
    // Initialize SDL
 
-   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS) < 0) {
+   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) < 0) {
       fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
       exit(1);
    }
@@ -516,9 +544,20 @@ int ewm_two_main(int argc, char **argv) {
 
    SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 
+   // If we have a joystick, open it
+
+   SDL_GameController *controller = NULL;
+   SDL_Joystick *joystick = NULL;
+
+   if (SDL_NumJoysticks() != 0) {
+      controller = SDL_GameControllerOpen(0);
+      SDL_GameControllerEventState(SDL_ENABLE);
+      joystick = SDL_GameControllerGetJoystick(controller);
+   }
+
    // Create and configure the Apple II
 
-   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer);
+   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, joystick);
 
    if (color) {
       ewm_scr_set_color_scheme(two->scr, EWM_SCR_COLOR_SCHEME_COLOR);
