@@ -56,6 +56,15 @@ struct cpu_t {
    uint64_t counter;
 };
 
+#define EWM_CPU_VECTORS_BASE (0xfffa)
+#define EWM_CPU_VECTORS_SIZE (6)
+
+struct cpu_vectors_t {
+   uint16_t rst;
+   uint16_t nmi;
+   uint16_t irq;
+};
+
 #define MEM_FLAGS_READ  0x01
 #define MEM_FLAGS_WRITE 0x02
 

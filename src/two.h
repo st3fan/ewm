@@ -64,20 +64,6 @@ struct ewm_two_t {
    struct mem_t *roms[6];
    struct mem_t *iom;
 
-   // TODO Should all this move into scr_t
-   uint8_t *screen_txt_data;
-   struct mem_t *screen_txt_iom;
-
-   uint8_t *screen_hgr_data;
-   struct mem_t *screen_hgr_iom;
-   int screen_hgr_page;
-
-   int screen_mode;
-   int screen_graphics_mode;
-   int screen_graphics_style;
-   int screen_page;
-   int screen_dirty;
-
    uint8_t key;
    uint8_t buttons[EWM_A2P_BUTTON_COUNT];
 

@@ -25,7 +25,7 @@ CFLAGS=-std=c11 -O0 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-
 LDFLAGS=-g -L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c sma.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2
 

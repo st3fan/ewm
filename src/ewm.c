@@ -22,13 +22,17 @@
 
 #include "one.h"
 #include "two.h"
+#include "sma.h"
 
 int main(int argc, char **argv) {
-   if (strcmp(argv[1], "one") == 0) {
-      return ewm_one_main(argc-1, &argv[1]);
+   if (argc > 1) {
+      if (strcmp(argv[1], "one") == 0) {
+         return ewm_one_main(argc-1, &argv[1]);
+      }
+      if (strcmp(argv[1], "two") == 0) {
+         return ewm_two_main(argc-1, &argv[1]);
+      }
+   } else {
+      return ewm_sma_main(argc-1, &argv[1]);
    }
-   if (strcmp(argv[1], "two") == 0) {
-      return ewm_two_main(argc-1, &argv[1]);
-   }
-   return 1;
 }
