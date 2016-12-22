@@ -20,42 +20,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_SCR_H
-#define EWM_SCR_H
+#ifndef EWM_SMA_H
+#define EWM_SMA_H
 
-#include <SDL2/SDL.h>
+#include <stdint.h>
+#include <stdbool.h>
 
-#define EWM_SCR_COLOR_SCHEME_MONOCHROME (0)
-#define EWM_SCR_COLOR_SCHEME_COLOR      (1)
-#define EWM_SCR_COLOR_SCHEME_DEFAULT    (EWM_SCR_COLOR_SCHEME_MONOCHROME)
+struct cpu_t;
+struct scr_t;
+struct mem_t;
 
-struct ewm_two_t;
-struct ewm_chr_t;
-
-// The 'scr' object represents the Apple ][ screen. It renders the
-// contents of the machine.
-
-struct scr_t {
-   SDL_Renderer *renderer;
-   struct ewm_chr_t *chr;
-   int color_scheme;
-
-   uint8_t *screen_txt_data;
-   struct mem_t *screen_txt_iom;
-
-   uint8_t *screen_hgr_data;
-   struct mem_t *screen_hgr_iom;
-
-   int screen_mode;
-   int screen_graphics_mode;
-   int screen_graphics_style;
-   int screen_page;
-   int screen_dirty;
+struct ewm_sma_t {
+   struct cpu_t *cpu;
+   struct mem_t *ram;
+   struct mem_t *rom;
+   struct ewm_tty_t *tty;
+   struct mem_t *tty_iom;
+   uint8_t key;
 };
 
-struct scr_t *ewm_scr_create(struct cpu_t *cpu, SDL_Renderer *renderer);
-void ewm_scr_destroy(struct scr_t *scr);
-void ewm_scr_update(struct scr_t *scr);
-void ewm_scr_set_color_scheme(struct scr_t *scr, int color_scheme);
+int ewm_sma_main(int argc, char **argv);
 
-#endif
+#endif // EWM_SMA_H

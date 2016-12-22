@@ -79,39 +79,39 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
          return 0x00;
 
       case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
-         two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-         two->screen_dirty = true;
+         two->scr->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_SCREEN_MODE_TEXT:
-         two->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
-         two->screen_dirty = true;
+         two->scr->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_GRAPHICS_MODE_LGR:
-         two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_GRAPHICS_MODE_HGR:
-         two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_GRAPHICS_STYLE_FULL:
-         two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_GRAPHICS_STYLE_MIXED:
-         two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_SCREEN_PAGE1:
-         two->screen_page = EWM_A2P_SCREEN_PAGE1;
-         two->screen_dirty = true;
+         two->scr->screen_page = EWM_A2P_SCREEN_PAGE1;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_SCREEN_PAGE2:
-         two->screen_page = EWM_A2P_SCREEN_PAGE2;
-         two->screen_dirty = true;
+         two->scr->screen_page = EWM_A2P_SCREEN_PAGE2;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_SPKR:
@@ -190,39 +190,39 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
          break;
 
       case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
-         two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-         two->screen_dirty = true;
+         two->scr->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_SCREEN_MODE_TEXT:
-         two->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
-         two->screen_dirty = true;
+         two->scr->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_GRAPHICS_MODE_LGR:
-         two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_GRAPHICS_MODE_HGR:
-         two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_GRAPHICS_STYLE_FULL:
-         two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_GRAPHICS_STYLE_MIXED:
-         two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
-         two->screen_dirty = true;
+         two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_SCREEN_PAGE1:
-         two->screen_page = EWM_A2P_SCREEN_PAGE1;
-         two->screen_dirty = true;
+         two->scr->screen_page = EWM_A2P_SCREEN_PAGE1;
+         two->scr->screen_dirty = true;
          break;
       case EWM_A2P_SS_SCREEN_PAGE2:
-         two->screen_page = EWM_A2P_SCREEN_PAGE2;
-         two->screen_dirty = true;
+         two->scr->screen_page = EWM_A2P_SCREEN_PAGE2;
+         two->scr->screen_dirty = true;
          break;
 
       case EWM_A2P_SS_SETAN0:
@@ -247,28 +247,6 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
          printf("[A2P] Unexpected write at $%.4X\n", addr);
          break;
    }
-}
-
-static uint8_t ewm_two_screen_txt_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   return two->screen_txt_data[addr - mem->start];
-}
-
-static void ewm_two_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   two->screen_txt_data[addr - mem->start] = b;
-   two->screen_dirty = true;
-}
-
-static uint8_t ewm_two_screen_hgr_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   return two->screen_hgr_data[addr - mem->start];
-}
-
-static void ewm_two_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   two->screen_hgr_data[addr - mem->start] = b;
-   two->screen_dirty = true;
 }
 
 static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
@@ -306,7 +284,7 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
             return -1;
          }
 
-         two->scr = ewm_scr_create(two, renderer);
+         two->scr = ewm_scr_create(two->cpu, renderer);
          if (two->scr == NULL) {
             fprintf(stderr, "[TWO] Could not create Screen\n");
             return -1;
@@ -322,12 +300,6 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
    }
 
    // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used?
-
-   two->screen_txt_data = malloc(2 * 1024);
-   two->screen_txt_iom = cpu_add_iom(two->cpu, 0x0400, 0x0bff, two, ewm_two_screen_txt_read, ewm_two_screen_txt_write);
-
-   two->screen_hgr_data = malloc(16 * 1024);
-   two->screen_hgr_iom = cpu_add_iom(two->cpu, 0x2000, 0x5fff, two, ewm_two_screen_hgr_read, ewm_two_screen_hgr_write);
 
    two->joystick = joystick;
 
@@ -361,7 +333,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             return false;
 
          case SDL_WINDOWEVENT:
-            two->screen_dirty = true;
+            two->scr->screen_dirty = true;
             break;
 
          case SDL_CONTROLLERBUTTONDOWN:
@@ -595,9 +567,9 @@ int ewm_two_main(int argc, char **argv) {
             break;
          }
 
-         if (two->screen_dirty) {
+         if (two->scr->screen_dirty) {
             ewm_scr_update(two->scr);
-            two->screen_dirty = false;
+            two->scr->screen_dirty = false;
             SDL_RenderPresent(two->scr->renderer);
          }
 

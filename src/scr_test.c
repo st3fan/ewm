@@ -28,62 +28,62 @@
 #include "two.h"
 #include "scr.h"
 
-typedef void (*test_setup_t)(struct scr_t *scr);
-typedef void (*test_run_t)(struct scr_t *scr);
+typedef void (*test_setup_t)(struct ewm_two_t *two);
+typedef void (*test_run_t)(struct ewm_two_t *two);
 
 
-void txt_full_refresh_setup(struct scr_t *scr) {
-   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
-   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
+void txt_full_refresh_setup(struct ewm_two_t *two) {
+   two->scr->screen_mode = EWM_A2P_SCREEN_MODE_TEXT;
+   two->scr->screen_page = EWM_A2P_SCREEN_PAGE1;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
       uint8_t v = 0xa0 + (random() % 64);
-      mem_set_byte(scr->two->cpu, a, v);
+      mem_set_byte(two->cpu, a, v);
    }
 }
 
-void txt_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+void txt_full_refresh_test(struct ewm_two_t *two) {
+   ewm_scr_update(two->scr);
 }
 
-void lgr_full_refresh_setup(struct scr_t *scr) {
-   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
-   scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
-   scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+void lgr_full_refresh_setup(struct ewm_two_t *two) {
+   two->scr->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+   two->scr->screen_page = EWM_A2P_SCREEN_PAGE1;
+   two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_LGR;
+   two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
       uint8_t v = ((random() % 16) << 4) | (random() % 16);
-      mem_set_byte(scr->two->cpu, a, v);
+      mem_set_byte(two->cpu, a, v);
    }
 }
 
-void lgr_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+void lgr_full_refresh_test(struct ewm_two_t *two) {
+   ewm_scr_update(two->scr);
 }
 
-void hgr_full_refresh_setup(struct scr_t *scr) {
-   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
-   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
-   scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
-   scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+void hgr_full_refresh_setup(struct ewm_two_t *two) {
+   two->scr->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+   two->scr->screen_page = EWM_A2P_SCREEN_PAGE1;
+   two->scr->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+   two->scr->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x2000; a <= 0x5fff; a++) {
-      mem_set_byte(scr->two->cpu, a, random());
+      mem_set_byte(two->cpu, a, random());
    }
 }
 
-void hgr_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+void hgr_full_refresh_test(struct ewm_two_t *two) {
+   ewm_scr_update(two->scr);
 }
 
-void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t test_run) {
-   test_setup(scr);
+void test(struct ewm_two_t *two, char *name, test_setup_t test_setup, test_run_t test_run) {
+   test_setup(two);
 
    Uint64 start = SDL_GetPerformanceCounter();
    for (int i = 0; i < 1000; i++) {
-      test_run(scr);
-      SDL_RenderPresent(scr->renderer);
+      test_run(two);
+      SDL_RenderPresent(two->scr->renderer);
    }
    Uint64 now = SDL_GetPerformanceCounter();
    double total = (double)((now - start)*1000) / SDL_GetPerformanceFrequency();
@@ -118,9 +118,9 @@ int main() {
 
    struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, NULL);
 
-   test(two->scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
-   test(two->scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
-   test(two->scr, "hgr_full_refresh", hgr_full_refresh_setup, hgr_full_refresh_test);
+   test(two, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
+   test(two, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
+   test(two, "hgr_full_refresh", hgr_full_refresh_setup, hgr_full_refresh_test);
 
    // Destroy DSL things
 
