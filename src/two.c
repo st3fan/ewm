@@ -171,7 +171,7 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
       }
 
       default:
-         printf("[A2P] Unexpected read at $%.4X\n", addr);
+         printf("[A2P] Unexpected read at $%.4X pc is $%.4X\n", addr, cpu->state.pc);
          break;
    }
    return 0;
@@ -244,7 +244,7 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
          break;
 
       default:
-         printf("[A2P] Unexpected write at $%.4X\n", addr);
+         printf("[A2P] Unexpected write at $%.4X pc is $%.4X\n", addr, cpu->state.pc);
          break;
    }
 }
