@@ -43,7 +43,7 @@ void txt_full_refresh_setup(struct scr_t *scr) {
 }
 
 void txt_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+   ewm_scr_update(scr, 0, 0);
 }
 
 void lgr_full_refresh_setup(struct scr_t *scr) {
@@ -59,7 +59,7 @@ void lgr_full_refresh_setup(struct scr_t *scr) {
 }
 
 void lgr_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+   ewm_scr_update(scr, 0, 0);
 }
 
 void hgr_full_refresh_setup(struct scr_t *scr) {
@@ -74,7 +74,7 @@ void hgr_full_refresh_setup(struct scr_t *scr) {
 }
 
 void hgr_full_refresh_test(struct scr_t *scr) {
-   ewm_scr_update(scr);
+   ewm_scr_update(scr, 0, 0);
 }
 
 void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t test_run) {

@@ -38,7 +38,7 @@ static int txt_line_offsets[24] = {
    0x228, 0x2a8, 0x328, 0x3a8, 0x050, 0x0d0, 0x150, 0x1d0, 0x250, 0x2d0, 0x350, 0x3d0
 };
 
-static inline void scr_render_character(struct scr_t *scr, int row, int column) {
+static inline void scr_render_character(struct scr_t *scr, int row, int column, bool flash) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
    uint8_t c = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
    if (scr->chr->characters[c] != NULL) {
@@ -48,6 +48,18 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column) 
       dst.w = 21;
       dst.h = 24;
 
+      if (c >= 0x40 && c <= 0x7f) {
+         if (flash) {
+            c -= 0x40;
+         } else {
+            if (c <= 0x5f) {
+               c += 0x80;
+            } else {
+               c += 0x40;
+            }
+         }
+      }
+
       if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
          SDL_SetTextureColorMod(scr->chr->characters[c], 0, 255, 0);
       }
@@ -56,10 +68,10 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column) 
    }
 }
 
-static inline void scr_render_txt_screen(struct scr_t *scr) {
+static inline void scr_render_txt_screen(struct scr_t *scr, bool flash) {
    for (int row = 0; row < 24; row++) {
       for (int column = 0; column < 40; column++) {
-         scr_render_character(scr, row, column);
+         scr_render_character(scr, row, column, flash);
       }
    }
 }
@@ -110,7 +122,7 @@ static inline void scr_render_lores_block(struct scr_t *scr, int row, int column
    }
 }
 
-static inline void scr_render_lgr_screen(struct scr_t *scr) {
+static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
    bool mixed = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
 
    // Render graphics
@@ -124,7 +136,7 @@ static inline void scr_render_lgr_screen(struct scr_t *scr) {
    if (mixed) {
       for (int row = 20; row < 24; row++) {
          for (int column = 0; column < 40; column++) {
-            scr_render_character(scr, row, column);
+            scr_render_character(scr, row, column, flash);
          }
       }
    }
@@ -248,7 +260,7 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
    }
 }
 
-static void inline scr_render_hgr_screen(struct scr_t *scr) {
+static void inline scr_render_hgr_screen(struct scr_t *scr, bool flash) {
    // Render graphics
    int lines = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
    uint16_t hgr_base = hgr_page_offsets[scr->two->screen_page];
@@ -265,7 +277,7 @@ static void inline scr_render_hgr_screen(struct scr_t *scr) {
    if (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) {
       for (int row = 20; row < 24; row++) {
          for (int column = 0; column < 40; column++) {
-            scr_render_character(scr, row, column);
+            scr_render_character(scr, row, column, flash);
          }
       }
    }
@@ -298,21 +310,21 @@ void ewm_scr_destroy(struct scr_t *scr) {
    // TODO
 }
 
-void ewm_scr_update(struct scr_t *scr) {
+void ewm_scr_update(struct scr_t *scr, int phase, int fps) {
    SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 255);
    SDL_RenderClear(scr->renderer);
 
    switch (scr->two->screen_mode) {
       case EWM_A2P_SCREEN_MODE_TEXT:
-         scr_render_txt_screen(scr);
+         scr_render_txt_screen(scr, phase >= (fps / 2));
          break;
       case EWM_A2P_SCREEN_MODE_GRAPHICS:
          switch (scr->two->screen_graphics_mode) {
             case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
-               scr_render_lgr_screen(scr);
+               scr_render_lgr_screen(scr, phase >= (fps / 2));
                break;
             case EWM_A2P_SCREEN_GRAPHICS_MODE_HGR:
-               scr_render_hgr_screen(scr);
+               scr_render_hgr_screen(scr, phase >= (fps / 2));
                break;
          }
          break;

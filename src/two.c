@@ -585,6 +585,7 @@ int ewm_two_main(int argc, char **argv) {
    SDL_StartTextInput();
 
    Uint32 ticks = SDL_GetTicks();
+   int phase = 1;
 
    while (true) {
       if (!ewm_two_poll_event(two, window)) {
@@ -596,13 +597,21 @@ int ewm_two_main(int argc, char **argv) {
             break;
          }
 
-         if (two->screen_dirty) {
-            ewm_scr_update(two->scr);
+         // Update the screen when it is flagged dirty or if we enter
+         // the second half of the frames we draw each second. The
+         // latter because that is when we update flashing text.
+
+         if (two->screen_dirty || (phase == 0) || (phase == (50 / 2))) {
+            ewm_scr_update(two->scr, phase, 50);
             two->screen_dirty = false;
             SDL_RenderPresent(two->scr->renderer);
          }
 
          ticks = SDL_GetTicks();
+         phase += 1;
+         if (phase == 50) {
+            phase = 0;
+         }
       }
    }
 
