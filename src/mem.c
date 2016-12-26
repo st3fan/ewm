@@ -191,26 +191,23 @@ void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
 // For parsing --memory options
 
 struct ewm_memory_option_t *parse_memory_option(char *s) {
-   char *type = strsep(&s, ":");
-   if (type == NULL) { // || (strcmp(type, "ram") && strcmp(type, "rom"))) {
-      printf("type fail\n");
+   char *type = strtok(s, ":");
+   if (type == NULL || (strcmp(type, "ram") != 0 && strcmp(type, "rom") != 0)) {
       return NULL;
    }
 
-   char *address = strsep(&s, ":");
+   char *address = strtok(NULL, ":");
    if (address == NULL) {
-      printf("address fail\n");
       return NULL;
    }
 
-   char *path = strsep(&s, ":");
+   char *path = strtok(NULL, ":");
    if (path == NULL) {
-      printf("path fail\n");
       return NULL;
    }
 
    struct ewm_memory_option_t *m = (struct ewm_memory_option_t*) malloc(sizeof(struct ewm_memory_option_t));
-   m->type = strcmp(type, "ram") ? EWM_MEMORY_TYPE_RAM : EWM_MEMORY_TYPE_ROM;
+   m->type = strcmp(type, "ram") == 0 ? EWM_MEMORY_TYPE_RAM : EWM_MEMORY_TYPE_ROM;
    m->path = path;
    m->address = atoi(address);
    m->next = NULL;
