@@ -178,22 +178,24 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
    return true;
 }
 
-#define EWM_ONE_OPT_MODEL 0
+#define EWM_ONE_OPT_MODEL  (0)
+#define EWM_ONE_OPT_MEMORY (1)
 
 static struct option one_options[] = {
    { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL },
-   { NULL,      0,                 NULL, 0 }
+   { "memory", required_argument, NULL, EWM_ONE_OPT_MEMORY },
+   { NULL,     0,                 NULL, 0 }
 };
 
 int ewm_one_main(int argc, char **argv) {
    // Parse Apple 1 specific options
-
    int model = EWM_ONE_MODEL_DEFAULT;
+   struct ewm_memory_option_t *extra_memory = NULL;
 
    char ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
       switch (ch) {
-         case EWM_ONE_OPT_MODEL:
+         case EWM_ONE_OPT_MODEL: {
             if (strcmp(optarg, "apple1") == 0) {
                model = EWM_ONE_MODEL_APPLE1;
             } else if (strcmp(optarg, "replica1") == 0) {
@@ -203,6 +205,16 @@ int ewm_one_main(int argc, char **argv) {
                exit(1);
             }
             break;
+         }
+         case EWM_ONE_OPT_MEMORY: {
+            struct ewm_memory_option_t *m = parse_memory_option(optarg);
+            if (m == NULL) {
+               exit(1);
+            }
+            m->next = extra_memory;
+            extra_memory = m;
+            break;
+         }
       }
    }
 
@@ -235,6 +247,14 @@ int ewm_one_main(int argc, char **argv) {
    if (one == NULL) {
       fprintf(stderr, "Failed to create ewm_one_t\n");
       return 1;
+   }
+
+   // Add extra memory, if any
+
+   if (extra_memory != NULL) {
+      if (cpu_add_memory_from_options(one->cpu, extra_memory) != 0) {
+         exit(1);
+      }
    }
 
    cpu_reset(one->cpu);

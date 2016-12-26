@@ -496,12 +496,14 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
 #define EWM_TWO_OPT_DRIVE2 (1)
 #define EWM_TWO_OPT_COLOR  (2)
 #define EWM_TWO_OPT_FPS    (3)
+#define EWM_TWO_OPT_MEMORY (4)
 
 static struct option one_options[] = {
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
    { "drive2",  required_argument, NULL, EWM_TWO_OPT_DRIVE2 },
    { "color",   no_argument,       NULL, EWM_TWO_OPT_COLOR  },
    { "fps",     required_argument, NULL, EWM_TWO_OPT_FPS    },
+   { "memory",  required_argument, NULL, EWM_TWO_OPT_MEMORY },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -512,6 +514,7 @@ int ewm_two_main(int argc, char **argv) {
    char *drive2 = NULL;
    bool color = false;
    int fps = EWM_TWO_FPS_DEFAULT;
+   struct ewm_memory_option_t *extra_memory = NULL;
 
    char ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -528,6 +531,15 @@ int ewm_two_main(int argc, char **argv) {
          case EWM_TWO_OPT_FPS:
             fps = atoi(optarg);
             break;
+         case EWM_TWO_OPT_MEMORY: {
+            struct ewm_memory_option_t *m = parse_memory_option(optarg);
+            if (m == NULL) {
+               exit(1);
+            }
+            m->next = extra_memory;
+            extra_memory = m;
+            break;
+         }
       }
    }
 
@@ -581,6 +593,14 @@ int ewm_two_main(int argc, char **argv) {
    if (drive2 != NULL) {
       if (ewm_two_load_disk(two, EWM_DSK_DRIVE2, drive2) != 0) {
          fprintf(stderr, "[A2P] Cannot load Drive 2 with %s\n", drive2);
+         exit(1);
+      }
+   }
+
+   // Add extra memory, if any
+
+   if (extra_memory != NULL) {
+      if (cpu_add_memory_from_options(two->cpu, extra_memory) != 0) {
          exit(1);
       }
    }

@@ -63,4 +63,19 @@ void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op);
 uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr);
 void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v);
 
+// For parsing --memory options
+
+#define EWM_MEMORY_TYPE_RAM (0)
+#define EWM_MEMORY_TYPE_ROM (1)
+
+struct ewm_memory_option_t {
+   int type;
+   char *path;
+   uint16_t address;
+   struct ewm_memory_option_t *next;
+};
+
+struct ewm_memory_option_t *parse_memory_option(char *s);
+int cpu_add_memory_from_options(struct cpu_t *cpu, struct ewm_memory_option_t *m);
+
 #endif

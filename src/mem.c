@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "cpu.h"
 #include "mem.h"
@@ -185,4 +186,53 @@ void mem_mod_byte_indx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
 
 void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
   mem_set_byte_indy(cpu, addr, op(cpu, mem_get_byte_indy(cpu, addr)));
+}
+
+// For parsing --memory options
+
+struct ewm_memory_option_t *parse_memory_option(char *s) {
+   char *type = strsep(&s, ":");
+   if (type == NULL) { // || (strcmp(type, "ram") && strcmp(type, "rom"))) {
+      printf("type fail\n");
+      return NULL;
+   }
+
+   char *address = strsep(&s, ":");
+   if (address == NULL) {
+      printf("address fail\n");
+      return NULL;
+   }
+
+   char *path = strsep(&s, ":");
+   if (path == NULL) {
+      printf("path fail\n");
+      return NULL;
+   }
+
+   struct ewm_memory_option_t *m = (struct ewm_memory_option_t*) malloc(sizeof(struct ewm_memory_option_t));
+   m->type = strcmp(type, "ram") ? EWM_MEMORY_TYPE_RAM : EWM_MEMORY_TYPE_ROM;
+   m->path = path;
+   m->address = atoi(address);
+   m->next = NULL;
+
+   return m;
+}
+
+int cpu_add_memory_from_options(struct cpu_t *cpu, struct ewm_memory_option_t *m) {
+   while (m != NULL) {
+      fprintf(stderr, "[EWM] Adding %s $%.4X %s\n", m->type == EWM_MEMORY_TYPE_RAM ? "RAM" : "ROM", m->address, m->path);
+      if (m->type == EWM_MEMORY_TYPE_RAM) {
+         if (cpu_add_ram_file(cpu, m->address, m->path) == NULL) {
+            fprintf(stderr, "[MEM] Failed to add RAM from %s\n", m->path);
+            return -1;
+         }
+      } else {
+         if (cpu_add_rom_file(cpu, m->address, m->path) == NULL) {
+            fprintf(stderr, "[MEM] Failed to add ROM from %s\n", m->path);
+            return -1;
+         }
+      }
+      m = m->next;
+   }
+   return 0;
 }
