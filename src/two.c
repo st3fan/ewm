@@ -416,6 +416,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                   case SDLK_DELETE:
                      two->key = 0x7f | 0x80; // DEL
                      break;
+                  case SDLK_BACKSPACE:
                   case SDLK_LEFT:
                      two->key = 0x08 | 0x80; // BS
                      break;
