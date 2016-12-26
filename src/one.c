@@ -43,6 +43,9 @@ struct ewm_one_t *ewm_one_create(int model, SDL_Renderer *renderer) {
 
 static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, uint8_t v) {
    struct ewm_one_t *one = (struct ewm_one_t*) obj;
+   if (one->model == EWM_ONE_MODEL_APPLE1) {
+      v &= 0x7f;
+   }
    ewm_tty_write(one->tty, v);
 }
 
