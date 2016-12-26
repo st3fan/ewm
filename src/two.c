@@ -491,14 +491,16 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
    return true;
 }
 
-#define EWM_TWO_OPT_DRIVE1 0
-#define EWM_TWO_OPT_DRIVE2 1
-#define EWM_TWO_OPT_COLOR  2
+#define EWM_TWO_OPT_DRIVE1 (0)
+#define EWM_TWO_OPT_DRIVE2 (1)
+#define EWM_TWO_OPT_COLOR  (2)
+#define EWM_TWO_OPT_FPS    (3)
 
 static struct option one_options[] = {
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
    { "drive2",  required_argument, NULL, EWM_TWO_OPT_DRIVE2 },
    { "color",   no_argument,       NULL, EWM_TWO_OPT_COLOR  },
+   { "fps",     required_argument, NULL, EWM_TWO_OPT_FPS    },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -508,6 +510,7 @@ int ewm_two_main(int argc, char **argv) {
    char *drive1 = NULL;
    char *drive2 = NULL;
    bool color = false;
+   int fps = EWM_TWO_FPS_DEFAULT;
 
    char ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -520,6 +523,9 @@ int ewm_two_main(int argc, char **argv) {
             break;
          case EWM_TWO_OPT_COLOR:
             color = true;
+            break;
+         case EWM_TWO_OPT_FPS:
+            fps = atoi(optarg);
             break;
       }
    }
@@ -592,8 +598,8 @@ int ewm_two_main(int argc, char **argv) {
          break;
       }
 
-      if ((SDL_GetTicks() - ticks) >= (1000 / 50)) {
-         if (!ewm_two_step_cpu(two, 1000000 / 50)) {
+      if ((SDL_GetTicks() - ticks) >= (1000 / fps)) {
+         if (!ewm_two_step_cpu(two, 1000000 / fps)) {
             break;
          }
 
@@ -601,15 +607,15 @@ int ewm_two_main(int argc, char **argv) {
          // the second half of the frames we draw each second. The
          // latter because that is when we update flashing text.
 
-         if (two->screen_dirty || (phase == 0) || (phase == (50 / 2))) {
-            ewm_scr_update(two->scr, phase, 50);
+         if (two->screen_dirty || (phase == 0) || (phase == (fps / 2))) {
+            ewm_scr_update(two->scr, phase, fps);
             two->screen_dirty = false;
             SDL_RenderPresent(two->scr->renderer);
          }
 
          ticks = SDL_GetTicks();
          phase += 1;
-         if (phase == 50) {
+         if (phase == fps) {
             phase = 0;
          }
       }
