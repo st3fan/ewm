@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-CC=cc
+CC?=cc
 CFLAGS=-std=c11 -O0 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
 LDFLAGS=-g -L/usr/local/lib
 
