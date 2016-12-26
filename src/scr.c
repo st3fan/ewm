@@ -107,7 +107,7 @@ static inline void scr_render_lores_block(struct scr_t *scr, int row, int column
       dst.w = 21;
       dst.h = 12;
 
-      uint c = block & 0x0f;
+      uint8_t c = block & 0x0f;
       if (c != 0) {
          SDL_SetRenderDrawColor(scr->renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
          SDL_RenderFillRect(scr->renderer, &dst);

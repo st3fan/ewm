@@ -192,7 +192,7 @@ int ewm_one_main(int argc, char **argv) {
    int model = EWM_ONE_MODEL_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
 
-   char ch;
+   int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
       switch (ch) {
          case EWM_ONE_OPT_MODEL: {

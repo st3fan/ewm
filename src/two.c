@@ -516,7 +516,7 @@ int ewm_two_main(int argc, char **argv) {
    int fps = EWM_TWO_FPS_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
 
-   char ch;
+   int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
       switch (ch) {
          case EWM_TWO_OPT_DRIVE1:

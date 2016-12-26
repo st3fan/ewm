@@ -37,7 +37,7 @@ void txt_full_refresh_setup(struct scr_t *scr) {
    scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
-      uint8_t v = 0xa0 + (random() % 64);
+      uint8_t v = 0xa0 + (rand() % 64);
       mem_set_byte(scr->two->cpu, a, v);
    }
 }
@@ -53,7 +53,7 @@ void lgr_full_refresh_setup(struct scr_t *scr) {
    scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x0400; a <= 0x0bff; a++) {
-      uint8_t v = ((random() % 16) << 4) | (random() % 16);
+      uint8_t v = ((rand() % 16) << 4) | (rand() % 16);
       mem_set_byte(scr->two->cpu, a, v);
    }
 }
@@ -69,7 +69,7 @@ void hgr_full_refresh_setup(struct scr_t *scr) {
    scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
 
    for (uint16_t a = 0x2000; a <= 0x5fff; a++) {
-      mem_set_byte(scr->two->cpu, a, random());
+      mem_set_byte(scr->two->cpu, a, rand());
    }
 }
 
