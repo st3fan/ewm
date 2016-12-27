@@ -180,10 +180,10 @@ static uint16_t hgr_line_offsets[192] = {
 
 static SDL_Color hgr_colors[16] = {
    { 0,   0,   0,   0 }, // 0 Black
-   { 0,   0,   204, 0 }, // 1 Blue
-   { 128, 0,   128, 0 }, // 2 Purple
-   { 0,   100, 0,   0 }, // 3 Green
-   { 0,   100, 0,   0 }, // 4 Red
+   { 0,   150, 255, 0 }, // 1 Light Blue
+   { 255,  64, 255, 0 }, // 2 Purple
+   { 0,   249, 0,   0 }, // 3 Green
+   { 255, 147, 0,   0 }, // 4 Orange
    { 255, 255, 255, 0 }  // 5 White
 };
 
@@ -225,7 +225,7 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
                }
             } else {
                if (c & 0x80) {
-                  pixels[x] = 4; // Red
+                  pixels[x] = 4; // Orange
                } else {
                   pixels[x] = 3; // Green
                }
@@ -242,6 +242,14 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
    for (int i = 0; i < (280-1); i++) {
       if (pixels[i] && pixels[i+1]) {
          pixels[i] = 5; // White
+      }
+   }
+
+   // Fill black pixels with same neighbours
+
+   for (int i = 0; i < (280-1); i++) {
+      if (pixels[i] == pixels[i+2] && pixels[i] != 0) {
+         pixels[i+1] = pixels[i];
       }
    }
 
