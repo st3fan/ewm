@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 CC?=cc
-CFLAGS=-std=c11 -O0 -Wpedantic -Wall -Wshadow -Werror -Wshadow  -Wno-gnu-binary-literal -g
+CFLAGS=-std=gnu11 -O3 -Wall -Wextra -Werror -Wno-unused-parameter
 LDFLAGS=-g -L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
