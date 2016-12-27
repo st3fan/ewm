@@ -155,7 +155,8 @@ static uint8_t dsk_read_next(struct ewm_dsk_t *dsk) {
       drive->head += 1;
    }
 
-   dsk->skip = (++dsk->skip % 4); // TODO Why is this done? To simulate a slow disk?
+   dsk->skip += 1;
+   dsk->skip %= 4;
 
    return result;
 }
