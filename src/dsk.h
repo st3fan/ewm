@@ -37,7 +37,7 @@ struct mem_t;
 #define EWM_DSK_SECTOR_SIZE 256
 
 struct ewm_dsk_track_t {
-   size_t length;
+   int length;
    uint8_t *data;
 };
 

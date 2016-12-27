@@ -513,7 +513,7 @@ int ewm_two_main(int argc, char **argv) {
    char *drive1 = NULL;
    char *drive2 = NULL;
    bool color = false;
-   int fps = EWM_TWO_FPS_DEFAULT;
+   uint32_t fps = EWM_TWO_FPS_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
 
    int ch;
@@ -611,8 +611,8 @@ int ewm_two_main(int argc, char **argv) {
 
    SDL_StartTextInput();
 
-   Uint32 ticks = SDL_GetTicks();
-   int phase = 1;
+   uint32_t ticks = SDL_GetTicks();
+   uint32_t phase = 1;
 
    while (true) {
       if (!ewm_two_poll_event(two, window)) {
