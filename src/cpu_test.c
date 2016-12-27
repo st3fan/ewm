@@ -38,7 +38,7 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
 
    while (true) {
       int ret = cpu_step(&cpu);
-      if (ret != 0) {
+      if (ret < 0) {
          switch (ret) {
             case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
                fprintf(stderr, "TEST   Unimplemented instruction 0x%.2x at 0x%.4x\n",
