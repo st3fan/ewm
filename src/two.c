@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <getopt.h>
+#include <time.h>
 
 #include <SDL2/SDL.h>
 
@@ -31,6 +32,7 @@
 #include "mem.h"
 #include "dsk.h"
 #include "alc.h"
+#include "chr.h"
 #include "scr.h"
 #include "two.h"
 
@@ -405,6 +407,11 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                         SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
                      }
                      break;
+                  case SDLK_i:
+                     two->status_bar_visible = !two->status_bar_visible;
+                     SDL_SetWindowSize(window, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
+                     SDL_RenderSetLogicalSize(two->scr->renderer, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
+                     break;
                }
             } else if (event.key.keysym.mod == KMOD_NONE) {
                switch (event.key.keysym.sym) {
@@ -490,6 +497,36 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
       }
    }
    return true;
+}
+
+static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
+
+   SDL_Rect rect = { .x = 0, .y = (24*8*3), .w = (40*7*3), .h = (9*3) };
+   SDL_SetRenderDrawColor(two->scr->renderer, 39, 39, 39, 0);
+   SDL_RenderFillRect(two->scr->renderer, &rect);
+
+   char s[41];
+   snprintf(s, 41, "%1.3f MHZ                         [1][2]", mhz);
+   //               1234567890123456789012345678901234567890
+
+   for (int i = 0; i < 40; i++) {
+      int c = s[i] + 0x80;
+      if (two->scr->chr->characters[c] != NULL) {
+         SDL_Rect dst;
+         dst.x = i * 21;
+         dst.y = 24 * 24 + 3;
+         dst.w = 21;
+         dst.h = 24;
+
+         if (two->dsk->on && ((i == 35 && two->dsk->drive == EWM_DSK_DRIVE1) || (i == 38 && two->dsk->drive == EWM_DSK_DRIVE2))) {
+            SDL_SetTextureColorMod(two->scr->chr->characters[c], 145, 193, 75);
+         } else {
+            SDL_SetTextureColorMod(two->scr->chr->characters[c], 255, 0, 0);
+         }
+
+         SDL_RenderCopy(two->scr->renderer, two->scr->chr->characters[c], NULL, &dst);
+      }
+   }
 }
 
 #define EWM_TWO_OPT_DRIVE1 (0)
@@ -614,13 +651,16 @@ int ewm_two_main(int argc, char **argv) {
    uint32_t ticks = SDL_GetTicks();
    uint32_t phase = 1;
 
+   uint64_t counter = two->cpu->counter;
+   double mhz = 1.0;
+
    while (true) {
       if (!ewm_two_poll_event(two, window)) {
          break;
       }
 
       if ((SDL_GetTicks() - ticks) >= (1000 / fps)) {
-         if (!ewm_two_step_cpu(two, 1000000 / fps)) {
+         if (!ewm_two_step_cpu(two, EWM_TWO_SPEED / fps)) {
             break;
          }
 
@@ -631,6 +671,11 @@ int ewm_two_main(int argc, char **argv) {
          if (two->screen_dirty || (phase == 0) || (phase == (fps / 2))) {
             ewm_scr_update(two->scr, phase, fps);
             two->screen_dirty = false;
+
+            if (two->status_bar_visible) {
+               ewm_two_update_status_bar(two, mhz);
+            }
+
             SDL_RenderPresent(two->scr->renderer);
          }
 
@@ -638,6 +683,13 @@ int ewm_two_main(int argc, char **argv) {
          phase += 1;
          if (phase == fps) {
             phase = 0;
+
+            // Calculate the number of cycles we have done in the past
+            // second. TODO This will always equal 1023000 - It needs
+            // to be actual clock time based instead. Good for now,
+            // but not ideal.
+            mhz = (two->cpu->counter - counter) / 1000000.0;
+            counter = two->cpu->counter;
          }
       }
    }
