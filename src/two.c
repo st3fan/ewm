@@ -497,6 +497,7 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
 #define EWM_TWO_OPT_COLOR  (2)
 #define EWM_TWO_OPT_FPS    (3)
 #define EWM_TWO_OPT_MEMORY (4)
+#define EWM_TWO_OPT_TRACE  (5)
 
 static struct option one_options[] = {
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
@@ -504,6 +505,7 @@ static struct option one_options[] = {
    { "color",   no_argument,       NULL, EWM_TWO_OPT_COLOR  },
    { "fps",     required_argument, NULL, EWM_TWO_OPT_FPS    },
    { "memory",  required_argument, NULL, EWM_TWO_OPT_MEMORY },
+   { "trace",   optional_argument, NULL, EWM_TWO_OPT_TRACE  },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -515,6 +517,7 @@ int ewm_two_main(int argc, char **argv) {
    bool color = false;
    uint32_t fps = EWM_TWO_FPS_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
+   char *trace_path = NULL;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -540,6 +543,9 @@ int ewm_two_main(int argc, char **argv) {
             extra_memory = m;
             break;
          }
+         case EWM_TWO_OPT_TRACE:
+            trace_path = optarg ? optarg : "/dev/stderr";
+            break;
       }
    }
 
@@ -604,6 +610,8 @@ int ewm_two_main(int argc, char **argv) {
          exit(1);
       }
    }
+
+   cpu_trace(two->cpu, trace_path);
 
    cpu_reset(two->cpu);
 

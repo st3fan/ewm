@@ -180,10 +180,12 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
 
 #define EWM_ONE_OPT_MODEL  (0)
 #define EWM_ONE_OPT_MEMORY (1)
+#define EWM_ONE_OPT_TRACE  (2)
 
 static struct option one_options[] = {
-   { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL },
+   { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL  },
    { "memory", required_argument, NULL, EWM_ONE_OPT_MEMORY },
+   { "trace",  optional_argument, NULL, EWM_ONE_OPT_TRACE  },
    { NULL,     0,                 NULL, 0 }
 };
 
@@ -191,6 +193,7 @@ int ewm_one_main(int argc, char **argv) {
    // Parse Apple 1 specific options
    int model = EWM_ONE_MODEL_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
+   char *trace_path = NULL;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -215,10 +218,12 @@ int ewm_one_main(int argc, char **argv) {
             extra_memory = m;
             break;
          }
+         case EWM_ONE_OPT_TRACE: {
+            trace_path = optarg ? optarg : "/dev/stderr";
+            break;
+         }
       }
    }
-
-
 
    // Setup SDL
 
@@ -256,6 +261,8 @@ int ewm_one_main(int argc, char **argv) {
          exit(1);
       }
    }
+
+   cpu_trace(one->cpu, trace_path);
 
    cpu_reset(one->cpu);
 
