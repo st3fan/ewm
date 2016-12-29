@@ -470,6 +470,7 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
    while (true) {
       int ret = cpu_step(two->cpu);
       if (ret < 0) {
+         // These only happen in strict mode
          switch (ret) {
             case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
                fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
@@ -482,7 +483,7 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
                fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", two->cpu->state.pc);
                break;
          }
-         cpu_nmi(two->cpu);
+         return false;
       }
       cycles -= ret;
       if (cycles <= 0) {
@@ -498,6 +499,7 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
 #define EWM_TWO_OPT_FPS    (3)
 #define EWM_TWO_OPT_MEMORY (4)
 #define EWM_TWO_OPT_TRACE  (5)
+#define EWM_TWO_OPT_STRICT (6)
 
 static struct option one_options[] = {
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
@@ -506,6 +508,7 @@ static struct option one_options[] = {
    { "fps",     required_argument, NULL, EWM_TWO_OPT_FPS    },
    { "memory",  required_argument, NULL, EWM_TWO_OPT_MEMORY },
    { "trace",   optional_argument, NULL, EWM_TWO_OPT_TRACE  },
+   { "strict",  no_argument,       NULL, EWM_TWO_OPT_STRICT },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -518,6 +521,7 @@ int ewm_two_main(int argc, char **argv) {
    uint32_t fps = EWM_TWO_FPS_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
    char *trace_path = NULL;
+   bool strict = false;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -545,6 +549,9 @@ int ewm_two_main(int argc, char **argv) {
          }
          case EWM_TWO_OPT_TRACE:
             trace_path = optarg ? optarg : "/dev/stderr";
+            break;
+         case EWM_TWO_OPT_STRICT:
+            strict = true;
             break;
       }
    }
@@ -611,6 +618,7 @@ int ewm_two_main(int argc, char **argv) {
       }
    }
 
+   cpu_strict(two->cpu, strict);
    cpu_trace(two->cpu, trace_path);
 
    cpu_reset(two->cpu);

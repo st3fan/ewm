@@ -155,6 +155,7 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
    while (true) {
       int ret = cpu_step(one->cpu);
       if (ret < 0) {
+         // These only happen in strict mode
          switch (ret) {
             case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
                fprintf(stderr, "CPU: Exited because of unimplemented instructions 0x%.2x at 0x%.4x\n",
@@ -167,7 +168,7 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
                fprintf(stderr, "CPU: Exited because of stack underflow at 0x%.4x\n", one->cpu->state.pc);
                break;
          }
-         cpu_nmi(one->cpu);
+         return false;
       }
 
       cycles -= ret;
@@ -181,11 +182,13 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
 #define EWM_ONE_OPT_MODEL  (0)
 #define EWM_ONE_OPT_MEMORY (1)
 #define EWM_ONE_OPT_TRACE  (2)
+#define EWM_ONE_OPT_STRICT (3)
 
 static struct option one_options[] = {
    { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL  },
    { "memory", required_argument, NULL, EWM_ONE_OPT_MEMORY },
    { "trace",  optional_argument, NULL, EWM_ONE_OPT_TRACE  },
+   { "strict", no_argument,       NULL, EWM_ONE_OPT_STRICT },
    { NULL,     0,                 NULL, 0 }
 };
 
@@ -194,6 +197,7 @@ int ewm_one_main(int argc, char **argv) {
    int model = EWM_ONE_MODEL_DEFAULT;
    struct ewm_memory_option_t *extra_memory = NULL;
    char *trace_path = NULL;
+   bool strict = false;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -220,6 +224,10 @@ int ewm_one_main(int argc, char **argv) {
          }
          case EWM_ONE_OPT_TRACE: {
             trace_path = optarg ? optarg : "/dev/stderr";
+            break;
+         }
+         case EWM_ONE_OPT_STRICT: {
+            strict = true;
             break;
          }
       }
@@ -262,6 +270,7 @@ int ewm_one_main(int argc, char **argv) {
       }
    }
 
+   cpu_strict(one->cpu, strict);
    cpu_trace(one->cpu, trace_path);
 
    cpu_reset(one->cpu);

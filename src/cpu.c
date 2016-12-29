@@ -111,8 +111,10 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
 
    /* Fetch instruction */
    struct cpu_instruction_t *i = &cpu->instructions[mem_get_byte(cpu, cpu->state.pc)];
-   if (i->handler == NULL) {
-      return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
+   if (i->name[0] == '?') {
+      if (cpu->strict) {
+         return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
+      }
    }
 
    // If strict mode and if we need the stack, check if that works out
