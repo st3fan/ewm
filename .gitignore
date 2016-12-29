@@ -49,3 +49,16 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+ewm
+scr_test
+cpu_test
+
+*.bin
+*.lst
+
+*.dsk
+
+disks
+tmp
+
