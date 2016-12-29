@@ -23,6 +23,7 @@
 #ifndef EWM_TWO_H
 #define EWM_TWO_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <SDL2/SDL.h>
@@ -50,6 +51,7 @@
 #define EWM_A2P_BUTTON_COUNT 4
 
 #define EWM_TWO_FPS_DEFAULT (30)
+#define EWM_TWO_SPEED (1023000)
 
 struct mem_t;
 struct ewm_dsk_t;
@@ -93,6 +95,8 @@ struct ewm_two_t {
    uint8_t padl3_value;
 
    SDL_Joystick *joystick;
+
+   bool status_bar_visible;
 };
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);

@@ -62,6 +62,8 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
 
       if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
          SDL_SetTextureColorMod(scr->chr->characters[c], 0, 255, 0);
+      } else {
+         SDL_SetTextureColorMod(scr->chr->characters[c], 255, 255, 255);
       }
 
       SDL_RenderCopy(scr->renderer, scr->chr->characters[c], NULL, &dst);
