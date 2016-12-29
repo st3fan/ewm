@@ -62,11 +62,24 @@ void lgr_full_refresh_test(struct scr_t *scr) {
    ewm_scr_update(scr, 0, 0);
 }
 
-void hgr_full_refresh_setup(struct scr_t *scr) {
+void hgr_full_refresh_setup_monochrome(struct scr_t *scr) {
    scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
    scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
    scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
    scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+   scr->color_scheme = EWM_SCR_COLOR_SCHEME_MONOCHROME;
+
+   for (uint16_t a = 0x2000; a <= 0x5fff; a++) {
+      mem_set_byte(scr->two->cpu, a, rand());
+   }
+}
+
+void hgr_full_refresh_setup_color(struct scr_t *scr) {
+   scr->two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
+   scr->two->screen_page = EWM_A2P_SCREEN_PAGE1;
+   scr->two->screen_graphics_mode = EWM_A2P_SCREEN_GRAPHICS_MODE_HGR;
+   scr->two->screen_graphics_style = EWM_A2P_SCREEN_GRAPHICS_STYLE_FULL;
+   scr->color_scheme = EWM_SCR_COLOR_SCHEME_COLOR;
 
    for (uint16_t a = 0x2000; a <= 0x5fff; a++) {
       mem_set_byte(scr->two->cpu, a, rand());
@@ -120,7 +133,8 @@ int main() {
 
    test(two->scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
    test(two->scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);
-   test(two->scr, "hgr_full_refresh", hgr_full_refresh_setup, hgr_full_refresh_test);
+   test(two->scr, "hgr_full_refresh_mono", hgr_full_refresh_setup_monochrome, hgr_full_refresh_test);
+   test(two->scr, "hgr_full_refresh_color", hgr_full_refresh_setup_color, hgr_full_refresh_test);
 
    // Destroy DSL things
 
