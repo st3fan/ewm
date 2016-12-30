@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>
 
 #include "cpu.h"
 #include "mem.h"
@@ -35,6 +36,12 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
    cpu.state.pc = start_addr;
 
    uint16_t last_pc = cpu.state.pc;
+
+   struct timespec start;
+   if (clock_gettime(CLOCK_REALTIME, &start) != 0) {
+      perror("Cannot get time");
+      exit(1);
+   }
 
    while (true) {
       int ret = cpu_step(&cpu);
@@ -54,7 +61,23 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
       // ideal. Is there a better way to detect this?
 
       if (cpu.state.pc == success_addr) {
-         fprintf(stderr, "TEST   Success\n");
+	 struct timespec now;
+	 if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+	    perror("Cannot get time");
+	    exit(1);
+	 }
+
+	 // Taking a shortcut here because our test will never run so
+	 // long that it will overflow an uint64_t
+
+	 uint64_t duration_ns = (now.tv_sec * 1000000000 + now.tv_nsec)
+	    - (start.tv_sec * 1000000000 + start.tv_nsec);
+	 double duration  = (double) duration_ns / 1000000000.0;
+	 double mhz = (double) cpu.counter * (1.0 / duration) / 1000000.0;
+	 
+	 fprintf(stderr, "TEST   Success; executed %lu cycles in %.4f at %.4f MHz\n",
+		 cpu.counter, duration, mhz);
+
          return 0;
       }
 
