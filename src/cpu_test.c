@@ -72,9 +72,9 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
 	 // Taking a shortcut here because our test will never run so
 	 // long that it will overflow an uint64_t
 
-	 uint64_t duration_ns = (now.tv_sec * 1000000000 + now.tv_nsec)
-	    - (start.tv_sec * 1000000000 + start.tv_nsec);
-	 double duration  = (double) duration_ns / 1000000000.0;
+	 uint64_t duration_ms = (now.tv_sec * 1000 + (now.tv_nsec / 1000000))
+	    - (start.tv_sec * 1000 + (start.tv_nsec / 1000000));
+	 double duration  = (double) duration_ms / 1000.0;
 	 double mhz = (double) cpu.counter * (1.0 / duration) / 1000000.0;
 	 
 	 fprintf(stderr, "TEST   Success; executed %" PRIu64 " cycles in %.4f at %.4f MHz\n",
