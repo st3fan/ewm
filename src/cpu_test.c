@@ -20,9 +20,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
 
 #include "cpu.h"
@@ -75,7 +77,7 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
 	 double duration  = (double) duration_ns / 1000000000.0;
 	 double mhz = (double) cpu.counter * (1.0 / duration) / 1000000.0;
 	 
-	 fprintf(stderr, "TEST   Success; executed %lu cycles in %.4f at %.4f MHz\n",
+	 fprintf(stderr, "TEST   Success; executed %" PRIu64 " cycles in %.4f at %.4f MHz\n",
 		 cpu.counter, duration, mhz);
 
          return 0;
