@@ -189,7 +189,7 @@ static SDL_Color hgr_colors[16] = {
    { 255, 255, 255, 0 }  // 5 White
 };
 
-static void inline scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
+inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    int x = 0;
    for (int i = 0; i < 40; i++) {
       uint8_t c = scr->two->screen_hgr_data[line_base + i];
@@ -210,7 +210,7 @@ static void inline scr_render_hgr_line_green(struct scr_t *scr, int line, uint16
    }
 }
 
-static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
+inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
 
    // Pre process the line. We put the color index in bytes to make it easier to handle them
 
@@ -262,7 +262,7 @@ static void inline scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
    }
 }
 
-static void inline scr_render_hgr_screen(struct scr_t *scr, bool flash) {
+inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
    // Render graphics
    int lines = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
    uint16_t hgr_base = hgr_page_offsets[scr->two->screen_page];
