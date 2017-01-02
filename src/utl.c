@@ -20,55 +20,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_DSK_H
-#define EWM_DSK_H
+#include <stddef.h>
+#include <string.h>
 
-#include <stdbool.h>
-#include <stdint.h>
+#include "utl.h"
 
-struct cpu_t;
-struct mem_t;
-
-#define EWM_DSK_DRIVE1 0
-#define EWM_DSK_DRIVE2 1
-
-#define EWM_DSK_TRACKS 35
-#define EWM_DSK_SECTORS 16
-#define EWM_DSK_SECTOR_SIZE 256
-
-struct ewm_dsk_track_t {
-   int length;
-   uint8_t *data;
-};
-
-struct ewm_dsk_drive_t {
-   bool loaded;
-   uint8_t volume;
-   int track, head, phase;
-   bool readonly;
-   bool dirty;
-   struct ewm_dsk_track_t tracks[EWM_DSK_TRACKS];
-};
-
-struct ewm_dsk_t {
-   struct mem_t *rom;
-   struct mem_t *iom;
-   bool on;
-   int active_drive;
-   int mode;
-   uint8_t latch;
-   struct ewm_dsk_drive_t drives[2];
-   uint8_t drive; // 0 based
-   int skip;
-};
-
-#define EWM_DSK_TYPE_UNKNOWN (-1)
-#define EWM_DSK_TYPE_DO (0)
-#define EWM_DSK_TYPE_PO (1)
-
-int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu);
-struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu);
-int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type);
-int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, char *path);
-
-#endif
+bool ewm_utl_endswith(char *s, char *suffix) {
+   if (s != NULL && suffix != NULL) {
+      if (strlen(suffix) <= strlen(s)) {
+         return strcmp(s + strlen(s) - strlen(suffix), suffix) == 0;
+      }
+   }
+   return false;
+}

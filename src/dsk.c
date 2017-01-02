@@ -29,6 +29,7 @@
 
 #include "mem.h"
 #include "cpu.h"
+#include "utl.h"
 #include "dsk.h"
 
 //
@@ -292,8 +293,12 @@ static uint8_t dsk_fourxfour_lo(uint8_t v) {
    return (v & 0b01010101) | 0b10101010;
 }
 
-static uint8_t dsk_sector_ordering[EWM_DSK_SECTORS] = {
-   0x0,0xD,0xB,0x9,0x7,0x5,0x3,0x1,0xE,0xC,0xA,0x8,0x6,0x4,0x2,0xF
+static uint8_t dsk_sector_ordering_do[EWM_DSK_SECTORS] = {
+   0x00,0x0d,0x0b,0x09,0x07,0x05,0x03,0x01,0x0e,0x0c,0x0a,0x08,0x06,0x04,0x02,0x0f
+};
+
+static uint8_t dsk_sector_ordering_po[EWM_DSK_SECTORS] = {
+   0x00,0x02,0x04,0x06,0x08,0x0a,0x0c,0x0e,0x01,0x03,0x05,0x07,0x09,0x0b,0x0d,0x0f
 };
 
 static uint8_t *dsk_convert_sector(struct ewm_dsk_t *dsk, struct ewm_dsk_drive_t *drive, int track_idx, int sector_idx, uint8_t *src, uint8_t *dst) {
@@ -385,10 +390,12 @@ static uint8_t *dsk_convert_sector(struct ewm_dsk_t *dsk, struct ewm_dsk_drive_t
    return dst;
 }
 
-static struct ewm_dsk_track_t dsk_convert_track(struct ewm_dsk_t *disk, struct ewm_dsk_drive_t *drive, uint8_t *data, int track_idx) {
+static struct ewm_dsk_track_t dsk_convert_track(struct ewm_dsk_t *disk, struct ewm_dsk_drive_t *drive, uint8_t *data, int track_idx, int type) {
    struct ewm_dsk_track_t track;
    track.length = dsk_native_track_length(track_idx);
    track.data = malloc(track.length);
+
+   uint8_t *sector_ordering = (type == EWM_DSK_TYPE_DO) ? dsk_sector_ordering_do : dsk_sector_ordering_po;
 
    uint8_t *dst = track.data;
    for (int sector_idx = 0; sector_idx < EWM_DSK_SECTORS; sector_idx++) {
@@ -396,7 +403,7 @@ static struct ewm_dsk_track_t dsk_convert_track(struct ewm_dsk_t *disk, struct e
       uint8_t *src = data
          + (track_idx * EWM_DSK_SECTORS * EWM_DSK_SECTOR_SIZE) // Start of track_idx
          + (_s * EWM_DSK_SECTOR_SIZE);    // Start of sector_idx
-      dst = dsk_convert_sector(disk, drive, track_idx, dsk_sector_ordering[_s], src, dst);
+      dst = dsk_convert_sector(disk, drive, track_idx, sector_ordering[_s], src, dst);
    }
 
    return track;
@@ -421,7 +428,8 @@ struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu) {
    return dsk;
 }
 
-int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length) {
+int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type) {
+   assert(type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO);
    assert(index < 2);
    assert(length == (EWM_DSK_TRACKS * EWM_DSK_SECTORS * EWM_DSK_SECTOR_SIZE));
 
@@ -444,13 +452,28 @@ int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, v
    drive->dirty = false;
 
    for (int t = 0; t < EWM_DSK_TRACKS; t++) {
-      drive->tracks[t] = dsk_convert_track(dsk, drive, data, t);
+      drive->tracks[t] = dsk_convert_track(dsk, drive, data, t, type);
    }
 
    return 0;
 }
 
+static int ewm_dsk_type_from_path(char *path) {
+   if (ewm_utl_endswith(path, ".dsk") || ewm_utl_endswith(path, ".do")) {
+      return EWM_DSK_TYPE_DO;
+   }
+   if (ewm_utl_endswith(path, ".po")) {
+      return EWM_DSK_TYPE_PO;
+   }
+   return EWM_DSK_TYPE_UNKNOWN;
+}
+
 int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, char *path) {
+   int type = ewm_dsk_type_from_path(path);
+   if (type == EWM_DSK_TYPE_UNKNOWN) {
+      return -1;
+   }
+
    int fd = open(path, O_RDONLY);
    if (fd == -1) {
       return -1;
@@ -475,7 +498,7 @@ int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, c
 
    close(fd);
 
-   int result = ewm_dsk_set_disk_data(dsk, drive, readonly, data, file_info.st_size);
+   int result = ewm_dsk_set_disk_data(dsk, drive, readonly, data, file_info.st_size, type);
    free(data);
 
    return result;
