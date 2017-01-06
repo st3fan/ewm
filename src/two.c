@@ -620,6 +620,40 @@ int ewm_two_main(int argc, char **argv) {
 
    SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 
+   // Print what renderer we got
+
+   if (debug) {
+      SDL_RendererInfo info;
+      if (SDL_GetRendererInfo(renderer, &info) != 0) {
+         fprintf(stderr, "Failed to get renderer info: %s\n", SDL_GetError());
+         exit(1);
+      }
+      char flags[1024] = { 0 };
+      if (info.flags & SDL_RENDERER_SOFTWARE) {
+         strncat(flags, "SOFTWARE", sizeof(flags) - strlen(flags) - 1);
+      }
+      if (info.flags & SDL_RENDERER_ACCELERATED) {
+         if (flags[0] != 0x00) {
+            strncat(flags, "|", sizeof(flags) - strlen(flags) - 1);
+         }
+         strncat(flags, "ACCELERATED", sizeof(flags) - strlen(flags) - 1);
+      }
+      if (info.flags & SDL_RENDERER_PRESENTVSYNC) {
+         if (flags[0] != 0x00) {
+            strncat(flags, "|", sizeof(flags) - strlen(flags) - 1);
+         }
+         strncat(flags, "PRESENTVSYNC", sizeof(flags) - strlen(flags) - 1);
+      }
+      if (info.flags & SDL_RENDERER_TARGETTEXTURE) {
+         if (flags[0] != 0x00) {
+            strncat(flags, "|", sizeof(flags) - strlen(flags) - 1);
+         }
+         strncat(flags, "TARGETTEXTURE", sizeof(flags) - strlen(flags) - 1);
+      }
+      fprintf(stderr, "[TWO] Renderer name=%s flags=%s max_texture_size=(%d,%d)\n",
+              info.name, flags, info.max_texture_width, info.max_texture_height);
+   }
+
    // If we have a joystick, open it
 
    SDL_GameController *controller = NULL;
@@ -634,6 +668,7 @@ int ewm_two_main(int argc, char **argv) {
    // Create and configure the Apple II
 
    struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, joystick);
+   two->debug = debug;
 
    if (color) {
       ewm_scr_set_color_scheme(two->scr, EWM_SCR_COLOR_SCHEME_COLOR);
