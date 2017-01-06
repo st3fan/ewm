@@ -537,6 +537,7 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
 #define EWM_TWO_OPT_MEMORY (4)
 #define EWM_TWO_OPT_TRACE  (5)
 #define EWM_TWO_OPT_STRICT (6)
+#define EWM_TWO_OPT_DEBUG  (7)
 
 static struct option one_options[] = {
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
@@ -546,6 +547,7 @@ static struct option one_options[] = {
    { "memory",  required_argument, NULL, EWM_TWO_OPT_MEMORY },
    { "trace",   optional_argument, NULL, EWM_TWO_OPT_TRACE  },
    { "strict",  no_argument,       NULL, EWM_TWO_OPT_STRICT },
+   { "debug",   no_argument,       NULL, EWM_TWO_OPT_DEBUG  },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -559,6 +561,7 @@ int ewm_two_main(int argc, char **argv) {
    struct ewm_memory_option_t *extra_memory = NULL;
    char *trace_path = NULL;
    bool strict = false;
+   bool debug = false;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -589,6 +592,9 @@ int ewm_two_main(int argc, char **argv) {
             break;
          case EWM_TWO_OPT_STRICT:
             strict = true;
+            break;
+         case EWM_TWO_OPT_DEBUG:
+            debug = true;
             break;
       }
    }

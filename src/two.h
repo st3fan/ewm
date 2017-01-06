@@ -97,6 +97,8 @@ struct ewm_two_t {
    SDL_Joystick *joystick;
 
    bool status_bar_visible;
+
+   bool debug;
 };
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);
