@@ -28,7 +28,8 @@
 #define EWM_CHR_ROM_TYPE_2716 (2716)
 
 struct ewm_chr_t {
-   SDL_Texture* characters[256];
+   SDL_Surface* surfaces[256];
+   SDL_Texture* textures[256];
 };
 
 struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer);

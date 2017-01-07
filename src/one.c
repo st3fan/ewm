@@ -32,9 +32,9 @@
 #include "tty.h"
 #include "one.h"
 
-struct ewm_one_t *ewm_one_create(int model, SDL_Renderer *renderer) {
+struct ewm_one_t *ewm_one_create(int model, SDL_Window *window, SDL_Renderer *renderer) {
    struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
-   if (ewm_one_init(one, model, renderer) != 0) {
+   if (ewm_one_init(one, model, window, renderer) != 0) {
       free(one);
       one = NULL;
    }
@@ -49,7 +49,7 @@ static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, 
    ewm_tty_write(one->tty, v);
 }
 
-int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
+int ewm_one_init(struct ewm_one_t *one, int model, SDL_Window *window, SDL_Renderer *renderer) {
    memset(one, 0, sizeof(struct ewm_one_t));
    one->model = model;
    switch (model) {
@@ -57,7 +57,7 @@ int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
          one->cpu = cpu_create(EWM_CPU_MODEL_6502);
          cpu_add_ram(one->cpu, 0x0000, 8 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xff00, "rom/apple1.rom");
-         one->tty = ewm_tty_create(renderer);
+         one->tty = ewm_tty_create(window, renderer);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;
          one->pia->callback_obj = one;
@@ -66,7 +66,7 @@ int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
          one->cpu = cpu_create(EWM_CPU_MODEL_65C02);
          cpu_add_ram(one->cpu, 0x0000, 32 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xe000, "rom/krusader.rom");
-         one->tty = ewm_tty_create(renderer);
+         one->tty = ewm_tty_create(window, renderer);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;
          one->pia->callback_obj = one;
@@ -246,17 +246,19 @@ int ewm_one_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
    if (renderer == NULL) {
       fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
       return 1;
    }
 
+   SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
    SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 
    // Create the machine
 
-   struct ewm_one_t *one = ewm_one_create(model, renderer);
+   struct ewm_one_t *one = ewm_one_create(model, window, renderer);
    if (one == NULL) {
       fprintf(stderr, "Failed to create ewm_one_t\n");
       return 1;

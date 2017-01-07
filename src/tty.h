@@ -35,6 +35,7 @@
 struct ewm_chr_t;
 
 struct ewm_tty_t {
+   SDL_Window *window;
    SDL_Renderer *renderer;
    struct ewm_chr_t *chr;
    bool screen_dirty;
@@ -43,7 +44,7 @@ struct ewm_tty_t {
    int screen_cursor_column;
 };
 
-struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);
+struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer);
 void ewm_tty_destroy(struct ewm_tty_t *tty);
 void ewm_tty_write(struct ewm_tty_t *tty, uint8_t v);
 void ewm_tty_reset(struct ewm_tty_t *tty);

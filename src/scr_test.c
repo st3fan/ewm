@@ -77,7 +77,8 @@ void hgr_full_refresh_test(struct scr_t *scr) {
    ewm_scr_update(scr, 0, 0);
 }
 
-void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t test_run) {
+void _test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t test_run, int color_scheme) {
+   scr->color_scheme = color_scheme;
    test_setup(scr);
 
    Uint64 start = SDL_GetPerformanceCounter();
@@ -89,7 +90,15 @@ void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t tes
    double total = (double)((now - start)*1000) / SDL_GetPerformanceFrequency();
    double per_screen = total / 1000.0;
 
-   printf("%-20s %.3f/refresh\n", name, per_screen);
+   printf("%-40s %-10s %.3f/refresh\n", name,
+      color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME ? "green" : "color", per_screen);
+}
+
+void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t test_run) {
+   sleep(1);
+   _test(scr, name, test_setup, test_run, EWM_SCR_COLOR_SCHEME_MONOCHROME);
+   sleep(1);
+   _test(scr, name, test_setup, test_run, EWM_SCR_COLOR_SCHEME_COLOR);
 }
 
 int main() {
@@ -104,7 +113,9 @@ int main() {
       return 1;
    }
 
-   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+   SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
    if (renderer == NULL) {
       fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
       return 1;
@@ -112,11 +123,9 @@ int main() {
 
    SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 
-   sleep(3); // Is this ok? Seems to be needed to get the window on the screen
-
    // Setup the CPU, Apple ][+ and it's screen.
 
-   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, NULL);
+   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, window, renderer, NULL);
 
    test(two->scr, "txt_full_refresh", txt_full_refresh_setup, txt_full_refresh_test);
    test(two->scr, "lgr_full_refresh", lgr_full_refresh_setup, lgr_full_refresh_test);

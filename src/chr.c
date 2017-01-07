@@ -75,8 +75,14 @@ static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
    *pixel = color;
 }
 
-static SDL_Texture *_generate_texture(SDL_Renderer *renderer, uint8_t rom_data[2048], int c, bool inverse) {
-   SDL_Texture *texture = NULL;
+static SDL_Surface *_generate_surface(SDL_Renderer *renderer, uint8_t rom_data[2048], int c, bool inverse) {
+   //SDL_Surface *surface = SDL_CreateRGBSurface(0, 7*3, 8*3, 32, 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
+
+   SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, 7*3, 8*3, 32, SDL_PIXELFORMAT_ARGB8888);
+   if (surface == NULL) {
+      fprintf(stderr, "[CHR] Cannot create RGBSurface: %s\n", SDL_GetError());
+      return NULL;
+   }
 
    uint8_t character_data[8];
    for (int i = 0; i < 8; i++) {
@@ -86,23 +92,35 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, uint8_t rom_data[2
       }
    }
 
-   SDL_Surface *surface = SDL_CreateRGBSurface(0, 7, 8, 32, 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
-   if (surface != NULL) {
-      for (int y = 0; y < 8; y++) {
-         for (int x = 0; x < 7; x++) {
-            if (character_data[y] & (1 << x)) {
-               _set_pixel(surface, (6-x), y, 0xffffffff);
-            }
+   for (int y = 0; y < 8; y++) {
+      for (int x = 0; x < 7; x++) {
+         if (character_data[y] & (1 << x)) {
+            int px = (6-x) * 3, py = y * 3;
+
+            _set_pixel(surface, px+0, py+0, 0xffffffff);
+            _set_pixel(surface, px+1, py+0, 0xffffffff);
+            _set_pixel(surface, px+2, py+0, 0xffffffff);
+
+            _set_pixel(surface, px+0, py+1, 0xffffffff);
+            _set_pixel(surface, px+1, py+1, 0xffffffff);
+            _set_pixel(surface, px+2, py+1, 0xffffffff);
+
+            _set_pixel(surface, px+0, py+2, 0xffffffff);
+            _set_pixel(surface, px+1, py+2, 0xffffffff);
+            _set_pixel(surface, px+2, py+2, 0xffffffff);
          }
       }
-      texture = SDL_CreateTextureFromSurface(renderer, surface);
-      if (texture == NULL) {
-         fprintf(stderr, "Cannot generate RGBSurface: %s\n", SDL_GetError());
-      }
-   } else {
-      fprintf(stderr, "Cannot generate Texture: %s\n", SDL_GetError());
    }
 
+   return surface;
+}
+
+static SDL_Texture *_generate_texture(SDL_Renderer *renderer, SDL_Surface *surface) {
+   SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+   if (texture == NULL) {
+      fprintf(stderr, "[CHR] Cannot generate Texture from Surface: %s\n", SDL_GetError());
+      return NULL;
+   }
    return texture;
 }
 
@@ -117,40 +135,43 @@ int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Render
       return -1;
    }
 
+   // This is not great. I think what should happen is that this
+   // module just creates normal and inverse surfaces and textures in
+   // exact ROM order and then scr.c and tty.c can map an ASCII value
+   // to a specific ROM character. That keeps this module simple and
+   // moves more logic into the machine specific modules. That also
+   // solves the problem that you can currently print inverse
+   // characters on the Apple 1.
+
    // Normal Text
    for (int c = 0; c < 32; c++) {
-      chr->characters[0xc0 + c] = _generate_texture(renderer, rom_data, c, false);
+      chr->surfaces[0xc0 + c] = _generate_surface(renderer, rom_data, c, false);
+      chr->textures[0xc0 + c] = _generate_texture(renderer, chr->surfaces[0xc0 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0xa0 + (c-32)] = _generate_texture(renderer, rom_data, c, false);
+      chr->surfaces[0xa0 + (c-32)] = _generate_surface(renderer, rom_data, c, false);
+      chr->textures[0xa0 + (c-32)] = _generate_texture(renderer, chr->surfaces[0xa0 + (c-32)]);
    }
 
    // Inverse Text
    for (int c = 0; c < 32; c++) {
-      chr->characters[0x00 + c] = _generate_texture(renderer, rom_data, c, true);
+      chr->surfaces[0x00 + c] = _generate_surface(renderer, rom_data, c, true);
+      chr->textures[0x00 + c] = _generate_texture(renderer, chr->surfaces[0x00 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0x20 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
+      chr->surfaces[0x20 + (c-32)] = _generate_surface(renderer, rom_data, c, true);
+      chr->textures[0x20 + (c-32)] = _generate_texture(renderer, chr->surfaces[0x20 + (c-32)]);
    }
 
    // TODO Flashing - Currently simply rendered as inverse
    for (int c = 0; c < 32; c++) {
-      chr->characters[0x40 + c] = _generate_texture(renderer, rom_data, c, true);
+      chr->surfaces[0x40 + c] = _generate_surface(renderer, rom_data, c, true);
+      chr->textures[0x40 + c] = _generate_texture(renderer, chr->surfaces[0x40 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0x60 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
+      chr->surfaces[0x60 + (c-32)] = _generate_surface(renderer, rom_data, c, true);
+      chr->textures[0x60 + (c-32)] = _generate_texture(renderer, chr->surfaces[0x60 + (c-32)]);
    }
 
    return 0;
 }
-
-#if 0
-int main() {
-   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716);
-   if (chr == NULL) {
-      printf("Failed to load character ROM %s\n", "rom/3410036.bin");
-      exit(1);
-   }
-   return 0;
-}
-#endif

@@ -20,30 +20,38 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_ONE_H
-#define EWM_ONE_H
+#include <stdio.h>
+#include <unistd.h>
 
-#define EWM_ONE_MODEL_APPLE1   (0)
-#define EWM_ONE_MODEL_REPLICA1 (1)
-#define EWM_ONE_MODEL_DEFAULT  (EWM_ONE_MODEL_REPLICA1)
+#include "chr.h"
 
-#include <SDL2/SDL.h>
+int main() {
+   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+      fprintf(stderr, "[CHR] Failed to initialize SDL: %s\n", SDL_GetError());
+      exit(1);
+   }
 
-struct cpu_t;
-struct ewm_tty_t;
-struct ewm_pia_t;
+   SDL_Window *window = SDL_CreateWindow("chr_test", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 280*3, 192*3, SDL_WINDOW_SHOWN);
+   if (window == NULL) {
+      fprintf(stderr, "[CHR] Failed create window: %s\n", SDL_GetError());
+      exit(1);
+   }
 
-struct ewm_one_t {
-   int model;
-   struct cpu_t *cpu;
-   struct ewm_tty_t *tty;
-   struct ewm_pia_t *pia;
-};
+   SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
-struct ewm_one_t *ewm_one_create(int type, SDL_Window *window, SDL_Renderer *renderer);
-int ewm_one_init(struct ewm_one_t *one, int type, SDL_Window *window, SDL_Renderer *renderer);
-void ewm_one_destroy(struct ewm_one_t *one);
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+   if (renderer == NULL) {
+      fprintf(stderr, "[CHR] Failed to create renderer: %s\n", SDL_GetError());
+      exit(1);
+   }
 
-int ewm_one_main(int argc, char **argv);
+   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   if (chr == NULL) {
+      fprintf(stderr, "[CHR] Failed to load Character ROM %s\n", "rom/3410036.bin");
+      exit(1);
+   }
 
-#endif // EWM_ONE_H
+   // TODO Blit the whole character rom as textures and then as surfaces
+
+   return 0;
+}
