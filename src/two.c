@@ -273,7 +273,7 @@ static void ewm_two_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint1
    two->screen_dirty = true;
 }
 
-static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
+static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Window *window, SDL_Renderer *renderer, SDL_Joystick *joystick) {
    memset(two, 0, sizeof(struct ewm_two_t));
 
    two->type = type;
@@ -309,7 +309,7 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
             return -1;
          }
 
-         two->scr = ewm_scr_create(two, renderer);
+         two->scr = ewm_scr_create(two, window, renderer);
          if (two->scr == NULL) {
             fprintf(stderr, "[TWO] Could not create Screen\n");
             return -1;
@@ -337,9 +337,9 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
    return 0;
 }
 
-struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
+struct ewm_two_t *ewm_two_create(int type, SDL_Window *window, SDL_Renderer *renderer, SDL_Joystick *joystick) {
    struct ewm_two_t *two = malloc(sizeof(struct ewm_two_t));
-   if (ewm_two_init(two, type, renderer, joystick) != 0) {
+   if (ewm_two_init(two, type, window, renderer, joystick) != 0) {
       free(two);
       two = NULL;
    }
@@ -499,18 +499,17 @@ static bool ewm_two_step_cpu(struct ewm_two_t *two, int cycles) {
 }
 
 static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
-
-   SDL_Rect rect = { .x = 0, .y = (24*8*3), .w = (40*7*3), .h = (9*3) };
-   SDL_SetRenderDrawColor(two->scr->renderer, 39, 39, 39, 0);
-   SDL_RenderFillRect(two->scr->renderer, &rect);
-
    char s[41];
    snprintf(s, 41, "%1.3f MHZ                         [1][2]", mhz);
-   //               1234567890123456789012345678901234567890
-
    for (int i = 0; i < 40; i++) {
       int c = s[i] + 0x80;
-      if (two->scr->chr->characters[c] != NULL) {
+      if (two->scr->chr->textures[c] != NULL) {
+         SDL_Rect src;
+         src.x = 0;
+         src.y = 0;
+         src.w = 21;
+         src.h = 24;
+
          SDL_Rect dst;
          dst.x = i * 21;
          dst.y = 24 * 24 + 3;
@@ -518,12 +517,13 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
          dst.h = 24;
 
          if (two->dsk->on && ((i == 35 && two->dsk->drive == EWM_DSK_DRIVE1) || (i == 38 && two->dsk->drive == EWM_DSK_DRIVE2))) {
-            SDL_SetTextureColorMod(two->scr->chr->characters[c], 145, 193, 75);
+            SDL_SetSurfaceColorMod(two->scr->chr->surfaces[c], 145, 193, 75);
+
          } else {
-            SDL_SetTextureColorMod(two->scr->chr->characters[c], 255, 0, 0);
+            SDL_SetSurfaceColorMod(two->scr->chr->surfaces[c], 255, 0, 0);
          }
 
-         SDL_RenderCopy(two->scr->renderer, two->scr->chr->characters[c], NULL, &dst);
+         SDL_BlitSurface(two->scr->chr->surfaces[c], &src, SDL_GetWindowSurface(two->scr->window), &dst);
       }
    }
 }
@@ -632,13 +632,13 @@ int ewm_two_main(int argc, char **argv) {
       exit(1);
    }
 
-   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+   SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
    if (renderer == NULL) {
       fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
       exit(1);
    }
-
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
 
    // Print what renderer we got
 
@@ -687,7 +687,7 @@ int ewm_two_main(int argc, char **argv) {
 
    // Create and configure the Apple II
 
-   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, renderer, joystick);
+   struct ewm_two_t *two = ewm_two_create(EWM_TWO_TYPE_APPLE2PLUS, window, renderer, joystick);
    two->debug = debug;
 
    if (color) {

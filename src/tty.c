@@ -23,11 +23,13 @@
 #include "chr.h"
 #include "tty.h"
 
-struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
+struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer) {
    struct ewm_tty_t *tty = malloc(sizeof(struct ewm_tty_t));
    memset(tty, 0, sizeof(struct ewm_tty_t));
+   tty->window = window;
    tty->renderer = renderer;
-   tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   tty->text_color = SDL_MapRGB(SDL_GetWindowSurface(window)->format, 47, 249, 64);
+   tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer, tty->text_color);
    ewm_tty_reset(tty);
    return tty;
 }
@@ -37,16 +39,22 @@ void ewm_tty_destroy(struct ewm_tty_t *tty) {
 }
 
 static inline void ewm_tty_render_character(struct ewm_tty_t *tty, int row, int column, uint8_t c) {
-   // TODO Should we learn chr.c about the Apple1 character set instead of mapping it to the Apple ][+ one?
-   c += 0x80;
-   if (tty->chr->characters[c] != NULL) {
+   c += 0x80; // TODO Should we learn chr.c about the Apple1 character set instead of mapping it to the Apple ][+ one?
+   if (tty->chr->surfaces[c] != NULL) {
+      SDL_Rect src;
+      src.x = 0;
+      src.y = 0;
+      src.w = 21;
+      src.h = 24;
+
       SDL_Rect dst;
       dst.x = column * 21;
       dst.y = row * 24;
       dst.w = 21;
       dst.h = 24;
-      SDL_SetTextureColorMod(tty->chr->characters[c], 0, 255, 0);
-      SDL_RenderCopy(tty->renderer, tty->chr->characters[c], NULL, &dst);
+
+      SDL_SetSurfaceColorMod(tty->chr->surfaces[c], 47, 249, 64);
+      SDL_BlitSurface(tty->chr->surfaces[c], &src, SDL_GetWindowSurface(tty->window), &dst);
    }
 }
 
