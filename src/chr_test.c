@@ -45,7 +45,9 @@ int main() {
       exit(1);
    }
 
-   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   uint32_t color = SDL_MapRGB(SDL_GetWindowSurface(window)->format, 47, 249, 64);
+
+   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer, color);
    if (chr == NULL) {
       fprintf(stderr, "[CHR] Failed to load Character ROM %s\n", "rom/3410036.bin");
       exit(1);

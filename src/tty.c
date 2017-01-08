@@ -28,7 +28,8 @@ struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer) {
    memset(tty, 0, sizeof(struct ewm_tty_t));
    tty->window = window;
    tty->renderer = renderer;
-   tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+   tty->text_color = SDL_MapRGB(SDL_GetWindowSurface(window)->format, 47, 249, 64);
+   tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer, tty->text_color);
    ewm_tty_reset(tty);
    return tty;
 }

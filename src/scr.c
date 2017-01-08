@@ -85,9 +85,40 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
 }
 
 static inline void scr_render_txt_screen(struct scr_t *scr, bool flash) {
+   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
+   uint8_t *base = scr->two->screen_txt_data + (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1 ? 0x0000 : 0x0400);
+   SDL_Surface **surfaces = scr->chr->surfaces;
+   SDL_Rect src;
+   src.x = 0;
+   src.y = 0;
+   src.w = 21;
+   src.h = 24;
+   SDL_Rect dst;
+   dst.x = 0;
+   dst.y = 0;
+   dst.w = 21;
+   dst.h = 24;
+   
    for (int row = 0; row < 24; row++) {
+      uint8_t *p = base + txt_line_offsets[row];     
       for (int column = 0; column < 40; column++) {
-         scr_render_character(scr, row, column, flash);
+	uint8_t c = *p++;
+	if (surfaces[c] != NULL) {
+	  if (c >= 0x40 && c <= 0x7f) {
+	    if (flash) {
+	      c -= 0x40;
+	    } else {
+	      if (c <= 0x5f) {
+		c += 0x80;
+	      } else {
+		c += 0x40;
+	      }
+	    }
+	  }
+	  dst.x = column * 21;
+	  dst.y = row * 24;
+	  SDL_BlitSurface(surfaces[c], &src, surface, &dst);
+	}
       }
    }
 }
@@ -353,14 +384,10 @@ inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
 
 int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Window *window, SDL_Renderer *renderer) {
    memset(scr, 0x00, sizeof(struct scr_t));
+
    scr->two = two;
    scr->window = window;
    scr->renderer = renderer;
-   scr->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
-   if (scr->chr == NULL) {
-      fprintf(stderr, "[SCR] Failed to initialize character generator\n");
-      return -1;
-   }
 
    // Cache colors for speed, to avoid calls to SDL_MapRGB
    SDL_Surface *surface = SDL_GetWindowSurface(window);
@@ -377,7 +404,13 @@ int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Window *window, S
 					     lores_colors_color[i].g, lores_colors_color[i].b);
      scr->lores_colors_green[i] = SDL_MapRGB(surface->format, lores_colors_green[i].r,
 					     lores_colors_green[i].g, lores_colors_green[i].b);
-   }   
+   }
+      
+   scr->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer, scr->text_color);
+   if (scr->chr == NULL) {
+      fprintf(stderr, "[SCR] Failed to initialize character generator\n");
+      return -1;
+   }
    return 0;
 }
 

@@ -42,6 +42,7 @@ struct ewm_tty_t {
    uint8_t screen_buffer[EWM_ONE_TTY_ROWS * EWM_ONE_TTY_COLUMNS];
    int screen_cursor_row;
    int screen_cursor_column;
+   uint32_t text_color;
 };
 
 struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer);

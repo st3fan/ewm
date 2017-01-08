@@ -60,9 +60,9 @@ static int _load_rom_data(char *rom_path, uint8_t rom_data[2048]) {
    return 0;
 }
 
-struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer) {
+struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
    struct ewm_chr_t *chr = (struct ewm_chr_t*) malloc(sizeof(struct ewm_chr_t));
-   int ret = ewm_chr_init(chr, rom_path, rom_type, renderer);
+   int ret = ewm_chr_init(chr, rom_path, rom_type, renderer, color);
    if (ret != 0) {
       free(chr);
       chr = NULL;
@@ -75,12 +75,14 @@ static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
    *pixel = color;
 }
 
-static SDL_Surface *_generate_surface(SDL_Renderer *renderer, uint8_t rom_data[2048], int c, bool inverse) {
+static SDL_Surface *_generate_surface(SDL_Renderer *renderer, uint8_t rom_data[2048], int c, bool inverse, uint32_t color) {
    SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, 7*3, 8*3, 32, SDL_PIXELFORMAT_ARGB8888);
    if (surface == NULL) {
       fprintf(stderr, "[CHR] Cannot create RGBSurface: %s\n", SDL_GetError());
       return NULL;
    }
+
+   SDL_SetSurfaceBlendMode(surface, SDL_BLENDMODE_NONE);
 
    uint8_t character_data[8];
    for (int i = 0; i < 8; i++) {
@@ -95,17 +97,17 @@ static SDL_Surface *_generate_surface(SDL_Renderer *renderer, uint8_t rom_data[2
          if (character_data[y] & (1 << x)) {
             int px = (6-x) * 3, py = y * 3;
 
-            _set_pixel(surface, px+0, py+0, 0xffffffff);
-            _set_pixel(surface, px+1, py+0, 0xffffffff);
-            _set_pixel(surface, px+2, py+0, 0xffffffff);
+            _set_pixel(surface, px+0, py+0, color);
+            _set_pixel(surface, px+1, py+0, color);
+            _set_pixel(surface, px+2, py+0, color);
 
-            _set_pixel(surface, px+0, py+1, 0xffffffff);
-            _set_pixel(surface, px+1, py+1, 0xffffffff);
-            _set_pixel(surface, px+2, py+1, 0xffffffff);
+            _set_pixel(surface, px+0, py+1, color);
+            _set_pixel(surface, px+1, py+1, color);
+            _set_pixel(surface, px+2, py+1, color);
 
-            _set_pixel(surface, px+0, py+2, 0xffffffff);
-            _set_pixel(surface, px+1, py+2, 0xffffffff);
-            _set_pixel(surface, px+2, py+2, 0xffffffff);
+            _set_pixel(surface, px+0, py+2, color);
+            _set_pixel(surface, px+1, py+2, color);
+            _set_pixel(surface, px+2, py+2, color);
          }
       }
    }
@@ -122,7 +124,7 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, SDL_Surface *surfa
    return texture;
 }
 
-int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer) {
+int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
    if (rom_type != EWM_CHR_ROM_TYPE_2716) {
       return -1;
    }
@@ -143,31 +145,31 @@ int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Render
 
    // Normal Text
    for (int c = 0; c < 32; c++) {
-      chr->surfaces[0xc0 + c] = _generate_surface(renderer, rom_data, c, false);
+     chr->surfaces[0xc0 + c] = _generate_surface(renderer, rom_data, c, false, color);
       chr->textures[0xc0 + c] = _generate_texture(renderer, chr->surfaces[0xc0 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->surfaces[0xa0 + (c-32)] = _generate_surface(renderer, rom_data, c, false);
+      chr->surfaces[0xa0 + (c-32)] = _generate_surface(renderer, rom_data, c, false, color);
       chr->textures[0xa0 + (c-32)] = _generate_texture(renderer, chr->surfaces[0xa0 + (c-32)]);
    }
 
    // Inverse Text
    for (int c = 0; c < 32; c++) {
-      chr->surfaces[0x00 + c] = _generate_surface(renderer, rom_data, c, true);
+      chr->surfaces[0x00 + c] = _generate_surface(renderer, rom_data, c, true, color);
       chr->textures[0x00 + c] = _generate_texture(renderer, chr->surfaces[0x00 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->surfaces[0x20 + (c-32)] = _generate_surface(renderer, rom_data, c, true);
+      chr->surfaces[0x20 + (c-32)] = _generate_surface(renderer, rom_data, c, true, color);
       chr->textures[0x20 + (c-32)] = _generate_texture(renderer, chr->surfaces[0x20 + (c-32)]);
    }
 
    // TODO Flashing - Currently simply rendered as inverse
    for (int c = 0; c < 32; c++) {
-      chr->surfaces[0x40 + c] = _generate_surface(renderer, rom_data, c, true);
+      chr->surfaces[0x40 + c] = _generate_surface(renderer, rom_data, c, true, color);
       chr->textures[0x40 + c] = _generate_texture(renderer, chr->surfaces[0x40 + c]);
    }
    for (int c = 32; c < 64; c++) {
-      chr->surfaces[0x60 + (c-32)] = _generate_surface(renderer, rom_data, c, true);
+      chr->surfaces[0x60 + (c-32)] = _generate_surface(renderer, rom_data, c, true, color);
       chr->textures[0x60 + (c-32)] = _generate_texture(renderer, chr->surfaces[0x60 + (c-32)]);
    }
 
