@@ -72,6 +72,8 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
          SDL_SetSurfaceColorMod(scr->chr->surfaces[c], 255, 255, 255);
       }
 
+      SDL_SetSurfaceBlendMode(scr->chr->surfaces[c], SDL_BLENDMODE_NONE);
+
       SDL_BlitSurface(scr->chr->surfaces[c], &src, SDL_GetWindowSurface(scr->window), &dst);
    }
 }
