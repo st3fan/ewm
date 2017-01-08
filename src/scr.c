@@ -31,6 +31,11 @@
 #include "chr.h"
 #include "scr.h"
 
+inline static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
+   uint32_t *pixel = (uint32_t*) ((uint8_t*) surface->pixels + (y * surface->pitch) + (x * sizeof(uint32_t)));
+   *pixel = color;
+}
+
 // Text rendering
 
 static int txt_line_offsets[24] = {
@@ -126,41 +131,66 @@ static SDL_Color lores_colors_green[16] = {
    { 47, 249, 64, 0 }, // 15 White
 };
 
-static inline void scr_render_lores_block(struct scr_t *scr, int row, int column, SDL_Color *colors) {
-   uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
-   uint8_t block = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
-   if (block != 0) {
-      SDL_Rect dst;
-      dst.x = column * 21;
-      dst.y = row * 24;
-      dst.w = 21;
-      dst.h = 12;
-
-      uint8_t c = block & 0x0f;
-      if (c != 0) {
-         SDL_FillRect(surface, &dst, SDL_MapRGB(surface->format, colors[c].r, colors[c].g, colors[c].b));
-      }
-
-      c = (block & 0xf0) >> 4;
-      if (c != 0) {
-         dst.y += 12;
-         SDL_FillRect(surface, &dst, SDL_MapRGB(surface->format, colors[c].r, colors[c].g, colors[c].b));
-      }
-   }
-}
-
 static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
    bool mixed = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED);
-
+   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
+   uint32_t *colors = scr->color_scheme == EWM_SCR_COLOR_SCHEME_COLOR ? scr->lores_colors_color : scr->lores_colors_green;
+   uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
+   
    // Render graphics
    int rows = mixed ? 20 : 24;
    for (int row = 0; row < rows; row++) {
       for (int column = 0; column < 40; column++) {
-         scr_render_lores_block(scr, row, column,
-            scr->color_scheme == EWM_SCR_COLOR_SCHEME_COLOR ? lores_colors_color : lores_colors_green);
+	
+	uint8_t block = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+	if (block != 0) {
+
+	  SDL_Rect dst;
+	  dst.x = column * 21;
+	  dst.y = row * 24;
+	  dst.w = 21;
+	  dst.h = 12;
+
+	  uint8_t c = block & 0x0f;
+	  if (c != 0) {
+	    SDL_FillRect(surface, &dst, colors[c]);
+	  }
+
+	  c = (block & 0xf0) >> 4;
+	  if (c != 0) {
+	    dst.y += 12;
+	    SDL_FillRect(surface, &dst, colors[c]);
+	  }
+	  
+#if 0
+	  int px = column * 21, py = row * 24;
+
+	  uint8_t c = block & 0x0f;
+	  if (c != 0) {
+	    for (int h = 0; h < 12; h++) {
+	      for (int w = 0; w <21; w++) {
+		_set_pixel(surface, px+w, py+h, colors[c]);
+	      }
+	    }
+	  }
+
+	  py += 12;
+      
+	  c = (block & 0xf0) >> 4;
+	  if (c != 0) {
+	    for (int h = 0; h < 12; h++) {
+	      for (int w = 0; w <21; w++) {
+		_set_pixel(surface, px+w, py+h, colors[c]);
+	      }
+	    }
+	  }
+#endif
+	  
+	}
+	
       }
    }
+   
    // Render bottom 4 lines
    if (mixed) {
       for (int row = 20; row < 24; row++) {
@@ -215,11 +245,6 @@ static SDL_Color hires_colors[16] = {
    { 255, 147, 0,   0 }, // 4 Red
    { 255, 255, 255, 0 }  // 5 White
 };
-
-inline static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
-   uint32_t *pixel = (uint32_t*) ((uint8_t*) surface->pixels + (y * surface->pitch) + (x * sizeof(uint32_t)));
-   *pixel = color;
-}
 
 inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
