@@ -32,8 +32,9 @@
 #include "scr.h"
 
 inline static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
-   uint32_t *pixel = (uint32_t*) ((uint8_t*) surface->pixels + (y * surface->pitch) + (x * sizeof(uint32_t)));
-   *pixel = color;
+  // TODO This will break if pitch is not very predictable or weird
+  uint32_t *pixel = (uint32_t*) ((uint8_t*) surface->pixels + (y * 280*3*sizeof(uint32_t)) + (x * sizeof(uint32_t)));
+  *pixel = color;
 }
 
 // Text rendering
@@ -246,8 +247,7 @@ static SDL_Color hires_colors[16] = {
    { 255, 255, 255, 0 }  // 5 White
 };
 
-inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
-   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
+inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base, SDL_Surface *surface) {
    uint32_t green = scr->text_color;
    int x = 0;
    for (int i = 0; i < 40; i++) {
@@ -274,7 +274,7 @@ inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16
    }
 }
 
-inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
+inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base, SDL_Surface *surface) {
    uint32_t pixels[280], x = 0;
    for (int i = 0; i < 40; i++) {
       uint8_t c = scr->two->screen_hgr_data[line_base + i];
@@ -310,7 +310,6 @@ inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
 
    // Now draw them
 
-   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
    for (x = 0; x < 280; x++) {
       int px = x * 3, py = line * 3;
       uint32_t color = pixels[x];
@@ -330,12 +329,13 @@ inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
    // Render graphics
    int lines = (scr->two->screen_graphics_style == EWM_A2P_SCREEN_GRAPHICS_STYLE_MIXED) ? 160  : 192;
    uint16_t hgr_base = hgr_page_offsets[scr->two->screen_page];
+   SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
    for (int line = 0; line < lines; line++) {
       uint16_t line_base = hgr_base + hgr_line_offsets[line];
       if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_COLOR) {
-         scr_render_hgr_line_color(scr, line, line_base);
+	scr_render_hgr_line_color(scr, line, line_base, surface);
       } else {
-         scr_render_hgr_line_green(scr, line, line_base);
+	scr_render_hgr_line_green(scr, line, line_base, surface);
       }
    }
 
@@ -371,7 +371,6 @@ int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Window *window, S
    }
    for (int i = 0; i < 6; i++) {
      scr->hires_colors[i] = SDL_MapRGB(surface->format, hires_colors[i].r, hires_colors[i].g, hires_colors[i].b);
-     printf("scr->hires_colors[%d] = 0x%x\n", i, scr->hires_colors[i]);
    }
    for (int i = 0; i < 16; i++) {
      scr->lores_colors_color[i] = SDL_MapRGB(surface->format, lores_colors_color[i].r,
