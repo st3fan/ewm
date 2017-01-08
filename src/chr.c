@@ -76,8 +76,6 @@ static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
 }
 
 static SDL_Surface *_generate_surface(SDL_Renderer *renderer, uint8_t rom_data[2048], int c, bool inverse) {
-   //SDL_Surface *surface = SDL_CreateRGBSurface(0, 7*3, 8*3, 32, 0x000000ff, 0x0000ff00, 0x00ff0000, 0xff000000);
-
    SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, 7*3, 8*3, 32, SDL_PIXELFORMAT_ARGB8888);
    if (surface == NULL) {
       fprintf(stderr, "[CHR] Cannot create RGBSurface: %s\n", SDL_GetError());
