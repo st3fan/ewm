@@ -72,6 +72,8 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
          SDL_SetSurfaceColorMod(scr->chr->surfaces[c], 255, 255, 255);
       }
 
+      SDL_SetSurfaceBlendMode(scr->chr->surfaces[c], SDL_BLENDMODE_NONE);
+
       SDL_BlitSurface(scr->chr->surfaces[c], &src, SDL_GetWindowSurface(scr->window), &dst);
    }
 }
@@ -205,12 +207,12 @@ static uint16_t hgr_line_offsets[192] = {
 
 // CBBBBBBB
 
-static SDL_Color hgr_colors[16] = {
+static SDL_Color hires_colors[16] = {
    { 0,   0,   0,   0 }, // 0 Black
-   { 0,   0,   204, 0 }, // 1 Blue
-   { 128, 0,   128, 0 }, // 2 Purple
-   { 0,   100, 0,   0 }, // 3 Green
-   { 0,   100, 0,   0 }, // 4 Red
+   { 0,   149, 255, 0 }, // 1 Blue
+   { 255, 64,  255, 0 }, // 2 Purple
+   { 0,   249, 0,   0 }, // 3 Green
+   { 255, 147, 0,   0 }, // 4 Red
    { 255, 255, 255, 0 }  // 5 White
 };
 
@@ -221,7 +223,7 @@ inline static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color)
 
 inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
-   uint32_t green = SDL_MapRGB(surface->format, 47, 249, 64); // TODO Constant for this color please
+   uint32_t green = scr->text_color;
    int x = 0;
    for (int i = 0; i < 40; i++) {
       uint8_t c = scr->two->screen_hgr_data[line_base + i];
@@ -248,29 +250,26 @@ inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16
 }
 
 inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
-
-   // Pre process the line. We put the color index in bytes to make it easier to handle them
-
-   int pixels[280], x = 0;
+   uint32_t pixels[280], x = 0;
    for (int i = 0; i < 40; i++) {
       uint8_t c = scr->two->screen_hgr_data[line_base + i];
       for (int j = 0; j < 7; j++) {
          if (c & (1 << j)) {
             if (x % 2 == 0) {
                if (c & 0x80) {
-                  pixels[x] = 1; // Blue
+                  pixels[x] = scr->hires_colors[1]; // Blue
                } else {
-                  pixels[x] = 2; // Purple
+                  pixels[x] = scr->hires_colors[2]; // Purple
                }
             } else {
                if (c & 0x80) {
-                  pixels[x] = 4; // Red
+                  pixels[x] = scr->hires_colors[4]; // Red
                } else {
-                  pixels[x] = 3; // Green
+                  pixels[x] = scr->hires_colors[3]; // Green
                }
             }
          } else {
-            pixels[x] = 0; // Black
+            pixels[x] = scr->hires_colors[0]; // Black
          }
          x++;
       }
@@ -280,23 +279,25 @@ inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
 
    for (int i = 0; i < (280-1); i++) {
       if (pixels[i] && pixels[i+1]) {
-         pixels[i] = 5; // White
+         pixels[i] = scr->hires_colors[5]; // White
       }
    }
 
    // Now draw them
 
    SDL_Surface *surface = SDL_GetWindowSurface(scr->window);
-
    for (x = 0; x < 280; x++) {
-      SDL_Rect dst;
-      dst.x = x * 3;
-      dst.y = line * 3;
-      dst.w = 3;
-      dst.h = 3;
-
-      int c = pixels[x];
-      SDL_FillRect(surface, &dst, SDL_MapRGB(surface->format, hgr_colors[c].r, hgr_colors[c].g, hgr_colors[c].b));
+      int px = x * 3, py = line * 3;
+      uint32_t color = pixels[x];
+      _set_pixel(surface, px+0, py+0, color);
+      _set_pixel(surface, px+1, py+0, color);
+      _set_pixel(surface, px+2, py+0, color);
+      _set_pixel(surface, px+0, py+1, color);
+      _set_pixel(surface, px+1, py+1, color);
+      _set_pixel(surface, px+2, py+1, color);
+      _set_pixel(surface, px+0, py+2, color);
+      _set_pixel(surface, px+1, py+2, color);
+      _set_pixel(surface, px+2, py+2, color);
    }
 }
 
@@ -335,6 +336,24 @@ int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Window *window, S
       fprintf(stderr, "[SCR] Failed to initialize character generator\n");
       return -1;
    }
+
+   // Cache colors for speed, to avoid calls to SDL_MapRGB
+   SDL_Surface *surface = SDL_GetWindowSurface(window);
+   if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
+     scr->text_color = SDL_MapRGB(surface->format, 47, 249, 64);
+   } else {
+     scr->text_color = SDL_MapRGB(surface->format, 255, 255, 255);
+   }
+   for (int i = 0; i < 6; i++) {
+     scr->hires_colors[i] = SDL_MapRGB(surface->format, hires_colors[i].r, hires_colors[i].g, hires_colors[i].b);
+     printf("scr->hires_colors[%d] = 0x%x\n", i, scr->hires_colors[i]);
+   }
+   for (int i = 0; i < 16; i++) {
+     scr->lores_colors_color[i] = SDL_MapRGB(surface->format, lores_colors_color[i].r,
+					     lores_colors_color[i].g, lores_colors_color[i].b);
+     scr->lores_colors_green[i] = SDL_MapRGB(surface->format, lores_colors_green[i].r,
+					     lores_colors_green[i].g, lores_colors_green[i].b);
+   }   
    return 0;
 }
 
