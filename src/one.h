@@ -23,11 +23,14 @@
 #ifndef EWM_ONE_H
 #define EWM_ONE_H
 
+#include <SDL2/SDL.h>
+
 #define EWM_ONE_MODEL_APPLE1   (0)
 #define EWM_ONE_MODEL_REPLICA1 (1)
 #define EWM_ONE_MODEL_DEFAULT  (EWM_ONE_MODEL_REPLICA1)
 
-#include <SDL2/SDL.h>
+#define EWM_ONE_FPS (40)
+#define EWM_ONE_CPS (1023000)
 
 struct cpu_t;
 struct ewm_tty_t;
