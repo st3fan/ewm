@@ -189,7 +189,7 @@ static void cpu_initialize() {
    }
 }
 
-int cpu_init(struct cpu_t *cpu, int model) {
+static int cpu_init(struct cpu_t *cpu, int model) {
    if (!cpu_initialized) {
       cpu_initialize();
       cpu_initialized = true;

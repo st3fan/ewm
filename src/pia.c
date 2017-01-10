@@ -102,6 +102,12 @@ static void pia_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8
    }
 }
 
+static int ewm_pia_init(struct ewm_pia_t *pia, struct cpu_t *cpu) {
+   memset(pia, 0, sizeof(struct ewm_pia_t));
+   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
+   return 0;
+}
+
 struct ewm_pia_t *ewm_pia_create(struct cpu_t *cpu) {
    struct ewm_pia_t *pia = (struct ewm_pia_t*) malloc(sizeof(struct ewm_pia_t));
    if (ewm_pia_init(pia, cpu) != 0) {
@@ -109,12 +115,6 @@ struct ewm_pia_t *ewm_pia_create(struct cpu_t *cpu) {
       pia = NULL;
    }
    return pia;
-}
-
-int ewm_pia_init(struct ewm_pia_t *pia, struct cpu_t *cpu) {
-   memset(pia, 0, sizeof(struct ewm_pia_t));
-   cpu_add_iom(cpu, EWM_A1_PIA6820_ADDR, EWM_A1_PIA6820_ADDR + EWM_A1_PIA6820_LENGTH - 1, pia, pia_read, pia_write);
-   return 0;
 }
 
 void ewm_pia_destroy(struct ewm_pia_t *pia) {

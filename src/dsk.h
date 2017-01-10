@@ -66,7 +66,6 @@ struct ewm_dsk_t {
 #define EWM_DSK_TYPE_DO (0)
 #define EWM_DSK_TYPE_PO (1)
 
-int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu);
 struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu);
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type);
 int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, char *path);

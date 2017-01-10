@@ -285,9 +285,7 @@ inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
    }
 }
 
-// TODO This is the only actual API exposed
-
-int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *renderer) {
+static int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *renderer) {
    memset(scr, 0x00, sizeof(struct scr_t));
    scr->two = two;
    scr->renderer = renderer;

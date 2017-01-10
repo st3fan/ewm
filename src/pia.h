@@ -57,7 +57,6 @@ struct ewm_pia_t {
 };
 
 struct ewm_pia_t *ewm_pia_create(struct cpu_t *cpu);
-int ewm_pia_init(struct ewm_pia_t *pia, struct cpu_t *cpu);
 void ewm_pia_destroy(struct ewm_pia_t *pia);
 
 void ewm_pia_set_outa(struct ewm_pia_t *pia, uint8_t v);

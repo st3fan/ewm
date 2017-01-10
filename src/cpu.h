@@ -87,7 +87,6 @@ uint8_t _cpu_stack_used(struct cpu_t *cpu);
 uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
-int cpu_init(struct cpu_t *cpu, int model);
 struct cpu_t *cpu_create(int model);
 void cpu_destroy(struct cpu_t *cpu);
 

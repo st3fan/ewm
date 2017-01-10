@@ -32,15 +32,6 @@
 #include "tty.h"
 #include "one.h"
 
-struct ewm_one_t *ewm_one_create(int model, SDL_Renderer *renderer) {
-   struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
-   if (ewm_one_init(one, model, renderer) != 0) {
-      free(one);
-      one = NULL;
-   }
-   return one;
-}
-
 static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, uint8_t v) {
    struct ewm_one_t *one = (struct ewm_one_t*) obj;
    if (one->model == EWM_ONE_MODEL_APPLE1) {
@@ -49,7 +40,7 @@ static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, 
    ewm_tty_write(one->tty, v);
 }
 
-int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
+static int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer) {
    memset(one, 0, sizeof(struct ewm_one_t));
    one->model = model;
    switch (model) {
@@ -322,3 +313,11 @@ int ewm_one_main(int argc, char **argv) {
    return 0;
 }
 
+struct ewm_one_t *ewm_one_create(int model, SDL_Renderer *renderer) {
+   struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
+   if (ewm_one_init(one, model, renderer) != 0) {
+      free(one);
+      one = NULL;
+   }
+   return one;
+}
