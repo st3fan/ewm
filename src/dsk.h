@@ -29,12 +29,13 @@
 struct cpu_t;
 struct mem_t;
 
-#define EWM_DSK_DRIVE1 0
-#define EWM_DSK_DRIVE2 1
+#define EWM_DSK_DRIVE1 (0)
+#define EWM_DSK_DRIVE2 (1)
 
-#define EWM_DSK_TRACKS 35
-#define EWM_DSK_SECTORS 16
-#define EWM_DSK_SECTOR_SIZE 256
+#define EWM_DSK_TRACKS (35)
+#define EWM_DSK_SECTORS (16)
+#define EWM_DSK_SECTOR_SIZE (256)
+#define EWM_DSK_NIBBLES_PER_TRACK (6656)
 
 struct ewm_dsk_track_t {
    int length;
@@ -65,6 +66,7 @@ struct ewm_dsk_t {
 #define EWM_DSK_TYPE_UNKNOWN (-1)
 #define EWM_DSK_TYPE_DO (0)
 #define EWM_DSK_TYPE_PO (1)
+#define EWM_DSK_TYPE_NIB (2)
 
 struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu);
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type);

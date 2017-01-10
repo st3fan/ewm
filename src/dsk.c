@@ -429,9 +429,23 @@ struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu) {
 }
 
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type) {
-   assert(type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO);
-   assert(index < 2);
-   assert(length == (EWM_DSK_TRACKS * EWM_DSK_SECTORS * EWM_DSK_SECTOR_SIZE));
+   if (type == EWM_DSK_TYPE_UNKNOWN) {
+      return -1;
+   }
+
+   if (index > 1) {
+      return -1;
+   }
+
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      if (length != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
+         return -1;
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      if (length != (EWM_DSK_TRACKS * EWM_DSK_NIBBLES_PER_TRACK)) {
+         return -1;
+      }
+   }
 
    struct ewm_dsk_drive_t *drive = &dsk->drives[index];
 
@@ -451,8 +465,16 @@ int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, v
    drive->readonly = readonly;
    drive->dirty = false;
 
-   for (int t = 0; t < EWM_DSK_TRACKS; t++) {
-      drive->tracks[t] = dsk_convert_track(dsk, drive, data, t, type);
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      for (int t = 0; t < EWM_DSK_TRACKS; t++) {
+         drive->tracks[t] = dsk_convert_track(dsk, drive, data, t, type);
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      for (int t = 0; t < EWM_DSK_TRACKS; t++) {
+         drive->tracks[t].length = 6656;
+         drive->tracks[t].data = malloc(6656);
+         memcpy(drive->tracks[t].data, data + (t * 6656), 6656);
+      }
    }
 
    return 0;
@@ -464,6 +486,9 @@ static int ewm_dsk_type_from_path(char *path) {
    }
    if (ewm_utl_endswith(path, ".po")) {
       return EWM_DSK_TYPE_PO;
+   }
+   if (ewm_utl_endswith(path, ".nib")) {
+      return EWM_DSK_TYPE_NIB;
    }
    return EWM_DSK_TYPE_UNKNOWN;
 }
@@ -485,9 +510,16 @@ int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, c
       return -1;
    }
 
-   if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
-      close(fd);
-      return -1;
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
+         close(fd);
+         return -1;
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_NIBBLES_PER_TRACK)) {
+         close(fd);
+         return -1;
+      }
    }
 
    char *data = calloc(file_info.st_size, 1);
