@@ -53,6 +53,7 @@ dkms.conf
 ewm
 scr_test
 cpu_test
+chr_test
 
 *.bin
 *.lst
