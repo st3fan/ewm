@@ -428,6 +428,19 @@ struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu) {
    return dsk;
 }
 
+static uint8_t dsk_defourxfour(uint8_t h, uint8_t l) {
+   return ((h << 1) | 0x01) & l;
+}
+
+static uint8_t dsk_locate_volume_number(struct ewm_dsk_track_t *track) {
+   for (int i = 0; i < track->length / 2; i++) {
+      if (track->data[i+0] == 0xd5 && track->data[i+1] == 0xaa && track->data[i+2] == 0x96) {
+         return dsk_defourxfour(track->data[i+3], track->data[i+4]);
+      }
+   }
+   return 0;
+}
+
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type) {
    if (type == EWM_DSK_TYPE_UNKNOWN) {
       return -1;
@@ -458,7 +471,7 @@ int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, v
    }
 
    drive->loaded = true;
-   drive->volume = 254; // TODO Find Volume from disk image. Or does this not matter? I guess this gets lost in .dsk files.
+   drive->volume = 254; // Default volume number
    drive->track = 0;
    drive->head = 0;
    drive->phase = 0;
@@ -474,6 +487,11 @@ int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, v
          drive->tracks[t].length = 6656;
          drive->tracks[t].data = malloc(6656);
          memcpy(drive->tracks[t].data, data + (t * 6656), 6656);
+      }
+
+      uint8_t volume = dsk_locate_volume_number(&drive->tracks[0]);
+      if (volume != 0) {
+         drive->volume = volume;
       }
    }
 
