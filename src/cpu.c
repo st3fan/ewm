@@ -37,12 +37,6 @@
 #include "mem.h"
 #include "fmt.h"
 
-/* Private API */
-
-typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
-typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
-typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
-
 // Stack management.
 
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {

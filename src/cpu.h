@@ -56,6 +56,10 @@ struct cpu_t {
    uint64_t counter;
 };
 
+typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
+typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
+typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
+
 #define MEM_FLAGS_READ  0x01
 #define MEM_FLAGS_WRITE 0x02
 
