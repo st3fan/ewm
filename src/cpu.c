@@ -53,7 +53,8 @@ uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
 }
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
-   return (uint16_t) cpu->page1[++cpu->state.sp] | ((uint16_t) cpu->page1[++cpu->state.sp] << 8);
+   uint16_t w = (uint16_t) cpu->page1[++cpu->state.sp];
+   return w | ((uint16_t) cpu->page1[++cpu->state.sp] << 8);
 }
 
 uint8_t _cpu_stack_free(struct cpu_t *cpu) {
