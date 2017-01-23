@@ -25,7 +25,7 @@ CFLAGS=-std=gnu11 -O3 -Wall -Wextra -Werror -Wno-unused-parameter
 LDFLAGS=-g -L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2
 
