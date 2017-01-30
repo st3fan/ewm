@@ -37,31 +37,24 @@
 #include "mem.h"
 #include "fmt.h"
 
-/* Private API */
-
-typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
-typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
-typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
-
 // Stack management.
 
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {
-   mem_set_byte(cpu, 0x0100 + cpu->state.sp, b);
-  cpu->state.sp -= 1;
+   cpu->page1[cpu->state.sp--] = b;
 }
 
 void _cpu_push_word(struct cpu_t *cpu, uint16_t w) {
-  _cpu_push_byte(cpu, (uint8_t) (w >> 8));
-  _cpu_push_byte(cpu, (uint8_t) w);
+   cpu->page1[cpu->state.sp--] = w >> 8;
+   cpu->page1[cpu->state.sp--] = w;
 }
 
 uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
-  cpu->state.sp += 1;
-  return mem_get_byte(cpu, 0x0100 + cpu->state.sp);
+   return cpu->page1[++cpu->state.sp];
 }
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
-  return (uint16_t) _cpu_pull_byte(cpu) | ((uint16_t) _cpu_pull_byte(cpu) << 8);
+   uint16_t w = (uint16_t) cpu->page1[++cpu->state.sp];
+   return w | ((uint16_t) cpu->page1[++cpu->state.sp] << 8);
 }
 
 uint8_t _cpu_stack_free(struct cpu_t *cpu) {
@@ -189,7 +182,7 @@ static void cpu_initialize() {
    }
 }
 
-int cpu_init(struct cpu_t *cpu, int model) {
+static int cpu_init(struct cpu_t *cpu, int model) {
    if (!cpu_initialized) {
       cpu_initialize();
       cpu_initialized = true;
@@ -216,6 +209,17 @@ void cpu_destroy(struct cpu_t *cpu) {
       (void) fclose(cpu->trace);
       cpu->trace = NULL;
    }
+}
+
+static struct mem_t *cpu_mem_for_page(struct cpu_t *cpu, uint8_t page) {
+   struct mem_t *mem = cpu->mem;
+   while (mem != NULL) {
+      if (mem->enabled && ((page * 0x100) >= mem->start) && ((page * 0x0100 + 0xff) <= mem->end)) {
+         return mem;
+      }
+      mem = mem->next;
+   }
+   return NULL;
 }
 
 struct mem_t *cpu_add_mem(struct cpu_t *cpu, struct mem_t *mem) {
@@ -351,6 +355,27 @@ struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void 
   return cpu_add_mem(cpu, mem);
 }
 
+// Call this when the memory layout changes for page 0 and 1. For
+// example when those pages are bankswitched. I don't think anything
+// does that right now. The Apple Language Card works in different
+// memory regions.
+
+void cpu_optimize_memory(struct cpu_t *cpu) {
+   struct mem_t *page0 = cpu_mem_for_page(cpu, 0);
+   if (page0 == NULL || (page0->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE))) {
+      printf("[CPU] Cannot find rw memory region that handles Page 0\n");
+      exit(1);
+   }
+   cpu->page0 = page0->obj + (0x0000 - page0->start);
+
+   struct mem_t *page1 = cpu_mem_for_page(cpu, 1);
+   if (page1 == NULL || (page1->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE))) {
+      printf("[CPU] Cannot find rw memory region that handles Page 1\n");
+      exit(1);
+   }
+   cpu->page1 = page1->obj + (0x0100 - page1->start);
+}
+
 void cpu_strict(struct cpu_t *cpu, bool strict) {
    cpu->strict = strict;
 }
@@ -384,6 +409,8 @@ void cpu_reset(struct cpu_t *cpu) {
    cpu->state.z = 0;
    cpu->state.c = 0;
    cpu->state.sp = 0xff;
+
+   cpu_optimize_memory(cpu);
 }
 
 int cpu_irq(struct cpu_t *cpu) {

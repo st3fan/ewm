@@ -54,7 +54,14 @@ struct cpu_t {
    struct mem_t *mem;
    struct cpu_instruction_t *instructions;
    uint64_t counter;
+
+   uint8_t *page0;
+   uint8_t *page1;
 };
+
+typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
+typedef void (*cpu_instruction_handler_byte_t)(struct cpu_t *cpu, uint8_t oper);
+typedef void (*cpu_instruction_handler_word_t)(struct cpu_t *cpu, uint16_t oper);
 
 #define MEM_FLAGS_READ  0x01
 #define MEM_FLAGS_WRITE 0x02
@@ -87,7 +94,6 @@ uint8_t _cpu_stack_used(struct cpu_t *cpu);
 uint8_t _cpu_get_status(struct cpu_t *cpu);
 void _cpu_set_status(struct cpu_t *cpu, uint8_t status);
 
-int cpu_init(struct cpu_t *cpu, int model);
 struct cpu_t *cpu_create(int model);
 void cpu_destroy(struct cpu_t *cpu);
 
@@ -98,6 +104,8 @@ struct mem_t *cpu_add_ram_file(struct cpu_t *cpu, uint16_t start, char *path);
 struct mem_t *cpu_add_rom_data(struct cpu_t *cpu, uint16_t start, uint16_t end, uint8_t *data);
 struct mem_t *cpu_add_rom_file(struct cpu_t *cpu, uint16_t start, char *path);
 struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void *obj, mem_read_handler_t read_handler, mem_write_handler_t write_handler);
+
+void cpu_optimize_memory(struct cpu_t *cpu);
 
 void cpu_strict(struct cpu_t *cpu, bool strict);
 int cpu_trace(struct cpu_t *cpu, char *path);

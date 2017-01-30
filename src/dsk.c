@@ -413,7 +413,7 @@ static struct ewm_dsk_track_t dsk_convert_track(struct ewm_dsk_t *disk, struct e
 
 // Public
 
-int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu) {
+static int ewm_dsk_init(struct ewm_dsk_t *dsk, struct cpu_t *cpu) {
    memset(dsk, 0x00, sizeof(struct ewm_dsk_t));
    dsk->rom = cpu_add_rom_data(cpu, 0xc600, 0xc6ff, dsk_rom);
    dsk->rom->description = "rom/dsk/$C600";
@@ -428,10 +428,37 @@ struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu) {
    return dsk;
 }
 
+static uint8_t dsk_defourxfour(uint8_t h, uint8_t l) {
+   return ((h << 1) | 0x01) & l;
+}
+
+static uint8_t dsk_locate_volume_number(struct ewm_dsk_track_t *track) {
+   for (int i = 0; i < track->length / 2; i++) {
+      if (track->data[i+0] == 0xd5 && track->data[i+1] == 0xaa && track->data[i+2] == 0x96) {
+         return dsk_defourxfour(track->data[i+3], track->data[i+4]);
+      }
+   }
+   return 0;
+}
+
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type) {
-   assert(type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO);
-   assert(index < 2);
-   assert(length == (EWM_DSK_TRACKS * EWM_DSK_SECTORS * EWM_DSK_SECTOR_SIZE));
+   if (type == EWM_DSK_TYPE_UNKNOWN) {
+      return -1;
+   }
+
+   if (index > 1) {
+      return -1;
+   }
+
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      if (length != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
+         return -1;
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      if (length != (EWM_DSK_TRACKS * EWM_DSK_NIBBLES_PER_TRACK)) {
+         return -1;
+      }
+   }
 
    struct ewm_dsk_drive_t *drive = &dsk->drives[index];
 
@@ -444,15 +471,28 @@ int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, v
    }
 
    drive->loaded = true;
-   drive->volume = 254; // TODO Find Volume from disk image. Or does this not matter? I guess this gets lost in .dsk files.
+   drive->volume = 254; // Default volume number
    drive->track = 0;
    drive->head = 0;
    drive->phase = 0;
    drive->readonly = readonly;
    drive->dirty = false;
 
-   for (int t = 0; t < EWM_DSK_TRACKS; t++) {
-      drive->tracks[t] = dsk_convert_track(dsk, drive, data, t, type);
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      for (int t = 0; t < EWM_DSK_TRACKS; t++) {
+         drive->tracks[t] = dsk_convert_track(dsk, drive, data, t, type);
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      for (int t = 0; t < EWM_DSK_TRACKS; t++) {
+         drive->tracks[t].length = 6656;
+         drive->tracks[t].data = malloc(6656);
+         memcpy(drive->tracks[t].data, data + (t * 6656), 6656);
+      }
+
+      uint8_t volume = dsk_locate_volume_number(&drive->tracks[0]);
+      if (volume != 0) {
+         drive->volume = volume;
+      }
    }
 
    return 0;
@@ -464,6 +504,9 @@ static int ewm_dsk_type_from_path(char *path) {
    }
    if (ewm_utl_endswith(path, ".po")) {
       return EWM_DSK_TYPE_PO;
+   }
+   if (ewm_utl_endswith(path, ".nib")) {
+      return EWM_DSK_TYPE_NIB;
    }
    return EWM_DSK_TYPE_UNKNOWN;
 }
@@ -485,9 +528,16 @@ int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, c
       return -1;
    }
 
-   if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
-      close(fd);
-      return -1;
+   if (type == EWM_DSK_TYPE_DO || type == EWM_DSK_TYPE_PO) {
+      if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_SECTORS * 256)) {
+         close(fd);
+         return -1;
+      }
+   } else if (type == EWM_DSK_TYPE_NIB) {
+      if (file_info.st_size != (EWM_DSK_TRACKS * EWM_DSK_NIBBLES_PER_TRACK)) {
+         close(fd);
+         return -1;
+      }
    }
 
    char *data = calloc(file_info.st_size, 1);

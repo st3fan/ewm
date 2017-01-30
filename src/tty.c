@@ -97,11 +97,18 @@ void ewm_tty_reset(struct ewm_tty_t *tty) {
    tty->screen_dirty = true;
 }
 
-void ewm_tty_refresh(struct ewm_tty_t *tty) {
+void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
    for (int row = 0; row < 24; row++) {
       for (int column = 0; column < 40; column++) {
          ewm_tty_render_character(tty, row, column, tty->screen_buffer[(row * EWM_ONE_TTY_COLUMNS) + column]);
       }
    }
-   ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR);
+
+   if ((phase % (fps / 4)) == 0) {
+      tty->screen_cursor_blink = !tty->screen_cursor_blink;
+   }
+
+   if (tty->screen_cursor_blink) {
+      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR);
+   }
 }

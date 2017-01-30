@@ -52,16 +52,3 @@ Here are some of the things I want to accomplish for each emulated machine:
 * Audio Support
 * Display Emulation - High resolution graphics - Mostly works.
 
-### Apple IIe
-
-*64K / 65C02 / Enhanced ROM*
-
-* Central *MMU* to coordinate/own all memory and IO
-* Generic slot/card infrastructure
-* Disk II emulation - In progress
-* Extended 80-Column Text Card
-* Display Emulation - 40 Column mode
-* Display Emulation - 80 Column mode
-* Display Emulation - Low resolution graphics
-* Display Emulation - High resolution graphics
-* Display Emulation - Double high resolution graphics

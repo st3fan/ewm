@@ -33,6 +33,5 @@ struct ewm_chr_t {
 };
 
 struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color);
-int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color);
 
 #endif

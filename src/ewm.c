@@ -20,15 +20,45 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <getopt.h>
+
+#include <SDL2/SDL.h>
+
 #include "one.h"
 #include "two.h"
+#include "boo.h"
 
 int main(int argc, char **argv) {
-   if (strcmp(argv[1], "one") == 0) {
-      return ewm_one_main(argc-1, &argv[1]);
+   if (argc > 1) {
+      // Delegate to the Apple 1 / Replica 1 emulation
+      if (strcmp(argv[1], "one") == 0) {
+         return ewm_one_main(argc-1, &argv[1]);
+      }
+
+      // Delegate to the Apple ][+ emulation
+      if (strcmp(argv[1], "two") == 0) {
+         return ewm_two_main(argc-1, &argv[1]);
+      }
+
+      return 1; // TODO Print usage
    }
-   if (strcmp(argv[1], "two") == 0) {
-      return ewm_two_main(argc-1, &argv[1]);
+
+   // If we were not started with no arguments then we run the bootloader
+
+   switch (ewm_boo_main(argc, argv)) {
+      case EWM_BOO_BOOT_APPLE1: {
+         char *args[] = { "one", "-model", "apple1", NULL };
+         return ewm_one_main(3, args);
+      }
+      case EWM_BOO_BOOT_REPLICA1: {
+         char *args[] = { "one", "-model", "replica1", NULL };
+         return ewm_one_main(3, args);
+      }
+      case EWM_BOO_BOOT_APPLE2PLUS: {
+         char *args[] = { "two", NULL };
+         return ewm_two_main(1, args);
+      }
    }
+
    return 1;
 }

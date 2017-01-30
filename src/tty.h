@@ -43,12 +43,13 @@ struct ewm_tty_t {
    int screen_cursor_row;
    int screen_cursor_column;
    uint32_t text_color;
+   int screen_cursor_blink;
 };
 
 struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer);
 void ewm_tty_destroy(struct ewm_tty_t *tty);
 void ewm_tty_write(struct ewm_tty_t *tty, uint8_t v);
 void ewm_tty_reset(struct ewm_tty_t *tty);
-void ewm_tty_refresh(struct ewm_tty_t *tty);
+void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps);
 
 #endif // EWM_TTY_H

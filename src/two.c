@@ -390,9 +390,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
          case SDL_KEYDOWN:
             if (event.key.keysym.mod & KMOD_CTRL) {
                if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {
-                  two->key = (event.key.keysym.sym - SDLK_a) | 0x80;
-               } else {
-                  // TODO Implement control codes 1b - 1f
+                  two->key = (event.key.keysym.sym - SDLK_a + 1) | 0x80;
                }
             } else if (event.key.keysym.mod & KMOD_GUI) {
                switch (event.key.keysym.sym) {

@@ -32,15 +32,6 @@
 #include "tty.h"
 #include "one.h"
 
-struct ewm_one_t *ewm_one_create(int model, SDL_Window *window, SDL_Renderer *renderer) {
-   struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
-   if (ewm_one_init(one, model, window, renderer) != 0) {
-      free(one);
-      one = NULL;
-   }
-   return one;
-}
-
 static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, uint8_t v) {
    struct ewm_one_t *one = (struct ewm_one_t*) obj;
    if (one->model == EWM_ONE_MODEL_APPLE1) {
@@ -49,7 +40,7 @@ static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, 
    ewm_tty_write(one->tty, v);
 }
 
-int ewm_one_init(struct ewm_one_t *one, int model, SDL_Window *window, SDL_Renderer *renderer) {
+static int ewm_one_init(struct ewm_one_t *one, int model, SDL_Window *window, SDL_Renderer *renderer) {
    memset(one, 0, sizeof(struct ewm_one_t));
    one->model = model;
    switch (model) {
@@ -281,7 +272,8 @@ int ewm_one_main(int argc, char **argv) {
 
    SDL_StartTextInput();
 
-   Uint32 ticks = SDL_GetTicks();
+   uint32_t ticks = SDL_GetTicks();
+   uint32_t phase = 1;
 
    while (true) {
       if (!ewm_one_poll_event(one, window)) { // TODO Move window into one
@@ -290,20 +282,27 @@ int ewm_one_main(int argc, char **argv) {
 
       // This is very basic throttling that does bursts of CPU cycles.
 
-      if ((SDL_GetTicks() - ticks) >= (1000 / 30)) { // TODO EWM_ONE_TTY_FPS ?
-         if (!ewm_one_step_cpu(one, 1000000 / 30)) {
+      if ((SDL_GetTicks() - ticks) >= (1000 / EWM_ONE_FPS)) {
+         if (!ewm_one_step_cpu(one, EWM_ONE_CPS / EWM_ONE_FPS)) {
             break;
          }
 
-         if (one->tty->screen_dirty) {
+         if (one->tty->screen_dirty || (phase == 0) || ((phase % (EWM_ONE_FPS / 4)) == 0)) {
             SDL_SetRenderDrawColor(one->tty->renderer, 0, 0, 0, 255);
             SDL_RenderClear(one->tty->renderer);
-            ewm_tty_refresh(one->tty);
+
+            ewm_tty_refresh(one->tty, phase, EWM_ONE_FPS);
             one->tty->screen_dirty = false;
+
             SDL_RenderPresent(one->tty->renderer);
          }
 
          ticks = SDL_GetTicks();
+
+         phase += 1;
+         if (phase == EWM_ONE_FPS) {
+            phase = 0;
+         }
       }
    }
 
@@ -316,3 +315,11 @@ int ewm_one_main(int argc, char **argv) {
    return 0;
 }
 
+struct ewm_one_t *ewm_one_create(int model, SDL_Window *window, SDL_Renderer *renderer) {
+   struct ewm_one_t *one = (struct ewm_one_t*) malloc(sizeof(struct ewm_one_t));
+   if (ewm_one_init(one, model, window, renderer) != 0) {
+      free(one);
+      one = NULL;
+   }
+   return one;
+}

@@ -60,16 +60,6 @@ static int _load_rom_data(char *rom_path, uint8_t rom_data[2048]) {
    return 0;
 }
 
-struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
-   struct ewm_chr_t *chr = (struct ewm_chr_t*) malloc(sizeof(struct ewm_chr_t));
-   int ret = ewm_chr_init(chr, rom_path, rom_type, renderer, color);
-   if (ret != 0) {
-      free(chr);
-      chr = NULL;
-   }
-   return chr;
-}
-
 static void _set_pixel(SDL_Surface * surface, int x, int y, Uint32 color) {
    uint32_t *pixel = (uint32_t*) ((uint8_t*) surface->pixels + (y * surface->pitch) + (x * sizeof(uint32_t)));
    *pixel = color;
@@ -124,7 +114,7 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, SDL_Surface *surfa
    return texture;
 }
 
-int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
+static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
    if (rom_type != EWM_CHR_ROM_TYPE_2716) {
       return -1;
    }
@@ -174,4 +164,13 @@ int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Render
    }
 
    return 0;
+}
+struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer, uint32_t color) {
+   struct ewm_chr_t *chr = (struct ewm_chr_t*) malloc(sizeof(struct ewm_chr_t));
+   int ret = ewm_chr_init(chr, rom_path, rom_type, renderer, color);
+   if (ret != 0) {
+      free(chr);
+      chr = NULL;
+   }
+   return chr;
 }

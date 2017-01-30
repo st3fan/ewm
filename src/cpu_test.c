@@ -31,13 +31,12 @@
 #include "mem.h"
 
 int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) {
-   struct cpu_t cpu;
-   cpu_init(&cpu, model);
-   cpu_add_ram_file(&cpu, 0x0000, rom_path);
-   cpu_reset(&cpu);
-   cpu.state.pc = start_addr;
+   struct cpu_t *cpu = cpu_create(model);
+   cpu_add_ram_file(cpu, 0x0000, rom_path);
+   cpu_reset(cpu);
+   cpu->state.pc = start_addr;
 
-   uint16_t last_pc = cpu.state.pc;
+   uint16_t last_pc = cpu->state.pc;
 
    struct timespec start;
    if (clock_gettime(CLOCK_REALTIME, &start) != 0) {
@@ -46,12 +45,12 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
    }
 
    while (true) {
-      int ret = cpu_step(&cpu);
+      int ret = cpu_step(cpu);
       if (ret < 0) {
          switch (ret) {
             case EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION:
                fprintf(stderr, "TEST   Unimplemented instruction 0x%.2x at 0x%.4x\n",
-                       mem_get_byte(&cpu, cpu.state.pc), cpu.state.pc);
+                       mem_get_byte(cpu, cpu->state.pc), cpu->state.pc);
                return -1;
             default:
                fprintf(stderr, "TEST   Unexpected error %d\n", ret);
@@ -62,7 +61,7 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
       // End of the tests is at 0x3399. This is hard coded and not
       // ideal. Is there a better way to detect this?
 
-      if (cpu.state.pc == success_addr) {
+      if (cpu->state.pc == success_addr) {
 	 struct timespec now;
 	 if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
 	    perror("Cannot get time");
@@ -75,10 +74,10 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
 	 uint64_t duration_ms = (now.tv_sec * 1000 + (now.tv_nsec / 1000000))
 	    - (start.tv_sec * 1000 + (start.tv_nsec / 1000000));
 	 double duration  = (double) duration_ms / 1000.0;
-	 double mhz = (double) cpu.counter * (1.0 / duration) / 1000000.0;
+	 double mhz = (double) cpu->counter * (1.0 / duration) / 1000000.0;
 	 
 	 fprintf(stderr, "TEST   Success; executed %" PRIu64 " cycles in %.4f at %.4f MHz\n",
-		 cpu.counter, duration, mhz);
+		 cpu->counter, duration, mhz);
 
          return 0;
       }
@@ -87,17 +86,17 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
       // which we can easily detect by remembering the previous pc and
       // then looking at what we are about to execute.
 
-      if (cpu.state.pc == last_pc) {
-         uint8_t i = mem_get_byte(&cpu, cpu.state.pc);
+      if (cpu->state.pc == last_pc) {
+         uint8_t i = mem_get_byte(cpu, cpu->state.pc);
          if (i == 0x10 || i == 0x30 || i == 0x50 || i == 0x70 || i == 0x90 || i == 0xb0 || i == 0xd0 || i == 0xf0) {
-            if (mem_get_byte(&cpu, cpu.state.pc + 1) == 0xfe) {
-               fprintf(stderr, "TEST   Failure at 0x%.4x \n", cpu.state.pc);
+            if (mem_get_byte(cpu, cpu->state.pc + 1) == 0xfe) {
+               fprintf(stderr, "TEST   Failure at 0x%.4x \n", cpu->state.pc);
                return -1;
             }
          }
       }
 
-      last_pc = cpu.state.pc;
+      last_pc = cpu->state.pc;
    }
 }
 

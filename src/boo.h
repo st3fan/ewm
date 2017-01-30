@@ -20,32 +20,18 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_ONE_H
-#define EWM_ONE_H
+#ifndef EWM_BOO_H
+#define EWM_BOO_H
 
 #include <SDL2/SDL.h>
 
-#define EWM_ONE_MODEL_APPLE1   (0)
-#define EWM_ONE_MODEL_REPLICA1 (1)
-#define EWM_ONE_MODEL_DEFAULT  (EWM_ONE_MODEL_REPLICA1)
+#define EWM_BOO_QUIT            (0)
+#define EWM_BOO_BOOT_APPLE1     (1)
+#define EWM_BOO_BOOT_REPLICA1   (2)
+#define EWM_BOO_BOOT_APPLE2PLUS (3)
 
-#define EWM_ONE_FPS (40)
-#define EWM_ONE_CPS (1023000)
+#define EWM_BOO_FPS (40)
 
-struct cpu_t;
-struct ewm_tty_t;
-struct ewm_pia_t;
+int ewm_boo_main(int argc, char **argv);
 
-struct ewm_one_t {
-   int model;
-   struct cpu_t *cpu;
-   struct ewm_tty_t *tty;
-   struct ewm_pia_t *pia;
-};
-
-struct ewm_one_t *ewm_one_create(int type, SDL_Window *window, SDL_Renderer *renderer);
-void ewm_one_destroy(struct ewm_one_t *one);
-
-int ewm_one_main(int argc, char **argv);
-
-#endif // EWM_ONE_H
+#endif // EWM_BOO_H
