@@ -37,7 +37,6 @@ static char *menu[24] = {
    "*                                      *",
    "*        GITHUB.COM/ST3FAN/EWM         *",
    "*                                      *",
-   "*                                      *",
    "* WHAT WOULD YOU LIKE TO EMULATE?      *",
    "*                                      *",
    "*   1) APPLE 1                         *",
@@ -50,6 +49,7 @@ static char *menu[24] = {
    "*      6502 / 64KB (LANGUAGE CARD)     *",
    "*      DISK II / AUTOSTART ROM         *",
    "*                                      *",
+   "* START WITH --HELP TO SEE ALL OPTIONS *",
    "*                                      *",
    "****************************************"
 };
@@ -133,7 +133,7 @@ int ewm_boo_main(int argc, char **argv) {
             }
 
             tty->screen_cursor_column = 34;
-            tty->screen_cursor_row = 10;
+            tty->screen_cursor_row = 9;
 
             //strcpy((char*) tty->screen_buffer, "1) APPLE 1  2) REPLICA 1  3) APPLE ][+");
 
