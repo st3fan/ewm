@@ -29,6 +29,7 @@
 
 #include "cpu.h"
 #include "mem.h"
+#include "utl.h"
 
 int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) {
    struct cpu_t *cpu = cpu_create(model);

@@ -27,6 +27,7 @@
 #include "cpu.h"
 #include "ins.h"
 #include "mem.h"
+#include "utl.h"
 
 #define CPU_BENCH_ITERATIONS (100 * 1000 * 1000)
 

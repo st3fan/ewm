@@ -26,6 +26,7 @@
 
 #include "cpu.h"
 #include "mem.h"
+#include "utl.h"
 
 #define MEM_BENCH_ITERATIONS (100 * 1000 * 1000)
 
