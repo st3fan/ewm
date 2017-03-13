@@ -25,6 +25,17 @@
 
 #include <stdbool.h>
 
+#if __APPLE__ && __MACH__
+#include <mach/clock.h>
+#include <Availability.h>
+#endif
+
 bool ewm_utl_endswith(char *s, char *suffix);
+
+#if defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200
+#define CLOCK_REALTIME CALENDAR_CLOCK
+typedef int clockid_t;
+int clock_gettime(clockid_t clk_id, struct timespec *tp);
+#endif
 
 #endif // EWM_UTL_H

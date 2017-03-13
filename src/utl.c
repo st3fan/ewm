@@ -23,6 +23,12 @@
 #include <stddef.h>
 #include <string.h>
 
+#if __APPLE__ && __MACH__
+#include <sys/_types/_timespec.h>
+#include <mach/mach.h>
+#include <mach/clock.h>
+#endif
+
 #include "utl.h"
 
 bool ewm_utl_endswith(char *s, char *suffix) {
@@ -33,3 +39,25 @@ bool ewm_utl_endswith(char *s, char *suffix) {
    }
    return false;
 }
+
+#if (defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && __MAC_OS_X_VERSION_MIN_REQUIRED < 101200)
+int clock_gettime(clockid_t clk_id, struct timespec *tp) {
+   if (clk_id != CLOCK_REALTIME) {
+      return -1;
+   }
+
+   kern_return_t result = KERN_SUCCESS;
+
+   clock_serv_t cclock;
+   mach_timespec_t mts;
+
+   host_get_clock_service(mach_host_self(), clk_id, &cclock);
+   result = clock_get_time(cclock, &mts);
+   mach_port_deallocate(mach_task_self(), cclock);
+
+   tp->tv_sec = mts.tv_sec;
+   tp->tv_nsec = mts.tv_nsec;
+
+   return result;
+}
+#endif

@@ -30,7 +30,7 @@ EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2
 
 CPU_TEST_EXECUTABLE=cpu_test
-CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c cpu_test.c
+CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_test.c
 CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=
 
@@ -40,12 +40,12 @@ SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2
 
 CPU_BENCH=cpu_bench
-CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c cpu_bench.c
+CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_bench.c
 CPU_BENCH_OBJECTS=$(CPU_BENCH_SOURCES:.c=.o)
 CPU_BENCH_LIBS=
 
 MEM_BENCH=mem_bench
-MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c mem_bench.c
+MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c mem_bench.c
 MEM_BENCH_OBJECTS=$(MEM_BENCH_SOURCES:.c=.o)
 MEM_BENCH_LIBS=
 
