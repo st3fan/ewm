@@ -528,16 +528,18 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
    }
 }
 
-#define EWM_TWO_OPT_DRIVE1 (0)
-#define EWM_TWO_OPT_DRIVE2 (1)
-#define EWM_TWO_OPT_COLOR  (2)
-#define EWM_TWO_OPT_FPS    (3)
-#define EWM_TWO_OPT_MEMORY (4)
-#define EWM_TWO_OPT_TRACE  (5)
-#define EWM_TWO_OPT_STRICT (6)
-#define EWM_TWO_OPT_DEBUG  (7)
+#define EWM_TWO_OPT_HELP   (0)
+#define EWM_TWO_OPT_DRIVE1 (1)
+#define EWM_TWO_OPT_DRIVE2 (2)
+#define EWM_TWO_OPT_COLOR  (3)
+#define EWM_TWO_OPT_FPS    (4)
+#define EWM_TWO_OPT_MEMORY (5)
+#define EWM_TWO_OPT_TRACE  (6)
+#define EWM_TWO_OPT_STRICT (7)
+#define EWM_TWO_OPT_DEBUG  (8)
 
 static struct option one_options[] = {
+   { "help",    no_argument,       NULL, EWM_TWO_OPT_HELP   },
    { "drive1",  required_argument, NULL, EWM_TWO_OPT_DRIVE1 },
    { "drive2",  required_argument, NULL, EWM_TWO_OPT_DRIVE2 },
    { "color",   no_argument,       NULL, EWM_TWO_OPT_COLOR  },
@@ -548,6 +550,18 @@ static struct option one_options[] = {
    { "debug",   no_argument,       NULL, EWM_TWO_OPT_DEBUG  },
    { NULL,      0,                 NULL, 0 }
 };
+
+static void usage() {
+   fprintf(stderr, "Usage: ewm two [options]\n");
+   fprintf(stderr, "  --drive1 <path>   load .dsk, .po or nib at path in slot 6 drive 1\n");
+   fprintf(stderr, "  --drive2 <path>   load .dsk, .po or nib at path in slot 6 drive 2\n");
+   fprintf(stderr, "  --color           enable color\n");
+   fprintf(stderr, "  --fps <fps>       set fps for display (default: 30)\n");
+   fprintf(stderr, "  --memory <region> add memory region (ram|rom:address:path)\n");
+   fprintf(stderr, "  --trace <file>    trace cpu to file\n");
+   fprintf(stderr, "  --strict          run emulator in strict mode\n");
+   fprintf(stderr, "  --debug           print debug info\n");
+}
 
 int ewm_two_main(int argc, char **argv) {
    // Parse options
@@ -564,6 +578,10 @@ int ewm_two_main(int argc, char **argv) {
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
       switch (ch) {
+         case EWM_TWO_OPT_HELP: {
+            usage();
+            exit(0);
+         }
          case EWM_TWO_OPT_DRIVE1:
             drive1 = optarg;
             break;
@@ -594,6 +612,10 @@ int ewm_two_main(int argc, char **argv) {
          case EWM_TWO_OPT_DEBUG:
             debug = true;
             break;
+         default: {
+            usage();
+            exit(1);
+         }
       }
    }
 

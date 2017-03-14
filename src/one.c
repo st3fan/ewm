@@ -170,18 +170,32 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
    return true;
 }
 
-#define EWM_ONE_OPT_MODEL  (0)
-#define EWM_ONE_OPT_MEMORY (1)
-#define EWM_ONE_OPT_TRACE  (2)
-#define EWM_ONE_OPT_STRICT (3)
+#define EWM_ONE_OPT_HELP   (0)
+#define EWM_ONE_OPT_MODEL  (1)
+#define EWM_ONE_OPT_MEMORY (2)
+#define EWM_ONE_OPT_TRACE  (3)
+#define EWM_ONE_OPT_STRICT (4)
 
 static struct option one_options[] = {
+   { "help",   no_argument,       NULL, EWM_ONE_OPT_HELP   },
    { "model",  required_argument, NULL, EWM_ONE_OPT_MODEL  },
    { "memory", required_argument, NULL, EWM_ONE_OPT_MEMORY },
    { "trace",  optional_argument, NULL, EWM_ONE_OPT_TRACE  },
    { "strict", no_argument,       NULL, EWM_ONE_OPT_STRICT },
    { NULL,     0,                 NULL, 0 }
 };
+
+static void usage() {
+   fprintf(stderr, "Usage: ewm one [options]\n");
+   fprintf(stderr, "  --model <model>   model to emulate (default: apple1)\n");
+   fprintf(stderr, "  --memory <region> add memory region (ram|rom:address:path)\n");
+   fprintf(stderr, "  --trace <file>    trace cpu to file\n");
+   fprintf(stderr, "  --strict          run emulator in strict mode\n");
+   fprintf(stderr, "\n");
+   fprintf(stderr, "Supported models:\n");
+   fprintf(stderr, "  apple1    Classic Apple 1, 6502, 8KB RAM, Woz Monitor\n");
+   fprintf(stderr, "  replica1  Replica 1, 65C02, 48KB RAM, KRUSADER\n");
+}
 
 int ewm_one_main(int argc, char **argv) {
    // Parse Apple 1 specific options
@@ -193,6 +207,10 @@ int ewm_one_main(int argc, char **argv) {
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
       switch (ch) {
+         case EWM_ONE_OPT_HELP: {
+            usage();
+            exit(0);
+         }
          case EWM_ONE_OPT_MODEL: {
             if (strcmp(optarg, "apple1") == 0) {
                model = EWM_ONE_MODEL_APPLE1;
@@ -220,6 +238,10 @@ int ewm_one_main(int argc, char **argv) {
          case EWM_ONE_OPT_STRICT: {
             strict = true;
             break;
+         }
+         default: {
+            usage();
+            exit(1);
          }
       }
    }

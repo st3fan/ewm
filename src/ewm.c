@@ -28,8 +28,40 @@
 #include "two.h"
 #include "boo.h"
 
+static void usage() {
+   fprintf(stderr, "Usage: ewm [--help|-h] [<command> [--help|-h] [args]]\n");
+   fprintf(stderr, "\n");
+   fprintf(stderr, "Commands:\n");
+   fprintf(stderr, "  one     Run the Apple 1 emulator\n");
+   fprintf(stderr, "  two     Run the Apple ][+ emulator\n");
+   fprintf(stderr, "  boo     Run the 'bootloader' (default)\n");
+   fprintf(stderr, "\n");
+   fprintf(stderr, "If no command is specified, the 'bootloader' will be run, which\n");
+   fprintf(stderr, "allows the user to interactively select what emulator to start.\n");
+}
+
 int main(int argc, char **argv) {
-   if (argc > 1) {
+   if (argc == 1) {
+      switch (ewm_boo_main(argc, argv)) {
+         case EWM_BOO_BOOT_APPLE1: {
+            char *args[] = { "one", "-model", "apple1", NULL };
+            return ewm_one_main(3, args);
+         }
+         case EWM_BOO_BOOT_REPLICA1: {
+            char *args[] = { "one", "-model", "replica1", NULL };
+            return ewm_one_main(3, args);
+         }
+         case EWM_BOO_BOOT_APPLE2PLUS: {
+            char *args[] = { "two", NULL };
+            return ewm_two_main(1, args);
+         }
+      }
+   } else if (argc > 1) {
+      if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
+         usage();
+         exit(0);
+      }
+
       // Delegate to the Apple 1 / Replica 1 emulation
       if (strcmp(argv[1], "one") == 0) {
          return ewm_one_main(argc-1, &argv[1]);
@@ -40,25 +72,12 @@ int main(int argc, char **argv) {
          return ewm_two_main(argc-1, &argv[1]);
       }
 
-      return 1; // TODO Print usage
-   }
-
-   // If we were not started with no arguments then we run the bootloader
-
-   switch (ewm_boo_main(argc, argv)) {
-      case EWM_BOO_BOOT_APPLE1: {
-         char *args[] = { "one", "-model", "apple1", NULL };
-         return ewm_one_main(3, args);
-      }
-      case EWM_BOO_BOOT_REPLICA1: {
-         char *args[] = { "one", "-model", "replica1", NULL };
-         return ewm_one_main(3, args);
-      }
-      case EWM_BOO_BOOT_APPLE2PLUS: {
-         char *args[] = { "two", NULL };
-         return ewm_two_main(1, args);
+      // Delegate to the bootloader
+      if (strcmp(argv[1], "boo") == 0) {
+         return ewm_boo_main(argc-1, &argv[1]);
       }
    }
 
+   usage();
    return 1;
 }
