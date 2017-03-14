@@ -21,9 +21,6 @@
 # SOFTWARE.
 
 os: osx
-osx_image: 
-  - xcode8
-  - xcode8.2
 language: c
 before_install:
   - brew update
