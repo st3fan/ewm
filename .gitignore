@@ -55,6 +55,7 @@ scr_test
 cpu_test
 chr_test
 mem_bench
+cpu_bench
 
 *.bin
 *.lst
