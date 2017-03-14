@@ -35,16 +35,18 @@
 struct ewm_chr_t;
 
 struct ewm_tty_t {
+   SDL_Window *window;
    SDL_Renderer *renderer;
    struct ewm_chr_t *chr;
    bool screen_dirty;
    uint8_t screen_buffer[EWM_ONE_TTY_ROWS * EWM_ONE_TTY_COLUMNS];
    int screen_cursor_row;
    int screen_cursor_column;
+   uint32_t text_color;
    int screen_cursor_blink;
 };
 
-struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);
+struct ewm_tty_t *ewm_tty_create(SDL_Window *window, SDL_Renderer *renderer);
 void ewm_tty_destroy(struct ewm_tty_t *tty);
 void ewm_tty_write(struct ewm_tty_t *tty, uint8_t v);
 void ewm_tty_reset(struct ewm_tty_t *tty);
