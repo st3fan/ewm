@@ -24,7 +24,7 @@ os: osx
 language: c
 before_install:
   - brew update
-  - brew install sdl2
+  - brew install sdl2 lua
 before_script:
   - cd src
 script:

@@ -20,24 +20,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef INS_H
-#define INS_H
+#ifndef LUA_H
+#define LUA_H
 
-#include <stdint.h>
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
 
-struct cpu_instruction_t {
-   char *name;
-   uint8_t opcode;
-   uint8_t bytes;
-   uint8_t cycles;
-   int8_t stack; // How much stack does this instruction need. Negative means pull, positive push
-   void *handler;
+struct cpu_t;
+struct ewm_two_t;
+struct ewm_dsk_t;
 
-   int lua_before_handler;
-   int lua_after_handler;
+struct ewm_lua_t {
+   lua_State *state;
 };
 
-extern struct cpu_instruction_t instructions[256];
-extern struct cpu_instruction_t instructions_65C02[256];
+struct ewm_lua_t *ewm_lua_create();
+int ewm_lua_load_script(struct ewm_lua_t *lua, char *script_path);
 
-#endif
+void ewm_lua_push_cpu(struct ewm_lua_t *lua, struct cpu_t *cpu);
+void ewm_lua_push_two(struct ewm_lua_t *lua, struct ewm_two_t *two);
+void ewm_lua_push_dsk(struct ewm_lua_t *lua, struct ewm_dsk_t *dsk);
+
+void ewm_lua_register_component(struct ewm_lua_t *lua, char *name, luaL_Reg *functions);
+
+#endif // LUA_H

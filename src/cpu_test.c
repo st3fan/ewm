@@ -30,12 +30,23 @@
 #include "cpu.h"
 #include "mem.h"
 #include "utl.h"
+#include "lua.h"
 
 int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) {
    struct cpu_t *cpu = cpu_create(model);
    cpu_add_ram_file(cpu, 0x0000, rom_path);
    cpu_reset(cpu);
    cpu->state.pc = start_addr;
+
+#if 1
+   cpu->lua = ewm_lua_create();
+   ewm_cpu_init_lua(cpu, cpu->lua);
+
+   if (ewm_lua_load_script(cpu->lua, "cpu_test.lua") != 0) {
+      printf("Lua script failed to load\n"); // TODO Move errors reporting into C code
+      exit(1);
+   }
+#endif
 
    uint16_t last_pc = cpu->state.pc;
 
