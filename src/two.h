@@ -56,11 +56,13 @@
 struct mem_t;
 struct ewm_dsk_t;
 struct scr;
+struct lua;
 
 struct ewm_two_t {
    int type;
    struct cpu_t *cpu;
    struct scr_t *scr;
+   struct ewm_lua_t *lua;
    struct ewm_dsk_t *dsk;
    struct ewm_alc_t *alc;
 
