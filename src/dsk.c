@@ -30,6 +30,7 @@
 #include "mem.h"
 #include "cpu.h"
 #include "utl.h"
+#include "lua.h"
 #include "dsk.h"
 
 //
@@ -552,4 +553,26 @@ int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, c
    free(data);
 
    return result;
+}
+
+// Lua Support
+
+static int ewm_dsk_lua_hello(lua_State *lua) {
+   printf("This is dsk.hello()\n");
+   return 0;
+}
+
+int ewm_dsk_luaopen(lua_State *state) {
+   luaL_Reg functions[] = {
+      {"hello", ewm_dsk_lua_hello},
+      {NULL, NULL}
+   };
+   luaL_newlib(state, functions);
+   return 1;
+}
+
+int ewm_dsk_init_lua(struct ewm_dsk_t *dsk, struct ewm_lua_t *lua) {
+   dsk->lua = lua;
+   luaL_requiref(dsk->lua->state, "dsk", ewm_dsk_luaopen, 0);
+   return 0;
 }
