@@ -27,10 +27,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <lua.h>
-#include <lauxlib.h>
-#include <lualib.h>
-
 #define EWM_CPU_MODEL_6502  0
 #define EWM_CPU_MODEL_65C02 1
 

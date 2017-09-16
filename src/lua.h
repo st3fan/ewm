@@ -28,6 +28,8 @@
 #include <lualib.h>
 
 struct cpu_t;
+struct ewm_two_t;
+struct ewm_dsk_t;
 
 struct ewm_lua_t {
    lua_State *state;
@@ -35,5 +37,11 @@ struct ewm_lua_t {
 
 struct ewm_lua_t *ewm_lua_create();
 int ewm_lua_load_script(struct ewm_lua_t *lua, char *script_path);
+
+void ewm_lua_push_cpu(struct ewm_lua_t *lua, struct cpu_t *cpu);
+void ewm_lua_push_two(struct ewm_lua_t *lua, struct ewm_two_t *two);
+void ewm_lua_push_dsk(struct ewm_lua_t *lua, struct ewm_dsk_t *dsk);
+
+void ewm_lua_register_component(lua_State *state, char *name, luaL_Reg *functions);
 
 #endif // LUA_H

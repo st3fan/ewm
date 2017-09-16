@@ -28,16 +28,15 @@
 #include <lualib.h>
 
 #include "lua.h"
+#include "two.h"
+#include "cpu.h"
+#include "dsk.h"
 
-int ewm_lua_init(struct ewm_lua_t *lua) {
+static int ewm_lua_init(struct ewm_lua_t *lua) {
    memset(lua, 0x00, sizeof(struct ewm_lua_t));
    lua->state = luaL_newstate();
    luaL_openlibs(lua->state);
    return 0;
-}
-
-int ewm_lua_load_script(struct ewm_lua_t *lua, char *script_path) {
-   return luaL_dofile(lua->state, script_path);
 }
 
 struct ewm_lua_t *ewm_lua_create() {
@@ -47,4 +46,51 @@ struct ewm_lua_t *ewm_lua_create() {
       lua = NULL;
    }
    return lua;
+}
+
+int ewm_lua_load_script(struct ewm_lua_t *lua, char *script_path) {
+   return luaL_dofile(lua->state, script_path);
+}
+
+void ewm_lua_push_cpu(struct ewm_lua_t *lua, struct cpu_t *cpu) {
+   void *cpu_data = lua_newuserdata(lua->state, sizeof(struct cpu_t*));
+   *((struct cpu_t**) cpu_data) = cpu;
+   luaL_getmetatable(lua->state, "cpu_meta_table");
+   lua_setmetatable(lua->state, -2);
+}
+
+void ewm_lua_push_two(struct ewm_lua_t *lua, struct ewm_two_t *two) {
+   void *two_data = lua_newuserdata(lua->state, sizeof(struct ewm_two_t*));
+   *((struct ewm_two_t**) two_data) = two;
+   luaL_getmetatable(lua->state, "two_meta_table");
+   lua_setmetatable(lua->state, -2);
+}
+
+void ewm_lua_push_dsk(struct ewm_lua_t *lua, struct ewm_dsk_t *dsk) {
+   void *dsk_data = lua_newuserdata(lua->state, sizeof(struct ewm_dsk_t*));
+   *((struct ewm_dsk_t**) dsk_data) = dsk;
+   luaL_getmetatable(lua->state, "dsk_meta_table");
+   lua_setmetatable(lua->state, -2);
+}
+
+void ewm_lua_register_component(lua_State *state, char *name, luaL_Reg *functions) {
+   char table_name[64];
+   strncpy(table_name, name, sizeof(table_name)-1);
+   strncat(table_name, "_meta_table", sizeof(table_name)-1);
+
+   char global_name[64];
+   strncpy(global_name, name, sizeof(global_name)-1);
+   for (size_t i = 0; i < strlen(global_name); i++) {
+      global_name[i] = toupper(global_name[i]);
+   }
+
+   // Register the cpu meta table
+   luaL_newmetatable(state, table_name);
+   luaL_setfuncs(state, functions, 0);
+
+   //lua_pushvalue(state, -1);
+   //lua_setfield(state, -1, "__index");
+
+   // Keep it around
+   lua_setglobal(state, "CPU"); // TODO I don't think we actually need this
 }
