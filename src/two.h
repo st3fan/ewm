@@ -56,11 +56,13 @@
 struct mem_t;
 struct ewm_dsk_t;
 struct scr;
+struct ewm_lua_t;
 
 struct ewm_two_t {
    int type;
    struct cpu_t *cpu;
    struct scr_t *scr;
+   struct ewm_lua_t *lua;
    struct ewm_dsk_t *dsk;
    struct ewm_alc_t *alc;
 
@@ -103,6 +105,8 @@ struct ewm_two_t {
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);
 void ewm_two_destroy(struct ewm_two_t *two);
+
+int ewm_two_init_lua(struct ewm_two_t *two, struct ewm_lua_t *lua);
 
 int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path);
 

@@ -39,6 +39,7 @@
 #define EWM_VECTOR_IRQ 0xfffe
 
 struct cpu_instruction_t;
+struct ewm_lua_t;
 
 struct cpu_state_t {
   uint8_t a, x, y, s, sp;
@@ -57,6 +58,8 @@ struct cpu_t {
 
    uint8_t *page0;
    uint8_t *page1;
+
+   struct ewm_lua_t *lua;
 };
 
 typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
@@ -121,5 +124,7 @@ uint8_t cpu_memory_get_byte(struct cpu_t *cpu, uint16_t addr);
 
 void cpu_memory_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v);
 void cpu_memory_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v);
+
+int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua);
 
 #endif

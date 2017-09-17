@@ -34,8 +34,8 @@
 #include "alc.h"
 #include "chr.h"
 #include "scr.h"
+#include "lua.h"
 #include "two.h"
-
 
 #define EWM_A2P_SS_KBD                  0xc000
 #define EWM_A2P_SS_KBDSTRB              0xc010
@@ -350,11 +350,33 @@ void ewm_two_destroy(struct ewm_two_t *two) {
    // TODO
 }
 
+// Lua support
+
+static int ewm_two_lua_hello(lua_State *lua) {
+   printf("This is two.hello()\n");
+   return 0;
+}
+
+int ewm_two_luaopen(lua_State *state) {
+   luaL_Reg ewm_two_functions[] = {
+      {"hello", ewm_two_lua_hello},
+      {NULL, NULL}
+   };
+   luaL_newlib(state, ewm_two_functions);
+   return 1;
+}
+
+int ewm_two_init_lua(struct ewm_two_t *two, struct ewm_lua_t *lua) {
+   two->lua = lua;
+   luaL_requiref(two->lua->state, "two", ewm_two_luaopen, 0);
+   return 0;
+}
+
+// External API
+
 int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path) {
    return ewm_dsk_set_disk_file(two->dsk, drive, false, path);
 }
-
-
 
 static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // TODO Should window be part of ewm_two_t?
    SDL_Event event;
@@ -537,6 +559,7 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
 #define EWM_TWO_OPT_TRACE  (6)
 #define EWM_TWO_OPT_STRICT (7)
 #define EWM_TWO_OPT_DEBUG  (8)
+#define EWM_TWO_OPT_LUA    (9)
 
 static struct option one_options[] = {
    { "help",    no_argument,       NULL, EWM_TWO_OPT_HELP   },
@@ -548,6 +571,7 @@ static struct option one_options[] = {
    { "trace",   optional_argument, NULL, EWM_TWO_OPT_TRACE  },
    { "strict",  no_argument,       NULL, EWM_TWO_OPT_STRICT },
    { "debug",   no_argument,       NULL, EWM_TWO_OPT_DEBUG  },
+   { "lua",     required_argument, NULL, EWM_TWO_OPT_LUA    },
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -561,6 +585,7 @@ static void usage() {
    fprintf(stderr, "  --trace <file>    trace cpu to file\n");
    fprintf(stderr, "  --strict          run emulator in strict mode\n");
    fprintf(stderr, "  --debug           print debug info\n");
+   fprintf(stderr, "  --lua <script>    load lua script into the emulator\n");
 }
 
 int ewm_two_main(int argc, char **argv) {
@@ -574,6 +599,7 @@ int ewm_two_main(int argc, char **argv) {
    char *trace_path = NULL;
    bool strict = false;
    bool debug = false;
+   char *lua_script_path = NULL;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -611,6 +637,9 @@ int ewm_two_main(int argc, char **argv) {
             break;
          case EWM_TWO_OPT_DEBUG:
             debug = true;
+            break;
+         case EWM_TWO_OPT_LUA:
+            lua_script_path = optarg;
             break;
          default: {
             usage();
@@ -718,6 +747,25 @@ int ewm_two_main(int argc, char **argv) {
 
    cpu_strict(two->cpu, strict);
    cpu_trace(two->cpu, trace_path);
+
+   // Setup a Lua environment if we were asked to
+
+   if (lua_script_path != NULL) {
+      two->lua = ewm_lua_create();
+
+      luaL_requiref(two->lua->state, "ewm", ewm_two_luaopen, 0); // ewm_two_init_lua? that calls it for all its components?
+
+      ewm_two_init_lua(two, two->lua);
+      ewm_cpu_init_lua(two->cpu, two->lua);
+      ewm_dsk_init_lua(two->dsk, two->lua);
+
+      if (ewm_lua_load_script(two->lua, lua_script_path) != 0) {
+         printf("Lua script failed to load\n"); // TODO Move errors reporting into C code
+         exit(1);
+      }
+   }
+
+   // Reset things to a known state
 
    cpu_reset(two->cpu);
 
