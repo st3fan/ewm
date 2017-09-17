@@ -101,7 +101,7 @@ struct ewm_two_t {
    bool debug;
 };
 
-struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);
+struct ewm_two_t *ewm_two_create(int type, SDL_Window *window, SDL_Renderer *renderer, SDL_Joystick *joystick);
 void ewm_two_destroy(struct ewm_two_t *two);
 
 int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path);

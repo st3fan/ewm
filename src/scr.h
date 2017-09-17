@@ -37,12 +37,18 @@ struct ewm_chr_t;
 
 struct scr_t {
    struct ewm_two_t *two;
+   SDL_Window *window;
    SDL_Renderer *renderer;
    struct ewm_chr_t *chr;
    int color_scheme;
+
+   uint32_t text_color;
+   uint32_t lores_colors_color[16];
+   uint32_t lores_colors_green[16];
+   uint32_t hires_colors[6];
 };
 
-struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Renderer *renderer);
+struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Window *window, SDL_Renderer *renderer);
 void ewm_scr_destroy(struct scr_t *scr);
 void ewm_scr_update(struct scr_t *scr, int phase, int fps);
 void ewm_scr_set_color_scheme(struct scr_t *scr, int color_scheme);

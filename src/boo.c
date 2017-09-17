@@ -68,7 +68,7 @@ int ewm_boo_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
    if (renderer == NULL) {
       fprintf(stderr, "Failed to create renderer: %s\n", SDL_GetError());
       return 1;
@@ -78,7 +78,7 @@ int ewm_boo_main(int argc, char **argv) {
 
    // We only need a tty to display the menu
 
-   struct ewm_tty_t *tty = ewm_tty_create(renderer);
+   struct ewm_tty_t *tty = ewm_tty_create(window, renderer);
 
    // Main loop
 
