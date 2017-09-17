@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -36,6 +37,10 @@
 #include "ins.h"
 #include "mem.h"
 #include "fmt.h"
+#include "lua.h"
+
+uint8_t xxx_op;
+int xxx_fn;
 
 // Stack management.
 
@@ -92,6 +97,12 @@ void _cpu_set_status(struct cpu_t *cpu, uint8_t status) {
   cpu->state.c = (status & (1 << 0));
 }
 
+
+// TODO This does not belong here I think
+
+
+
+
 static int cpu_execute_instruction(struct cpu_t *cpu) {
    /* Trace code - Refactor into its own function or module */
    char trace_instruction[256];
@@ -129,6 +140,34 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
    /* Advance PC */
    if (pc == cpu->state.pc) {
       cpu->state.pc += i->bytes;
+   }
+
+   if (cpu->lua != NULL) {
+      if (i->opcode == xxx_op) {
+         switch (i->bytes) {
+            case 1:
+               lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, xxx_fn);
+               ewm_lua_push_cpu(cpu->lua, cpu);
+               lua_pushinteger(cpu->lua->state, i->opcode);
+               lua_pushinteger(cpu->lua->state, 0);
+               lua_call(cpu->lua->state, 3, 0);
+               break;
+            case 2:
+               lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, xxx_fn);
+               ewm_lua_push_cpu(cpu->lua, cpu);
+               lua_pushinteger(cpu->lua->state, i->opcode);
+               lua_pushinteger(cpu->lua->state, mem_get_byte(cpu, pc+1));
+               lua_call(cpu->lua->state, 3, 0);
+               break;
+            case 3:
+               lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, xxx_fn);
+               ewm_lua_push_cpu(cpu->lua, cpu);
+               lua_pushinteger(cpu->lua->state, i->opcode);
+               lua_pushinteger(cpu->lua->state, mem_get_word(cpu, pc+1));
+               lua_call(cpu->lua->state, 3, 0);
+               break;
+         }
+      }
    }
 
    /* Execute instruction */
@@ -441,4 +480,181 @@ int cpu_nmi(struct cpu_t *cpu) {
 
 int cpu_step(struct cpu_t *cpu) {
    return cpu_execute_instruction(cpu);
+}
+
+// Lua support
+
+// cpu state functions
+
+#if 0
+static int lua_cpu_get_a(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if (lua_gettop(state) == 2) {
+      if(!lua_isnumber(state, lua_gettop(state))) {
+         printf("First arg fail\n");
+         return 0;
+      }
+      int n = lua_tointeger(state, lua_gettop(state));
+      cpu->state.a = (uint8_t) n;
+      return 0;
+   } else {
+      lua_pushnumber(state, cpu->state.a);
+      return 1;
+   }
+}
+
+static int lua_cpu_get_pc(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+   lua_pushnumber(state, cpu->state.pc);
+   return 1;
+}
+#endif
+
+static int lua_cpu_reset(lua_State *state) {
+   printf("This is cpu.reset()\n");
+   return 0;
+}
+
+static int lua_cpu_index(lua_State *state) {
+   printf("This is cpu.__index()\n");
+
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if(!lua_isstring(state, 2)) {
+      printf("TODO lua_cpu_index: arg 2 is not a string\n");
+      return 0;
+   }
+
+   const char *name = lua_tostring(state, 2);
+
+   if (strcmp(name, "a") == 0) {
+      lua_pushnumber(state, cpu->state.a);
+      return 1;
+   }
+
+   if (strcmp(name, "x") == 0) {
+      lua_pushnumber(state, cpu->state.x);
+      return 1;
+   }
+
+   if (strcmp(name, "y") == 0) {
+      lua_pushnumber(state, cpu->state.y);
+      return 1;
+   }
+
+   if (strcmp(name, "pc") == 0) {
+      lua_pushnumber(state, cpu->state.pc);
+      return 1;
+   }
+
+   printf("TODO lua_cpu_index: Unknown property so what do we do?\n");
+
+   return 0;
+}
+
+static int lua_cpu_new_index(lua_State *state) {
+   printf("This is cpu.__newindex()\n");
+
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if(!lua_isstring(state, 2)) {
+      printf("TODO lua_cpu_new_index: arg 2 is not a string\n");
+      return 0;
+   }
+   const char *name = lua_tostring(state, 2);
+
+   if(!lua_isnumber(state, 3)) {
+      printf("TODO lua_cpu_new_index: arg 3 is not a string\n");
+
+      return 0;
+   }
+   int value = lua_tointeger(state, 3);
+
+   if (strcmp(name, "a") == 0) {
+      cpu->state.a = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "x") == 0) {
+      cpu->state.x = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "y") == 0) {
+      cpu->state.y = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "pc") == 0) {
+      cpu->state.pc = (uint16_t) value; // TODO Does this actually work?
+      return 0;
+   }
+
+   printf("TODO lua_cpu_newindex: Unknown property so what do we do?\n");
+
+   return 0;
+}
+
+// cpu module functions
+
+static int ewm_cpu_lua_hello(lua_State *lua) {
+   printf("This is cpu.hello()\n");
+   return 0;
+}
+
+// onBeforeExecution(op, fn)
+static int ewm_cpu_lua_onBeforeExecuteInstruction(lua_State *state) {
+   printf("This is cpu.onBeforeExecuteInstruction\n");
+
+   if(!lua_isnumber(state, lua_gettop(state) - 1)) {
+      printf("First arg fail\n");
+      return 0;
+   }
+   xxx_op = lua_tointeger(state, lua_gettop(state) - 1);
+
+   if(!lua_isfunction(state, lua_gettop(state) - 0)) {
+      printf("Second arg fail\n");
+      return 0;
+   }
+
+   lua_pushvalue(state, lua_gettop(state) - 0);
+   xxx_fn = luaL_ref(state, LUA_REGISTRYINDEX);
+
+   return 0;
+}
+
+static int ewm_cpu_luaopen(lua_State *state) {
+   luaL_Reg cpu_functions[] = {
+      {"hello", ewm_cpu_lua_hello},
+      {"onBeforeExecuteInstruction", ewm_cpu_lua_onBeforeExecuteInstruction},
+      {NULL, NULL}
+   };
+   luaL_newlib(state, cpu_functions);
+
+   return 1;
+}
+
+int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua) {
+   cpu->lua = lua; // TODO This needs to move to cpu_luaopen so that
+                   // we don't actually enable lua support until this
+                   // module is required in a script. Same for other
+                   // components.
+   luaL_requiref(cpu->lua->state, "cpu", ewm_cpu_luaopen, 0);
+
+   luaL_Reg functions[] = {
+      //{"a", lua_cpu_get_a},
+      //{"pc", lua_cpu_get_pc},
+      {"reset", lua_cpu_reset},
+      {"__index", lua_cpu_index},
+      {"__newindex", lua_cpu_new_index},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua->state, "cpu", functions);
+
+   return 0;
 }
