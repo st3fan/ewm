@@ -22,32 +22,32 @@
 
 CC?=cc
 CFLAGS=-std=gnu11 -O3 -Wall -Wextra -Werror -Wno-unused-parameter
-LDFLAGS=-g -L/usr/local/lib
+LDFLAGS=-L/usr/local/lib
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c lua.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
-EWM_LIBS=-lSDL2
+EWM_LIBS=-lSDL2 -llua
 
 CPU_TEST_EXECUTABLE=cpu_test
-CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_test.c
+CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_test.c lua.c
 CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
-CPU_TEST_LIBS=
+CPU_TEST_LIBS=-llua
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c
+SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c lua.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
-SCR_TEST_LIBS=-lSDL2
+SCR_TEST_LIBS=-lSDL2 -llua
 
 CPU_BENCH=cpu_bench
-CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_bench.c
+CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_bench.c lua.c
 CPU_BENCH_OBJECTS=$(CPU_BENCH_SOURCES:.c=.o)
-CPU_BENCH_LIBS=
+CPU_BENCH_LIBS=-llua
 
 MEM_BENCH=mem_bench
-MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c mem_bench.c
+MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c mem_bench.c lua.c
 MEM_BENCH_OBJECTS=$(MEM_BENCH_SOURCES:.c=.o)
-MEM_BENCH_LIBS=
+MEM_BENCH_LIBS=-llua
 
 all: $(EWM_SOURCES) $(EWM_EXECUTABLE) $(CPU_TEST_SOURCES) $(CPU_TEST_EXECUTABLE) $(SCR_TEST_EXECUTABLE) $(CPU_BENCH) $(MEM_BENCH)
 

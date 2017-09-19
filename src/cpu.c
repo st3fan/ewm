@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -36,6 +37,7 @@
 #include "ins.h"
 #include "mem.h"
 #include "fmt.h"
+#include "lua.h"
 
 // Stack management.
 
@@ -131,6 +133,26 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       cpu->state.pc += i->bytes;
    }
 
+   if (i->lua_before_handler != LUA_NOREF) {
+      lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, i->lua_before_handler);
+      ewm_lua_push_cpu(cpu->lua, cpu);
+      lua_pushinteger(cpu->lua->state, i->opcode);
+      switch (i->bytes) {
+         case 1:
+            lua_pushinteger(cpu->lua->state, 0);
+            break;
+         case 2:
+            lua_pushinteger(cpu->lua->state, mem_get_byte(cpu, pc+1));
+            break;
+         case 3:
+            lua_pushinteger(cpu->lua->state, mem_get_word(cpu, pc+1));
+            break;
+      }
+      if (lua_pcall(cpu->lua->state, 3, 0, 0) != LUA_OK) {
+         printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
+      }
+   }
+
    /* Execute instruction */
    switch (i->bytes) {
       case 1:
@@ -142,6 +164,26 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       case 3:
          ((cpu_instruction_handler_word_t) i->handler)(cpu, mem_get_word(cpu, pc+1));
          break;
+   }
+
+   if (i->lua_after_handler != LUA_NOREF) {
+      lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, i->lua_after_handler);
+      ewm_lua_push_cpu(cpu->lua, cpu);
+      lua_pushinteger(cpu->lua->state, i->opcode);
+      switch (i->bytes) {
+         case 1:
+            lua_pushinteger(cpu->lua->state, 0);
+            break;
+         case 2:
+            lua_pushinteger(cpu->lua->state, mem_get_byte(cpu, pc+1));
+            break;
+         case 3:
+            lua_pushinteger(cpu->lua->state, mem_get_word(cpu, pc+1));
+            break;
+      }
+      if (lua_pcall(cpu->lua->state, 3, 0, 0) != LUA_OK) {
+         printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
+      }
    }
 
    if (cpu->trace) {
@@ -190,7 +232,8 @@ static int cpu_init(struct cpu_t *cpu, int model) {
 
    memset(cpu, 0x00, sizeof(struct cpu_t));
    cpu->model = model;
-   cpu->instructions = (cpu->model == EWM_CPU_MODEL_6502) ? instructions : instructions_65C02;
+   cpu->instructions = malloc(sizeof instructions);
+   memcpy(cpu->instructions, (cpu->model == EWM_CPU_MODEL_6502) ? instructions : instructions_65C02, sizeof instructions);
 
    return 0;
 }
@@ -198,6 +241,7 @@ static int cpu_init(struct cpu_t *cpu, int model) {
 struct cpu_t *cpu_create(int model) {
    struct cpu_t *cpu = malloc(sizeof(struct cpu_t));
    if (cpu_init(cpu, model) != 0) {
+      cpu_destroy(cpu);
       free(cpu);
       cpu = NULL;
    }
@@ -205,6 +249,9 @@ struct cpu_t *cpu_create(int model) {
 }
 
 void cpu_destroy(struct cpu_t *cpu) {
+   if (cpu->instructions != NULL) {
+      free(cpu->instructions);
+   }
    if (cpu->trace != NULL) {
       (void) fclose(cpu->trace);
       cpu->trace = NULL;
@@ -441,4 +488,218 @@ int cpu_nmi(struct cpu_t *cpu) {
 
 int cpu_step(struct cpu_t *cpu) {
    return cpu_execute_instruction(cpu);
+}
+
+// Lua support
+
+// cpu state functions
+
+static int cpu_lua_index(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if (!lua_isstring(state, 2)) {
+      printf("TODO lua_cpu_index: arg 2 is not a string\n");
+      return 0;
+   }
+
+   const char *name = lua_tostring(state, 2);
+
+   if (strcmp(name, "a") == 0) {
+      lua_pushnumber(state, cpu->state.a);
+      return 1;
+   }
+
+   if (strcmp(name, "x") == 0) {
+      lua_pushnumber(state, cpu->state.x);
+      return 1;
+   }
+
+   if (strcmp(name, "y") == 0) {
+      lua_pushnumber(state, cpu->state.y);
+      return 1;
+   }
+
+   if (strcmp(name, "s") == 0) {
+      lua_pushnumber(state, _cpu_get_status(cpu));
+      return 1;
+   }
+
+   if (strcmp(name, "pc") == 0) {
+      lua_pushnumber(state, cpu->state.pc);
+      return 1;
+   }
+
+   if (strcmp(name, "sp") == 0) {
+      lua_pushnumber(state, cpu->state.sp);
+      return 1;
+   }
+
+   if (strcmp(name, "model") == 0) {
+      switch (cpu->model) {
+         case EWM_CPU_MODEL_6502:
+            lua_pushstring(state, "6502");
+            break;
+         case EWM_CPU_MODEL_65C02:
+            lua_pushstring(state, "65C02");
+            break;
+      }
+      return 1;
+   }
+
+   luaL_getmetatable(state, "cpu_methods_meta_table");
+   lua_pushvalue(state, 2);
+   lua_rawget(state, -2);
+
+   return 1;
+}
+
+static int cpu_lua_newindex(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if(!lua_isstring(state, 2)) {
+      printf("TODO lua_cpu_new_index: arg 2 is not a string\n");
+      return 0;
+   }
+
+   if(!lua_isnumber(state, 3)) {
+      printf("TODO lua_cpu_new_index: arg 3 is not a string\n");
+
+      return 0;
+   }
+
+   const char *name = lua_tostring(state, 2);
+   int value = lua_tointeger(state, 3);
+
+   if (strcmp(name, "a") == 0) {
+      cpu->state.a = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "x") == 0) {
+      cpu->state.x = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "y") == 0) {
+      cpu->state.y = (uint8_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "s") == 0) {
+      _cpu_set_status(cpu, (uint8_t) value);
+      return 0;
+   }
+
+   if (strcmp(name, "pc") == 0) {
+      cpu->state.pc = (uint16_t) value;
+      return 0;
+   }
+
+   if (strcmp(name, "sp") == 0) {
+      cpu->state.pc = (uint16_t) value;
+      return 0;
+   }
+
+   return 0;
+}
+
+static int cpu_lua_reset(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+   cpu_reset(cpu);
+   return 0;
+}
+
+// cpu module functions
+
+// onBeforeExecution(op, fn)
+static int cpu_lua_onBeforeExecuteInstruction(lua_State *state) {
+   if (lua_gettop(state) != 3) {
+      printf("Not enough arguments\n");
+      return 0;
+   }
+
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if (lua_type(state, 2) != LUA_TNUMBER) {
+      printf("First arg fail\n");
+      return 0;
+   }
+
+   if (lua_type(state, 3) != LUA_TFUNCTION) {
+      printf("Second arg fail\n");
+      return 0;
+   }
+
+   uint8_t opcode = lua_tointeger(state, 2);
+
+   lua_pushvalue(state, 3);
+   cpu->instructions[opcode].lua_before_handler = luaL_ref(state, LUA_REGISTRYINDEX);
+
+   return 0;
+}
+
+// onAfterExecuteFuncton(op, fn)
+static int cpu_lua_onAfterExecuteInstruction(lua_State *state) {
+   if (lua_gettop(state) != 3) {
+      printf("Not enough arguments\n");
+      return 0;
+   }
+
+   void *cpu_data = luaL_checkudata(state, 1, "cpu_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if(lua_type(state, 2) != LUA_TNUMBER) {
+      printf("First arg fail\n");
+      return 0;
+   }
+
+   if(lua_type(state, 3) != LUA_TFUNCTION) {
+      printf("Second arg fail\n");
+      return 0;
+   }
+
+   uint8_t opcode = lua_tointeger(state, 2);
+
+   lua_pushvalue(state, 3);
+   cpu->instructions[opcode].lua_after_handler = luaL_ref(state, LUA_REGISTRYINDEX);
+
+   return 0;
+}
+
+int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua) {
+   // TODO Most of this needs to move to cpu_luaopen so that we don't
+   // actually enable lua support until this module is required in a
+   // script. Same for other components.
+
+   cpu->lua = lua;
+
+   luaL_Reg functions[] = {
+      {"__index", cpu_lua_index},
+      {"__newindex", cpu_lua_newindex},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua, "cpu", functions);
+
+   luaL_Reg cpu_methods[] = {
+      {"onBeforeExecuteInstruction", cpu_lua_onBeforeExecuteInstruction},
+      {"onAfterExecuteInstruction", cpu_lua_onAfterExecuteInstruction},
+      {"reset", cpu_lua_reset},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua, "cpu_methods", cpu_methods);
+
+   // Register a global cpu instance
+
+   void *cpu_data = lua_newuserdata(lua->state, sizeof(struct cpu_t*));
+   *((struct cpu_t**) cpu_data) = cpu;
+
+   luaL_getmetatable(lua->state, "cpu_meta_table");
+   lua_setmetatable(lua->state, -2);
+   lua_setglobal(lua->state, "cpu");
+
+   return 0;
 }
