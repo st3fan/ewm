@@ -547,6 +547,14 @@ static int cpu_lua_index(lua_State *state) {
       return 1;
    }
 
+   if (strcmp(name, "memory") == 0) {
+      void *cpu_data = lua_newuserdata(state, sizeof(struct cpu_t*));
+      *((struct cpu_t**) cpu_data) = cpu;
+      luaL_getmetatable(state, "mem_meta_table");
+      lua_setmetatable(state, -2);
+      return 1;
+   }
+
    luaL_getmetatable(state, "cpu_methods_meta_table");
    lua_pushvalue(state, 2);
    lua_rawget(state, -2);
@@ -601,6 +609,46 @@ static int cpu_lua_newindex(lua_State *state) {
       cpu->state.pc = (uint16_t) value;
       return 0;
    }
+
+   return 0;
+}
+
+// mem
+
+static int cpu_lua_mem_index(lua_State *state) {
+   void *cpu_data = luaL_checkudata(state, 1, "mem_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if (lua_type(state, 2) != LUA_TNUMBER) {
+      printf("First arg fail\n");
+      return 0;
+   }
+
+   uint16_t addr = lua_tointeger(state, 2);
+   lua_pushinteger(state, mem_get_byte(cpu, addr));
+
+   return 1;
+}
+
+static int cpu_lua_mem_newindex(lua_State *state) {
+   printf("mem_newindex()\n");
+
+   void *cpu_data = luaL_checkudata(state, 1, "mem_meta_table");
+   struct cpu_t *cpu = *((struct cpu_t**) cpu_data);
+
+   if (lua_type(state, 2) != LUA_TNUMBER) {
+      printf("First arg fail\n");
+      return 0;
+   }
+   uint16_t addr = lua_tointeger(state, 2);
+
+   if (lua_type(state, 3) != LUA_TNUMBER) {
+      printf("First arg fail\n");
+      return 0;
+   }
+   uint8_t value = lua_tointeger(state, 3);
+
+   mem_set_byte(cpu, addr, value);
 
    return 0;
 }
@@ -700,6 +748,15 @@ int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua) {
    luaL_getmetatable(lua->state, "cpu_meta_table");
    lua_setmetatable(lua->state, -2);
    lua_setglobal(lua->state, "cpu");
+
+   // Register cpu.memory
+
+   luaL_Reg mem_functions[] = {
+      {"__index", cpu_lua_mem_index},
+      {"__newindex", cpu_lua_mem_newindex},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua, "mem", mem_functions);
 
    return 0;
 }
