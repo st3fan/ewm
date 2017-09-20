@@ -352,18 +352,105 @@ void ewm_two_destroy(struct ewm_two_t *two) {
 
 // Lua support
 
-int ewm_two_luaopen(lua_State *state) {
-   luaL_Reg ewm_two_functions[] = {
-      // TODO What module level functions do we need here?
-      {NULL, NULL}
-   };
-   luaL_newlib(state, ewm_two_functions);
+static int two_lua_index(lua_State *state) {
+   //void *two_data = luaL_checkudata(state, 1, "two_meta_table");
+   //struct ewm_two_t *two = *((struct ewm_two_t**) two_data);
+
+   if (!lua_isstring(state, 2)) {
+      printf("TODO lua_cpu_index: arg 2 is not a string\n");
+      return 0;
+   }
+
+   const char *name = lua_tostring(state, 2);
+
+   if (strcmp(name, "version") == 0) {
+      lua_pushnumber(state, 1);
+      return 1;
+   }
+
+   // Delegate to the methods metatable
+   luaL_getmetatable(state, "two_methods_meta_table");
+   lua_pushvalue(state, 2);
+   lua_rawget(state, -2);
+
    return 1;
+}
+
+static int two_lua_newindex(lua_State *state) {
+   //void *two_data = luaL_checkudata(state, 1, "two_meta_table");
+   //struct ewm_two_t *two = *((struct ewm_two_t**) two_data);
+
+   // TODO What can we modify in two?
+
+   return 0;
+}
+
+static int two_lua_onKeyDown(lua_State *state) {
+   if (lua_gettop(state) != 2) {
+      printf("Not enough arguments\n");
+      return 0;
+   }
+
+   void *two_data = luaL_checkudata(state, 1, "two_meta_table");
+   struct ewm_two_t *two = *((struct ewm_two_t**) two_data);
+
+   if (lua_type(state, 2) != LUA_TFUNCTION) {
+      printf("Second arg fail\n");
+      return 0;
+   }
+
+   lua_pushvalue(state, 2);
+   two->lua_key_down_fn = luaL_ref(state, LUA_REGISTRYINDEX);
+
+   return 0;
+}
+
+static int two_lua_onKeyUp(lua_State *state) {
+   if (lua_gettop(state) != 2) {
+      printf("Not enough arguments\n");
+      return 0;
+   }
+
+   void *two_data = luaL_checkudata(state, 1, "two_meta_table");
+   struct ewm_two_t *two = *((struct ewm_two_t**) two_data);
+
+   if (lua_type(state, 2) != LUA_TFUNCTION) {
+      printf("Second arg fail\n");
+      return 0;
+   }
+
+   lua_pushvalue(state, 2);
+   two->lua_key_up_fn = luaL_ref(state, LUA_REGISTRYINDEX);
+
+   return 0;
 }
 
 int ewm_two_init_lua(struct ewm_two_t *two, struct ewm_lua_t *lua) {
    two->lua = lua;
-   luaL_requiref(two->lua->state, "two", ewm_two_luaopen, 0);
+
+   luaL_Reg functions[] = {
+      {"__index", two_lua_index},
+      {"__newindex", two_lua_newindex},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua, "two", functions);
+
+   luaL_Reg two_methods[] = {
+      {"onKeyDown", two_lua_onKeyDown},
+      {"onKeyUp", two_lua_onKeyUp},
+      {NULL, NULL}
+   };
+   ewm_lua_register_component(lua, "two_methods", two_methods);
+
+   // Register a global cpu instance
+
+   void *two_data = lua_newuserdata(lua->state, sizeof(struct ewm_two_t*));
+   *((struct ewm_two_t**) two_data) = two;
+
+   luaL_getmetatable(lua->state, "two_meta_table");
+   lua_setmetatable(lua->state, -2);
+   lua_setglobal(lua->state, "two");
+
    return 0;
 }
 
@@ -405,6 +492,26 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             break;
 
          case SDL_KEYDOWN:
+            if (two->lua_key_down_fn != LUA_NOREF) {
+               lua_rawgeti(two->lua->state, LUA_REGISTRYINDEX, two->lua_key_down_fn);
+               ewm_lua_push_two(two->lua, two);
+               lua_pushinteger(two->lua->state, event.key.keysym.mod);
+               lua_pushinteger(two->lua->state, event.key.keysym.sym);
+               if (lua_pcall(two->lua->state, 3, 1, 0) != LUA_OK) {
+                  printf("two: script error: %s\n", lua_tostring(two->lua->state, -1));
+                  return true;
+               }
+
+               if (lua_isboolean(two->lua->state, -1) == 0) {
+                  printf("two: script error: expected boolean result\n");
+                  return true;
+               }
+
+               if (lua_toboolean(two->lua->state, -1)) {
+                  return true;
+               }
+            }
+
             if (event.key.keysym.mod & KMOD_CTRL) {
                if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {
                   two->key = (event.key.keysym.sym - SDLK_a + 1) | 0x80;
@@ -459,6 +566,26 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             break;
 
          case SDL_KEYUP:
+            if (two->lua_key_up_fn != LUA_NOREF) {
+               lua_rawgeti(two->lua->state, LUA_REGISTRYINDEX, two->lua_key_up_fn);
+               ewm_lua_push_two(two->lua, two);
+               lua_pushinteger(two->lua->state, event.key.keysym.mod);
+               lua_pushinteger(two->lua->state, event.key.keysym.sym);
+               if (lua_pcall(two->lua->state, 3, 1, 0) != LUA_OK) {
+                  printf("two: script error: %s\n", lua_tostring(two->lua->state, -1));
+                  return true;
+               }
+
+               if (lua_isboolean(two->lua->state, -1) == 0) {
+                  printf("two: script error: expected boolean result\n");
+                  return true;
+               }
+
+               if (lua_toboolean(two->lua->state, -1)) {
+                  return true;
+               }
+            }
+
             if (event.key.keysym.mod & KMOD_ALT) {
                switch (event.key.keysym.sym) {
                   case SDLK_1:

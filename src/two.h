@@ -101,6 +101,9 @@ struct ewm_two_t {
    bool status_bar_visible;
 
    bool debug;
+
+   int lua_key_down_fn;
+   int lua_key_up_fn;
 };
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);
