@@ -44,4 +44,6 @@ void ewm_lua_push_dsk(struct ewm_lua_t *lua, struct ewm_dsk_t *dsk);
 
 void ewm_lua_register_component(struct ewm_lua_t *lua, char *name, luaL_Reg *functions);
 
+void luaL_setfuncs (lua_State *L, const luaL_Reg *l, int nup);
+
 #endif // LUA_H

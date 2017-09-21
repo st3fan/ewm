@@ -148,7 +148,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
             lua_pushinteger(cpu->lua->state, mem_get_word(cpu, pc+1));
             break;
       }
-      if (lua_pcall(cpu->lua->state, 3, 0, 0) != LUA_OK) {
+      if (lua_pcall(cpu->lua->state, 3, 0, 0) != 0) {
          printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
       }
    }
@@ -181,7 +181,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
             lua_pushinteger(cpu->lua->state, mem_get_word(cpu, pc+1));
             break;
       }
-      if (lua_pcall(cpu->lua->state, 3, 0, 0) != LUA_OK) {
+      if (lua_pcall(cpu->lua->state, 3, 0, 0) != 0) {
          printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
       }
    }
