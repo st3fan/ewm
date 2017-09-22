@@ -22,6 +22,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 
 #include "cpu.h"
@@ -29,7 +30,7 @@
 #include "mem.h"
 #include "utl.h"
 
-#define CPU_BENCH_ITERATIONS (100 * 1000 * 1000)
+#define CPU_BENCH_ITERATIONS (10 * 1000 * 1000)
 
 void test(struct cpu_t *cpu, uint8_t opcode) {
    uint64_t runs[3];
@@ -83,7 +84,17 @@ int main(int argc, char **argv) {
    cpu_add_ram_data(cpu, 0, 0xffff, malloc(0xffff));
    cpu_reset(cpu);
 
-   for (int opcode = 0; opcode <= 255; opcode++) {
-      test(cpu, opcode);
+   if (argc > 1) {
+      for (int i = 1; i < argc; i++) {
+         for (int opcode = 0; opcode <= 255; opcode++) {
+            if (strcmp(cpu->instructions[opcode].name, argv[i]) == 0) {
+               test(cpu, opcode);
+            }
+         }
+      }
+   } else {
+      for (int opcode = 0; opcode <= 255; opcode++) {
+         test(cpu, opcode);
+      }
    }
 }

@@ -33,6 +33,10 @@
 // take more time but do the right thing.
 
 uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
+   if (addr < cpu->ram_size) {
+      return cpu->ram[addr];
+   }
+
    struct mem_t *mem = cpu->mem;
    while (mem != NULL) {
       if (mem->enabled && addr >= mem->start && addr <= mem->end) {
@@ -42,15 +46,15 @@ uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
       }
       mem = mem->next;
    }
-
-   if (cpu->strict) {
-      // TODO: Signal an error about reading non-existent memory?
-   }
-
    return 0;
 }
 
 void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+   if (addr < cpu->ram_size) {
+      cpu->ram[addr] = v;
+      return;
+   }
+
    struct mem_t *mem = cpu->mem;
    while (mem != NULL) {
       if (mem->enabled && addr >= mem->start && addr <= mem->end) {
@@ -61,90 +65,134 @@ void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
       }
       mem = mem->next;
    }
-
-   if (cpu->strict) {
-      // TODO: Signal an error about writing non-existent memory?
-   }
 }
 
 // Getters
 
 uint8_t mem_get_byte_abs(struct cpu_t *cpu, uint16_t addr) {
-  return mem_get_byte(cpu, addr);
+   if (addr < cpu->ram_size) {
+      return cpu->ram[addr];
+   }
+   return mem_get_byte(cpu, addr);
 }
 
 uint8_t mem_get_byte_absx(struct cpu_t *cpu, uint16_t addr) {
+   if (addr < cpu->ram_size) {
+      return cpu->ram[addr + cpu->state.x];
+   }
    return mem_get_byte(cpu, addr + cpu->state.x);
 }
 
 uint8_t mem_get_byte_absy(struct cpu_t *cpu, uint16_t addr) {
-  return mem_get_byte(cpu, addr + cpu->state.y);
+   return cpu->ram[addr + cpu->state.y];
 }
 
 uint8_t mem_get_byte_zpg(struct cpu_t *cpu, uint8_t addr) {
-   return cpu->page0[addr];
+   return cpu->ram[addr];
 }
 
 uint8_t mem_get_byte_zpgx(struct cpu_t *cpu, uint8_t addr) {
-   return cpu->page0[((uint16_t) addr + cpu->state.x) & 0x00ff];
+   return cpu->ram[((uint16_t) addr + cpu->state.x) & 0x00ff];
 }
 
 uint8_t mem_get_byte_zpgy(struct cpu_t *cpu, uint8_t addr) {
-   return cpu->page0[((uint16_t) addr + cpu->state.y) & 0x00ff];
+   return cpu->ram[((uint16_t) addr + cpu->state.y) & 0x00ff];
 }
 
 uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, (((uint16_t) cpu->page0[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->page0[((uint16_t) addr+cpu->state.x) & 0x00ff]));
+   uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x0ff]);
+   if (a < cpu->ram_size) {
+      return cpu->ram[a];
+   }
+   return mem_get_byte(cpu, a);
 }
 
 uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]) + cpu->state.y);
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
+   if (a < cpu->ram_size) {
+      return cpu->ram[a];
+   }
+   return mem_get_byte(cpu, a);
 }
 
 uint8_t mem_get_byte_ind(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, ((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]);
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]);
+   if (a < cpu->ram_size) {
+      return cpu->ram[a];
+   }
+   return mem_get_byte(cpu, a);
 }
 
 uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr) {
+  if (addr < cpu->ram_size) {
+     return *((uint16_t*) &cpu->ram[addr]);
+  }
   return ((uint16_t) mem_get_byte(cpu, addr+1) << 8) | (uint16_t) mem_get_byte(cpu, addr);
 }
 
 // Setters
 
 void mem_set_byte_zpg(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   cpu->page0[addr] = v;
+   cpu->ram[addr] = v;
 }
 
 void mem_set_byte_zpgx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   cpu->page0[((uint16_t) addr + cpu->state.x) & 0x00ff] = v;
+   cpu->ram[((uint16_t) addr + cpu->state.x) & 0x00ff] = v;
 }
 
 void mem_set_byte_zpgy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   cpu->page0[((uint16_t) addr + cpu->state.y) & 0x00ff] = v;
+   cpu->ram[((uint16_t) addr + cpu->state.y) & 0x00ff] = v;
 }
 
 void mem_set_byte_abs(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr, v);
+   if (addr < cpu->ram_size) {
+      cpu->ram[addr] = v;
+      return;
+   }
+   mem_set_byte(cpu, addr, v);
 }
 
 void mem_set_byte_absx(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr+cpu->state.x, v);
+   if (addr < cpu->ram_size) {
+      cpu->ram[addr + cpu->state.x] = v;
+      return;
+   }
+   mem_set_byte(cpu, addr + cpu->state.x, v);
 }
 
 void mem_set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr+cpu->state.y, v);
+   if (addr < cpu->ram_size) {
+      cpu->ram[addr + cpu->state.y] = v;
+      return;
+   }
+   mem_set_byte(cpu, addr + cpu->state.y, v);
 }
 
 void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->page0[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->page0[((uint16_t) addr+cpu->state.x) & 0x00ff]), v);
+   uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x0ff]);
+   if (a < cpu->ram_size) {
+      cpu->ram[a] = v;
+      return;
+   }
+   mem_set_byte(cpu, a, v);
 }
 
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]) + cpu->state.y, v);
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
+   if (a < cpu->ram_size) {
+      cpu->ram[a] = v;
+      return;
+   }
+   mem_set_byte(cpu, a, v);
 }
 
 void mem_set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]), v);
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]);
+   if (a < cpu->ram_size) {
+      cpu->ram[a] = v;
+      return;
+   }
+   mem_set_byte(cpu, a, v);
 }
 
 void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
