@@ -497,7 +497,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                ewm_lua_push_two(two->lua, two);
                lua_pushinteger(two->lua->state, event.key.keysym.mod);
                lua_pushinteger(two->lua->state, event.key.keysym.sym);
-               if (lua_pcall(two->lua->state, 3, 1, 0) != LUA_OK) {
+               if (lua_pcall(two->lua->state, 3, 1, 0) != 0) {
                   printf("two: script error: %s\n", lua_tostring(two->lua->state, -1));
                   return true;
                }
@@ -571,7 +571,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                ewm_lua_push_two(two->lua, two);
                lua_pushinteger(two->lua->state, event.key.keysym.mod);
                lua_pushinteger(two->lua->state, event.key.keysym.sym);
-               if (lua_pcall(two->lua->state, 3, 1, 0) != LUA_OK) {
+               if (lua_pcall(two->lua->state, 3, 1, 0) != 0) {
                   printf("two: script error: %s\n", lua_tostring(two->lua->state, -1));
                   return true;
                }
