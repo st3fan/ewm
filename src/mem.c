@@ -100,7 +100,6 @@ uint8_t mem_get_byte_zpgy(struct cpu_t *cpu, uint8_t addr) {
 }
 
 uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
-   //uint16_t a = (((uint16_t) cpu->page0[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->page0[((uint16_t) addr+cpu->state.x) & 0x00ff]);
    uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x0ff]);
    if (a < cpu->ram_size) {
       return cpu->ram[a];
@@ -109,7 +108,6 @@ uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
 }
 
 uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
-   //uint16_t a = (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]) + cpu->state.y;
    uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
    if (a < cpu->ram_size) {
       return cpu->ram[a];
@@ -118,7 +116,6 @@ uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
 }
 
 uint8_t mem_get_byte_ind(struct cpu_t *cpu, uint8_t addr) {
-   //uint16_t a = (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]);
    uint16_t a = *((uint16_t*) &cpu->ram[addr]);
    if (a < cpu->ram_size) {
       return cpu->ram[a];
@@ -172,7 +169,6 @@ void mem_set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
 }
 
 void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   //uint16_t a = (((uint16_t) cpu->page0[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->page0[((uint16_t) addr+cpu->state.x) & 0x00ff]);
    uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x0ff]);
    if (a < cpu->ram_size) {
       cpu->ram[a] = v;
@@ -182,7 +178,6 @@ void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
 }
 
 void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   //uint16_t a = (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]) + cpu->state.y;
    uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
    if (a < cpu->ram_size) {
       cpu->ram[a] = v;
@@ -192,7 +187,6 @@ void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
 }
 
 void mem_set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   //uint16_t a = (((uint16_t) cpu->page0[addr+1] << 8) | (uint16_t) cpu->page0[addr]);
    uint16_t a = *((uint16_t*) &cpu->ram[addr]);
    if (a < cpu->ram_size) {
       cpu->ram[a] = v;
