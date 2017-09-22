@@ -40,7 +40,7 @@ static int txt_line_offsets[24] = {
 
 static inline void scr_render_character(struct scr_t *scr, int row, int column, bool flash) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   uint8_t c = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+   uint8_t c = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
    if (scr->chr->characters[c] != NULL) {
       SDL_Rect dst;
       dst.x = column * 21;
@@ -101,7 +101,7 @@ static SDL_Color lores_colors[16] = {
 
 static inline void scr_render_lores_block(struct scr_t *scr, int row, int column) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   uint8_t block = scr->two->screen_txt_data[((txt_line_offsets[row] + base) + column) - 0x0400];
+   uint8_t block = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
    if (block != 0) {
       SDL_Rect dst;
       dst.x = column * 21;
@@ -147,8 +147,8 @@ static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
 // Hires rendering
 
 static uint16_t hgr_page_offsets[2] = {
-   0x0000, // $0000 in our buffer, $2000 in emulator
-   0x2000  // $2000 in our buffer, $4000 in emulator
+   0x2000, // $0000 in our buffer, $2000 in emulator
+   0x4000  // $2000 in our buffer, $4000 in emulator
 };
 
 static uint16_t hgr_line_offsets[192] = {
@@ -192,7 +192,7 @@ static SDL_Color hgr_colors[16] = {
 inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
    int x = 0;
    for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->two->screen_hgr_data[line_base + i];
+      uint8_t c = scr->two->cpu->ram[line_base + i];
       for (int j = 0; j < 7; j++) {
          SDL_Rect dst;
          dst.x = x * 3;
@@ -216,7 +216,7 @@ inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16
 
    int pixels[280], x = 0;
    for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->two->screen_hgr_data[line_base + i];
+      uint8_t c = scr->two->cpu->ram[line_base + i];
       for (int j = 0; j < 7; j++) {
          if (c & (1 << j)) {
             if (x % 2 == 0) {

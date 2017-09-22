@@ -350,20 +350,19 @@ struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void 
   return cpu_add_mem(cpu, mem);
 }
 
-// Call this when the memory layout changes for page 0 and 1. For
-// example when those pages are bankswitched. I don't think anything
-// does that right now. The Apple Language Card works in different
-// memory regions.
+// For now, as a good optimization, this emulator is going to assume
+// that there is a memory region covering at least the first two pages
+// of memory. This will probably break on the IIe where $0200 to $BFFF
+// is also bank switched. But that is a problem for later.
 
 void cpu_optimize_memory(struct cpu_t *cpu) {
-   struct mem_t *zp= cpu_mem_for_page(cpu, 0);
-   if (zp == NULL || (zp->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE)) || zp->end < 0x1ff) {
-      printf("[CPU] Cannot find rw memory region that covers 0x0000 to 0x01ff\n");
+   struct mem_t *zp = cpu_mem_for_page(cpu, 0);
+   if (zp == NULL || (zp->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE)) || zp->end < 0x01ff) {
+      printf("[CPU] Cannot find a rw memory region that covers at least the first two pages\n");
       exit(1);
    }
-
    cpu->ram = zp->obj;
-   cpu->ram_size = zp->end;
+   cpu->ram_size = zp->end + 1;
 }
 
 void cpu_strict(struct cpu_t *cpu, bool strict) {
