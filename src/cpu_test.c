@@ -38,7 +38,7 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path) 
    cpu_reset(cpu);
    cpu->state.pc = start_addr;
 
-#if 1
+#if 0
    cpu->lua = ewm_lua_create();
    ewm_cpu_init_lua(cpu, cpu->lua);
 

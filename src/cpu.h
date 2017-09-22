@@ -56,8 +56,8 @@ struct cpu_t {
    struct cpu_instruction_t *instructions;
    uint64_t counter;
 
-   uint8_t *page0;
-   uint8_t *page1;
+   uint8_t *ram;
+   size_t ram_size;
 
    struct ewm_lua_t *lua;
 };

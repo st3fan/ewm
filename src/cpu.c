@@ -42,21 +42,21 @@
 // Stack management.
 
 void _cpu_push_byte(struct cpu_t *cpu, uint8_t b) {
-   cpu->page1[cpu->state.sp--] = b;
+   cpu->ram[0x0100 + cpu->state.sp--] = b;
 }
 
 void _cpu_push_word(struct cpu_t *cpu, uint16_t w) {
-   cpu->page1[cpu->state.sp--] = w >> 8;
-   cpu->page1[cpu->state.sp--] = w;
+   cpu->ram[0x0100 + cpu->state.sp--] = w >> 8;
+   cpu->ram[0x0100 + cpu->state.sp--] = w;
 }
 
 uint8_t _cpu_pull_byte(struct cpu_t *cpu) {
-   return cpu->page1[++cpu->state.sp];
+   return cpu->ram[0x0100 + ++cpu->state.sp];
 }
 
 uint16_t _cpu_pull_word(struct cpu_t *cpu) {
-   uint16_t w = (uint16_t) cpu->page1[++cpu->state.sp];
-   return w | ((uint16_t) cpu->page1[++cpu->state.sp] << 8);
+   uint16_t w = (uint16_t) cpu->ram[0x0100 + ++cpu->state.sp];
+   return w | ((uint16_t) cpu->ram[0x0100 + ++cpu->state.sp] << 8);
 }
 
 uint8_t _cpu_stack_free(struct cpu_t *cpu) {
@@ -95,43 +95,12 @@ void _cpu_set_status(struct cpu_t *cpu, uint8_t status) {
 }
 
 static int cpu_execute_instruction(struct cpu_t *cpu) {
-   /* Trace code - Refactor into its own function or module */
-   char trace_instruction[256];
-   char trace_state[256];
-   char trace_stack[256];
-
-   if (cpu->trace) {
-      cpu_format_instruction(cpu, trace_instruction);
-   }
-
-   /* Fetch instruction */
+   // Fetch instruction
    struct cpu_instruction_t *i = &cpu->instructions[mem_get_byte(cpu, cpu->state.pc)];
-   if (i->name[0] == '?') {
-      if (cpu->strict) {
-         return EWM_CPU_ERR_UNIMPLEMENTED_INSTRUCTION;
-      }
-   }
 
-   // If strict mode and if we need the stack, check if that works out
-   if (cpu->strict && i->stack != 0) {
-      if (i->stack > 0) {
-         if (_cpu_stack_free(cpu) < i->stack) {
-            return EWM_CPU_ERR_STACK_OVERFLOW;
-         }
-      } else {
-         if (_cpu_stack_used(cpu) < -(i->stack)) {
-            return EWM_CPU_ERR_STACK_UNDERFLOW;
-         }
-      }
-   }
-
-   /* Remember the PC since some instructions modify it */
+   // Remember and advance the pc
    uint16_t pc = cpu->state.pc;
-
-   /* Advance PC */
-   if (pc == cpu->state.pc) {
-      cpu->state.pc += i->bytes;
-   }
+   cpu->state.pc += i->bytes;
 
    if (i->lua_before_handler != LUA_NOREF) {
       lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, i->lua_before_handler);
@@ -184,27 +153,6 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
       if (lua_pcall(cpu->lua->state, 3, 0, 0) != 0) {
          printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
       }
-   }
-
-   if (cpu->trace) {
-      cpu_format_state(cpu, trace_state);
-      cpu_format_stack(cpu, trace_stack);
-
-      char bytes[10];
-      switch (i->bytes) {
-         case 1:
-            snprintf(bytes, sizeof bytes, "%.2X", mem_get_byte(cpu, pc));
-            break;
-         case 2:
-            snprintf(bytes, sizeof bytes, "%.2X %.2X", mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1));
-            break;
-         case 3:
-            snprintf(bytes, sizeof bytes, "%.2X %.2X %.2X", mem_get_byte(cpu, pc), mem_get_byte(cpu, pc+1), mem_get_byte(cpu, pc+2));
-            break;
-      }
-
-      fprintf(cpu->trace, "%.4X: %-8s  %-14s  %-20s  %s\n",
-              pc, bytes, trace_instruction, trace_state, trace_stack);
    }
 
    cpu->counter += i->cycles;
@@ -408,19 +356,14 @@ struct mem_t *cpu_add_iom(struct cpu_t *cpu, uint16_t start, uint16_t end, void 
 // memory regions.
 
 void cpu_optimize_memory(struct cpu_t *cpu) {
-   struct mem_t *page0 = cpu_mem_for_page(cpu, 0);
-   if (page0 == NULL || (page0->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE))) {
-      printf("[CPU] Cannot find rw memory region that handles Page 0\n");
+   struct mem_t *zp= cpu_mem_for_page(cpu, 0);
+   if (zp == NULL || (zp->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE)) || zp->end < 0x1ff) {
+      printf("[CPU] Cannot find rw memory region that covers 0x0000 to 0x01ff\n");
       exit(1);
    }
-   cpu->page0 = page0->obj + (0x0000 - page0->start);
 
-   struct mem_t *page1 = cpu_mem_for_page(cpu, 1);
-   if (page1 == NULL || (page1->flags != (MEM_FLAGS_READ | MEM_FLAGS_WRITE))) {
-      printf("[CPU] Cannot find rw memory region that handles Page 1\n");
-      exit(1);
-   }
-   cpu->page1 = page1->obj + (0x0100 - page1->start);
+   cpu->ram = zp->obj;
+   cpu->ram_size = zp->end;
 }
 
 void cpu_strict(struct cpu_t *cpu, bool strict) {
