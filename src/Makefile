@@ -23,8 +23,8 @@
 UNAME := $(shell uname)
 
 CC?=cc
-CFLAGS=-std=gnu11 -O3 -Wall -Wextra -Werror -Wno-unused-parameter -I/usr/include
-LDFLAGS=-L/usr/local/lib
+CFLAGS=-std=gnu11 -O3 -flto -Wall -Wextra -Werror -Wno-unused-parameter -I/usr/include
+LDFLAGS=-L/usr/local/lib -flto
 
 LUA_LIBS=-llua
 ifeq ($(UNAME), Linux)

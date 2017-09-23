@@ -73,6 +73,7 @@
 
 static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
    struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
+   //printf("ewm_two_iom_read(%x)\n", addr);
    switch (addr) {
       case EWM_A2P_SS_KBD:
          return two->key;
@@ -181,6 +182,7 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
 
 static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
    struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
+   //printf("ewm_two_iom_write(%x)\n", addr);
    switch (addr) {
 
       case EWM_A2P_SS_KBDSTRB:
@@ -251,32 +253,13 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
    }
 }
 
-static uint8_t ewm_two_screen_txt_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   return two->screen_txt_data[addr - mem->start];
-}
-
-static void ewm_two_screen_txt_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   two->screen_txt_data[addr - mem->start] = b;
-   two->screen_dirty = true;
-}
-
-static uint8_t ewm_two_screen_hgr_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   return two->screen_hgr_data[addr - mem->start];
-}
-
-static void ewm_two_screen_hgr_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t addr, uint8_t b) {
-   struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
-   two->screen_hgr_data[addr - mem->start] = b;
-   two->screen_dirty = true;
-}
-
 static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer, SDL_Joystick *joystick) {
    memset(two, 0, sizeof(struct ewm_two_t));
 
    two->type = type;
+
+   two->lua_key_down_fn = LUA_NOREF;
+   two->lua_key_up_fn = LUA_NOREF;
 
    switch (type) {
       case EWM_TWO_TYPE_APPLE2: {
@@ -288,7 +271,7 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
       case EWM_TWO_TYPE_APPLE2PLUS: {
          two->cpu = cpu_create(EWM_CPU_MODEL_6502);
 
-         two->ram = cpu_add_ram(two->cpu, 0x0000, 48 * 1024);
+         two->ram = cpu_add_ram(two->cpu, 0x0000, 0xbfff);
          two->roms[0] = cpu_add_rom_file(two->cpu, 0xd000, "rom/341-0011.bin"); // AppleSoft BASIC D000
          two->roms[1] = cpu_add_rom_file(two->cpu, 0xd800, "rom/341-0012.bin"); // AppleSoft BASIC D800
          two->roms[2] = cpu_add_rom_file(two->cpu, 0xe000, "rom/341-0013.bin"); // AppleSoft BASIC E000
@@ -323,14 +306,6 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
          break;
       }
    }
-
-   // TODO Introduce ewm_scr_t that captures everything related to the apple 2 screen so that it can be re-used?
-
-   two->screen_txt_data = malloc(2 * 1024);
-   two->screen_txt_iom = cpu_add_iom(two->cpu, 0x0400, 0x0bff, two, ewm_two_screen_txt_read, ewm_two_screen_txt_write);
-
-   two->screen_hgr_data = malloc(16 * 1024);
-   two->screen_hgr_iom = cpu_add_iom(two->cpu, 0x2000, 0x5fff, two, ewm_two_screen_hgr_read, ewm_two_screen_hgr_write);
 
    two->joystick = joystick;
 
@@ -916,6 +891,7 @@ int ewm_two_main(int argc, char **argv) {
          // the second half of the frames we draw each second. The
          // latter because that is when we update flashing text.
 
+         two->screen_dirty = 1;
          if (two->screen_dirty || (phase == 0) || (phase == (fps / 2))) {
             ewm_scr_update(two->scr, phase, fps);
             two->screen_dirty = false;
