@@ -509,9 +509,6 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                      SDL_SetWindowSize(window, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
                      SDL_RenderSetLogicalSize(two->scr->renderer, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
                      break;
-                  case SDLK_p:
-                     two->paused = !two->paused;
-                     break;
                }
             } else if (event.key.keysym.mod == KMOD_NONE) {
                switch (event.key.keysym.sym) {
@@ -885,7 +882,7 @@ int ewm_two_main(int argc, char **argv) {
          break;
       }
 
-      if (!two->paused && (SDL_GetTicks() - ticks) >= (1000 / fps)) {
+      if ((SDL_GetTicks() - ticks) >= (1000 / fps)) {
          if (!ewm_two_step_cpu(two, EWM_TWO_SPEED / fps)) {
             break;
          }
