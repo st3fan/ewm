@@ -28,6 +28,7 @@
 #include "mem.h"
 #include "utl.h"
 
+#if 0
 #define MEM_BENCH_ITERATIONS (100 * 1000 * 1000)
 
 #define MEM_GET_TEST(NAME, ADDR) \
@@ -150,8 +151,10 @@ void test(struct cpu_t *cpu, char *name, test_run_t test_run) {
 
    printf("%-32s %8llu\n", name, duration_ms);
 }
+#endif
 
 int main(int argc, char **argv) {
+#if 0
    struct cpu_t *cpu = cpu_create(EWM_CPU_MODEL_6502);
    cpu_add_ram_data(cpu, 0, 0xffff, malloc(0xffff));
    cpu_reset(cpu);
@@ -185,4 +188,5 @@ int main(int argc, char **argv) {
    RUN_TEST(mem_set_byte_ind, 0x12);
    RUN_TEST(mem_set_byte_indx, 0x12);
    RUN_TEST(mem_set_byte_indy, 0x12);
+#endif
 }

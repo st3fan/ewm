@@ -31,7 +31,110 @@
 #include "cpu.h"
 #include "mem.h"
 
-static void update_zn(struct cpu_t *cpu, uint8_t v) {
+// Getters
+
+static inline uint8_t get_byte_abs(struct cpu_t *cpu, uint16_t addr) {
+  return mem_get_byte(cpu, addr);
+}
+
+static inline uint8_t get_byte_absx(struct cpu_t *cpu, uint16_t addr) {
+   return mem_get_byte(cpu, addr + cpu->state.x);
+}
+
+static inline uint8_t get_byte_absy(struct cpu_t *cpu, uint16_t addr) {
+  return mem_get_byte(cpu, addr + cpu->state.y);
+}
+
+static inline uint8_t get_byte_zpg(struct cpu_t *cpu, uint8_t addr) {
+   return cpu->ram[addr];
+}
+
+static inline uint8_t get_byte_zpgx(struct cpu_t *cpu, uint8_t addr) {
+   return cpu->ram[((uint16_t) addr + cpu->state.x) & 0x00ff];
+}
+
+static inline uint8_t get_byte_zpgy(struct cpu_t *cpu, uint8_t addr) {
+   return cpu->ram[((uint16_t) addr + cpu->state.y) & 0x00ff];
+}
+
+static inline uint8_t get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
+   uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x00ff]);
+   return mem_get_byte(cpu, a);
+}
+
+static inline uint8_t get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
+   return mem_get_byte(cpu, a);
+}
+
+static inline uint8_t get_byte_ind(struct cpu_t *cpu, uint8_t addr) {
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]);
+   return mem_get_byte(cpu, a);
+}
+
+// Setters
+
+static inline void set_byte_zpg(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   cpu->ram[addr] = v;
+}
+
+static inline void set_byte_zpgx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   cpu->ram[((uint16_t) addr + cpu->state.x) & 0x00ff] = v;
+}
+
+static inline void set_byte_zpgy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   cpu->ram[((uint16_t) addr + cpu->state.y) & 0x00ff] = v;
+}
+
+static inline void set_byte_abs(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  mem_set_byte(cpu, addr, v);
+}
+
+static inline void set_byte_absx(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  mem_set_byte(cpu, addr+cpu->state.x, v);
+}
+
+static inline void set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
+  mem_set_byte(cpu, addr+cpu->state.y, v);
+}
+
+static inline void set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   uint16_t a = *((uint16_t*) &cpu->ram[(addr + cpu->state.x) & 0x0ff]);
+   mem_set_byte(cpu, a, v);
+}
+
+static inline void set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]) + cpu->state.y;
+   mem_set_byte(cpu, a, v);
+}
+
+static inline void set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
+   uint16_t a = *((uint16_t*) &cpu->ram[addr]);
+   mem_set_byte(cpu, a, v);
+}
+
+// Modifiers
+
+static inline void mod_byte_zpg(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
+   cpu->ram[addr] = op(cpu, cpu->ram[addr]);
+}
+
+static inline void mod_byte_zpgx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
+   uint8_t a = ((uint16_t) addr + cpu->state.x) & 0x00ff;
+   cpu->ram[a] = op(cpu, cpu->ram[a]);
+}
+
+static inline void mod_byte_abs(struct cpu_t *cpu, uint16_t addr, mem_mod_t op) {
+  set_byte_abs(cpu, addr, op(cpu, get_byte_abs(cpu, addr)));
+}
+
+static inline void mod_byte_absx(struct cpu_t *cpu, uint16_t addr, mem_mod_t op) {
+  set_byte_absx(cpu, addr, op(cpu, get_byte_absx(cpu, addr)));
+}
+
+// Utilities
+
+static inline void update_zn(struct cpu_t *cpu, uint8_t v) {
   cpu->state.z = (v == 0x00);
   cpu->state.n = (v & 0x80);
 }
@@ -80,31 +183,31 @@ static void adc_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void adc_zpg(struct cpu_t *cpu, uint8_t oper) {
-  adc(cpu, mem_get_byte_zpg(cpu, oper));
+  adc(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void adc_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  adc(cpu, mem_get_byte_zpgx(cpu, oper));
+  adc(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void adc_abs(struct cpu_t *cpu, uint16_t oper) {
-  adc(cpu, mem_get_byte_abs(cpu, oper));
+  adc(cpu, get_byte_abs(cpu, oper));
 }
 
 static void adc_absx(struct cpu_t *cpu, uint16_t oper) {
-  adc(cpu, mem_get_byte_absx(cpu, oper));
+  adc(cpu, get_byte_absx(cpu, oper));
 }
 
 static void adc_absy(struct cpu_t *cpu, uint16_t oper) {
-  adc(cpu, mem_get_byte_absy(cpu, oper));
+  adc(cpu, get_byte_absy(cpu, oper));
 }
 
 static void adc_indx(struct cpu_t *cpu, uint8_t oper) {
-  adc(cpu, mem_get_byte_indx(cpu, oper));
+  adc(cpu, get_byte_indx(cpu, oper));
 }
 
 static void adc_indy(struct cpu_t *cpu, uint8_t oper) {
-  adc(cpu, mem_get_byte_indy(cpu, oper));
+  adc(cpu, get_byte_indy(cpu, oper));
 }
 
 /* AND */
@@ -119,31 +222,31 @@ static void and_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void and_zpg(struct cpu_t *cpu, uint8_t oper) {
-  and(cpu, mem_get_byte_zpg(cpu, oper));
+  and(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void and_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  and(cpu, mem_get_byte_zpgx(cpu, oper));
+  and(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void and_abs(struct cpu_t *cpu, uint16_t oper) {
-  and(cpu, mem_get_byte_abs(cpu, oper));
+  and(cpu, get_byte_abs(cpu, oper));
 }
 
 static void and_absx(struct cpu_t *cpu, uint16_t oper) {
-  and(cpu, mem_get_byte_absx(cpu, oper));
+  and(cpu, get_byte_absx(cpu, oper));
 }
 
 static void and_absy(struct cpu_t *cpu, uint16_t oper) {
-  and(cpu, mem_get_byte_absy(cpu, oper));
+  and(cpu, get_byte_absy(cpu, oper));
 }
 
 static void and_indx(struct cpu_t *cpu, uint8_t oper) {
-  and(cpu, mem_get_byte_indx(cpu, oper));
+  and(cpu, get_byte_indx(cpu, oper));
 }
 
 static void and_indy(struct cpu_t *cpu, uint8_t oper) {
-  and(cpu, mem_get_byte_indy(cpu, oper));
+  and(cpu, get_byte_indy(cpu, oper));
 }
 
 /* ASL */
@@ -161,19 +264,19 @@ static void asl_acc(struct cpu_t *cpu) {
 }
 
 static void asl_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, asl);
+  mod_byte_zpg(cpu, oper, asl);
 }
 
 static void asl_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, asl);
+  mod_byte_zpgx(cpu, oper, asl);
 }
 
 static void asl_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, asl);
+  mod_byte_abs(cpu, oper, asl);
 }
 
 static void asl_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, asl);
+  mod_byte_absx(cpu, oper, asl);
 }
 
 /* BIT */
@@ -186,11 +289,11 @@ static void bit(struct cpu_t *cpu, uint8_t m) {
 }
 
 static void bit_zpg(struct cpu_t *cpu, uint8_t oper) {
-  bit(cpu, mem_get_byte_zpg(cpu, oper));
+  bit(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void bit_abs(struct cpu_t *cpu, uint16_t oper) {
-  bit(cpu, mem_get_byte_abs(cpu, oper));
+  bit(cpu, get_byte_abs(cpu, oper));
 }
 
 /* Bxx Branches */
@@ -285,31 +388,31 @@ static void cmp_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void cmp_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cmp(cpu, mem_get_byte_zpg(cpu, oper));
+  cmp(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void cmp_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  cmp(cpu, mem_get_byte_zpgx(cpu, oper));
+  cmp(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void cmp_abs(struct cpu_t *cpu, uint16_t oper) {
-  cmp(cpu, mem_get_byte_abs(cpu, oper));
+  cmp(cpu, get_byte_abs(cpu, oper));
 }
 
 static void cmp_absx(struct cpu_t *cpu, uint16_t oper) {
-  cmp(cpu, mem_get_byte_absx(cpu, oper));
+  cmp(cpu, get_byte_absx(cpu, oper));
 }
 
 static void cmp_absy(struct cpu_t *cpu, uint16_t oper) {
-  cmp(cpu, mem_get_byte_absy(cpu, oper));
+  cmp(cpu, get_byte_absy(cpu, oper));
 }
 
 static void cmp_indx(struct cpu_t *cpu, uint8_t oper) {
-  cmp(cpu, mem_get_byte_indx(cpu, oper));
+  cmp(cpu, get_byte_indx(cpu, oper));
 }
 
 static void cmp_indy(struct cpu_t *cpu, uint8_t oper) {
-  cmp(cpu, mem_get_byte_indy(cpu, oper));
+  cmp(cpu, get_byte_indy(cpu, oper));
 }
 
 /* CPX */
@@ -325,11 +428,11 @@ static void cpx_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void cpx_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cpx(cpu, mem_get_byte_zpg(cpu, oper));
+  cpx(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void cpx_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpx(cpu, mem_get_byte_abs(cpu, oper));
+  cpx(cpu, get_byte_abs(cpu, oper));
 }
 
 /* CPY */
@@ -345,11 +448,11 @@ static void cpy_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void cpy_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cpy(cpu, mem_get_byte_zpg(cpu, oper));
+  cpy(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void cpy_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpy(cpu, mem_get_byte_abs(cpu, oper));
+  cpy(cpu, get_byte_abs(cpu, oper));
 }
 
 /* DEx */
@@ -361,19 +464,19 @@ static uint8_t dec(struct cpu_t *cpu, uint8_t b) {
 }
 
 static void dec_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, dec);
+  mod_byte_zpg(cpu, oper, dec);
 }
 
 static void dec_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, dec);
+  mod_byte_zpgx(cpu, oper, dec);
 }
 
 static void dec_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, dec);
+  mod_byte_abs(cpu, oper, dec);
 }
 
 static void dec_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, dec);
+  mod_byte_absx(cpu, oper, dec);
 }
 
 static void dex(struct cpu_t *cpu) {
@@ -398,31 +501,31 @@ static void eor_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void eor_zpg(struct cpu_t *cpu, uint8_t oper) {
-  eor(cpu, mem_get_byte_zpg(cpu, oper));
+  eor(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void eor_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  eor(cpu, mem_get_byte_zpgx(cpu, oper));
+  eor(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void eor_abs(struct cpu_t *cpu, uint16_t oper) {
-  eor(cpu, mem_get_byte_abs(cpu, oper));
+  eor(cpu, get_byte_abs(cpu, oper));
 }
 
 static void eor_absx(struct cpu_t *cpu, uint16_t oper) {
-  eor(cpu, mem_get_byte_absx(cpu, oper));
+  eor(cpu, get_byte_absx(cpu, oper));
 }
 
 static void eor_absy(struct cpu_t *cpu, uint16_t oper) {
-  eor(cpu, mem_get_byte_absy(cpu, oper));
+  eor(cpu, get_byte_absy(cpu, oper));
 }
 
 static void eor_indx(struct cpu_t *cpu, uint8_t oper) {
-  eor(cpu, mem_get_byte_indx(cpu, oper));
+  eor(cpu, get_byte_indx(cpu, oper));
 }
 
 static void eor_indy(struct cpu_t *cpu, uint8_t oper) {
-  eor(cpu, mem_get_byte_indy(cpu, oper));
+  eor(cpu, get_byte_indy(cpu, oper));
 }
 
 /* INx */
@@ -434,19 +537,19 @@ static uint8_t inc(struct cpu_t *cpu, uint8_t b) {
 }
 
 static void inc_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, inc);
+  mod_byte_zpg(cpu, oper, inc);
 }
 
 static void inc_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, inc);
+  mod_byte_zpgx(cpu, oper, inc);
 }
 
 static void inc_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, inc);
+  mod_byte_abs(cpu, oper, inc);
 }
 
 static void inc_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, inc);
+  mod_byte_absx(cpu, oper, inc);
 }
 
 static void inx(struct cpu_t *cpu) {
@@ -484,37 +587,37 @@ static void lda_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void lda_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.a = mem_get_byte_zpg(cpu, oper);
+  cpu->state.a = get_byte_zpg(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.a = mem_get_byte_zpgx(cpu, oper);
+  cpu->state.a = get_byte_zpgx(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.a = mem_get_byte_abs(cpu, oper);
+  cpu->state.a = get_byte_abs(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_absx(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.a = mem_get_byte_absx(cpu, oper);
+  cpu->state.a = get_byte_absx(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_absy(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.a = mem_get_byte_absy(cpu, oper);
+  cpu->state.a = get_byte_absy(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_indx(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.a = mem_get_byte_indx(cpu, oper);
+  cpu->state.a = get_byte_indx(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
 static void lda_indy(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.a = mem_get_byte_indy(cpu, oper);
+  cpu->state.a = get_byte_indy(cpu, oper);
   update_zn(cpu, cpu->state.a);
 }
 
@@ -526,22 +629,22 @@ static void ldx_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void ldx_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.x = mem_get_byte_zpg(cpu, oper);
+  cpu->state.x = get_byte_zpg(cpu, oper);
   update_zn(cpu, cpu->state.x);
 }
 
 static void ldx_zpgy(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.x = mem_get_byte_zpgy(cpu, oper);
+  cpu->state.x = get_byte_zpgy(cpu, oper);
   update_zn(cpu, cpu->state.x);
 }
 
 static void ldx_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.x = mem_get_byte_abs(cpu, oper);
+  cpu->state.x = get_byte_abs(cpu, oper);
   update_zn(cpu, cpu->state.x);
 }
 
 static void ldx_absy(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.x = mem_get_byte_absy(cpu, oper);
+  cpu->state.x = get_byte_absy(cpu, oper);
   update_zn(cpu, cpu->state.x);
 }
 
@@ -553,22 +656,22 @@ static void ldy_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void ldy_zpg(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.y = mem_get_byte_zpg(cpu, oper);
+  cpu->state.y = get_byte_zpg(cpu, oper);
   update_zn(cpu, cpu->state.y);
 }
 
 static void ldy_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  cpu->state.y = mem_get_byte_zpgx(cpu, oper);
+  cpu->state.y = get_byte_zpgx(cpu, oper);
   update_zn(cpu, cpu->state.y);
 }
 
 static void ldy_abs(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.y = mem_get_byte_abs(cpu, oper);
+  cpu->state.y = get_byte_abs(cpu, oper);
   update_zn(cpu, cpu->state.y);
 }
 
 static void ldy_absx(struct cpu_t *cpu, uint16_t oper) {
-  cpu->state.y = mem_get_byte_absx(cpu, oper);
+  cpu->state.y = get_byte_absx(cpu, oper);
   update_zn(cpu, cpu->state.y);
 }
 
@@ -586,18 +689,18 @@ static void lsr_acc(struct cpu_t *cpu) {
 }
 
 static void lsr_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, lsr);
+  mod_byte_zpg(cpu, oper, lsr);
 }
 
 static void lsr_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, lsr);
+  mod_byte_zpgx(cpu, oper, lsr);
 }
 
 static void lsr_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, lsr);
+  mod_byte_abs(cpu, oper, lsr);
 }
 static void lsr_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, lsr);
+  mod_byte_absx(cpu, oper, lsr);
 }
 
 /* NOP */
@@ -617,31 +720,31 @@ static void ora_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void ora_zpg(struct cpu_t *cpu, uint8_t oper) {
-  ora(cpu, mem_get_byte_zpg(cpu, oper));
+  ora(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void ora_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  ora(cpu, mem_get_byte_zpgx(cpu, oper));
+  ora(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void ora_abs(struct cpu_t *cpu, uint16_t oper) {
-  ora(cpu, mem_get_byte_abs(cpu, oper));
+  ora(cpu, get_byte_abs(cpu, oper));
 }
 
 static void ora_absx(struct cpu_t *cpu, uint16_t oper) {
-  ora(cpu, mem_get_byte_absx(cpu, oper));
+  ora(cpu, get_byte_absx(cpu, oper));
 }
 
 static void ora_absy(struct cpu_t *cpu, uint16_t oper) {
-  ora(cpu, mem_get_byte_absy(cpu, oper));
+  ora(cpu, get_byte_absy(cpu, oper));
 }
 
 static void ora_indx(struct cpu_t *cpu, uint8_t oper) {
-  ora(cpu, mem_get_byte_indx(cpu, oper));
+  ora(cpu, get_byte_indx(cpu, oper));
 }
 
 static void ora_indy(struct cpu_t *cpu, uint8_t oper) {
-  ora(cpu, mem_get_byte_indy(cpu, oper));
+  ora(cpu, get_byte_indy(cpu, oper));
 }
 
 
@@ -679,19 +782,19 @@ static void rol_acc(struct cpu_t *cpu) {
 }
 
 static void rol_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, rol);
+  mod_byte_zpg(cpu, oper, rol);
 }
 
 static void rol_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, rol);
+  mod_byte_zpgx(cpu, oper, rol);
 }
 
 static void rol_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, rol);
+  mod_byte_abs(cpu, oper, rol);
 }
 
 static void rol_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, rol);
+  mod_byte_absx(cpu, oper, rol);
 }
 
 /* ROR */
@@ -709,19 +812,19 @@ static void ror_acc(struct cpu_t *cpu) {
 }
 
 static void ror_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpg(cpu, oper, ror);
+  mod_byte_zpg(cpu, oper, ror);
 }
 
 static void ror_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_mod_byte_zpgx(cpu, oper, ror);
+  mod_byte_zpgx(cpu, oper, ror);
 }
 
 static void ror_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_abs(cpu, oper, ror);
+  mod_byte_abs(cpu, oper, ror);
 }
 
 static void ror_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_mod_byte_absx(cpu, oper, ror);
+  mod_byte_absx(cpu, oper, ror);
 }
 
 /* RTI */
@@ -781,31 +884,31 @@ static void sbc_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void sbc_zpg(struct cpu_t *cpu, uint8_t oper) {
-  sbc(cpu, mem_get_byte_zpg(cpu, oper));
+  sbc(cpu, get_byte_zpg(cpu, oper));
 }
 
 static void sbc_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  sbc(cpu, mem_get_byte_zpgx(cpu, oper));
+  sbc(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void sbc_abs(struct cpu_t *cpu, uint16_t oper) {
-  sbc(cpu, mem_get_byte_abs(cpu, oper));
+  sbc(cpu, get_byte_abs(cpu, oper));
 }
 
 static void sbc_absx(struct cpu_t *cpu, uint16_t oper) {
-  sbc(cpu, mem_get_byte_absx(cpu, oper));
+  sbc(cpu, get_byte_absx(cpu, oper));
 }
 
 static void sbc_absy(struct cpu_t *cpu, uint16_t oper) {
-  sbc(cpu, mem_get_byte_absy(cpu, oper));
+  sbc(cpu, get_byte_absy(cpu, oper));
 }
 
 static void sbc_indx(struct cpu_t *cpu, uint8_t oper) {
-  sbc(cpu, mem_get_byte_indx(cpu, oper));
+  sbc(cpu, get_byte_indx(cpu, oper));
 }
 
 static void sbc_indy(struct cpu_t *cpu, uint8_t oper) {
-  sbc(cpu, mem_get_byte_indy(cpu, oper));
+  sbc(cpu, get_byte_indy(cpu, oper));
 }
 
 /* SEx */
@@ -825,59 +928,59 @@ static void sei(struct cpu_t *cpu) {
 /* STA */
 
 static void sta_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpg(cpu, oper, cpu->state.a);
+  set_byte_zpg(cpu, oper, cpu->state.a);
 }
 
 static void sta_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpgx(cpu, oper, cpu->state.a);
+  set_byte_zpgx(cpu, oper, cpu->state.a);
 }
 
 static void sta_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_set_byte_abs(cpu, oper, cpu->state.a);
+  set_byte_abs(cpu, oper, cpu->state.a);
 }
 
 static void sta_absx(struct cpu_t *cpu, uint16_t oper) {
-  mem_set_byte_absx(cpu, oper, cpu->state.a);
+  set_byte_absx(cpu, oper, cpu->state.a);
 }
 
 static void sta_absy(struct cpu_t *cpu, uint16_t oper) {
-  mem_set_byte_absy(cpu, oper, cpu->state.a);
+  set_byte_absy(cpu, oper, cpu->state.a);
 }
 
 static void sta_indx(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_indx(cpu, oper, cpu->state.a);
+  set_byte_indx(cpu, oper, cpu->state.a);
 }
 
 static void sta_indy(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_indy(cpu, oper, cpu->state.a);
+  set_byte_indy(cpu, oper, cpu->state.a);
 }
 
 /* STX */
 
 static void stx_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpg(cpu, oper, cpu->state.x);
+  set_byte_zpg(cpu, oper, cpu->state.x);
 }
 
 static void stx_zpgy(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpgy(cpu, oper, cpu->state.x);
+  set_byte_zpgy(cpu, oper, cpu->state.x);
 }
 
 static void stx_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_set_byte_abs(cpu, oper, cpu->state.x);
+  set_byte_abs(cpu, oper, cpu->state.x);
 }
 
 /* STY */
 
 static void sty_zpg(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpg(cpu, oper, cpu->state.y);
+  set_byte_zpg(cpu, oper, cpu->state.y);
 }
 
 static void sty_zpgx(struct cpu_t *cpu, uint8_t oper) {
-  mem_set_byte_zpgx(cpu, oper, cpu->state.y);
+  set_byte_zpgx(cpu, oper, cpu->state.y);
 }
 
 static void sty_abs(struct cpu_t *cpu, uint16_t oper) {
-  mem_set_byte_abs(cpu, oper, cpu->state.y);
+  set_byte_abs(cpu, oper, cpu->state.y);
 }
 
 /* Txx */
@@ -1186,36 +1289,36 @@ struct cpu_instruction_t instructions[256] = {
 // EWM_CPU_MODEL_65C02
 
 static void ora_ind(struct cpu_t *cpu, uint8_t oper) {
-   ora(cpu, mem_get_byte_ind(cpu, oper));
+   ora(cpu, get_byte_ind(cpu, oper));
 }
 
 static void and_ind(struct cpu_t *cpu, uint8_t oper) {
-   and(cpu, mem_get_byte_ind(cpu, oper));
+   and(cpu, get_byte_ind(cpu, oper));
 }
 
 static void eor_ind(struct cpu_t *cpu, uint8_t oper) {
-   eor(cpu, mem_get_byte_ind(cpu, oper));
+   eor(cpu, get_byte_ind(cpu, oper));
 }
 
 static void adc_ind(struct cpu_t *cpu, uint8_t oper) {
-   adc(cpu, mem_get_byte_ind(cpu, oper));
+   adc(cpu, get_byte_ind(cpu, oper));
 }
 
 static void sta_ind(struct cpu_t *cpu, uint8_t oper) {
-   mem_set_byte_ind(cpu, oper, cpu->state.a);
+   set_byte_ind(cpu, oper, cpu->state.a);
 }
 
 static void lda_ind(struct cpu_t *cpu, uint8_t oper) {
-   cpu->state.a = mem_get_byte_ind(cpu, oper);
+   cpu->state.a = get_byte_ind(cpu, oper);
    update_zn(cpu, cpu->state.a);
 }
 
 static void cmp_ind(struct cpu_t *cpu, uint8_t oper) {
-   cmp(cpu, mem_get_byte_ind(cpu, oper));
+   cmp(cpu, get_byte_ind(cpu, oper));
 }
 
 static void sbc_ind(struct cpu_t *cpu, uint8_t oper) {
-   sbc(cpu, mem_get_byte_ind(cpu, oper));
+   sbc(cpu, get_byte_ind(cpu, oper));
 }
 
 static void bit_imm(struct cpu_t *cpu, uint8_t oper) {
@@ -1224,11 +1327,11 @@ static void bit_imm(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void bit_zpgx(struct cpu_t *cpu, uint8_t oper) {
-   bit(cpu, mem_get_byte_zpgx(cpu, oper));
+   bit(cpu, get_byte_zpgx(cpu, oper));
 }
 
 static void bit_absx(struct cpu_t *cpu, uint16_t oper) {
-   bit(cpu, mem_get_byte_absx(cpu, oper));
+   bit(cpu, get_byte_absx(cpu, oper));
 }
 
 static void dec_acc(struct cpu_t *cpu) {
@@ -1268,47 +1371,47 @@ static void ply(struct cpu_t *cpu) {
 }
 
 static void stz_zpg(struct cpu_t *cpu, uint8_t oper) {
-   mem_set_byte_zpg(cpu, oper, 0x00);
+   set_byte_zpg(cpu, oper, 0x00);
 }
 
 static void stz_zpgx(struct cpu_t *cpu, uint8_t oper) {
-   mem_set_byte_zpgx(cpu, oper, 0x00);
+   set_byte_zpgx(cpu, oper, 0x00);
 }
 
 static void stz_abs(struct cpu_t *cpu, uint16_t oper) {
-   mem_set_byte_abs(cpu, oper, 0x00);
+   set_byte_abs(cpu, oper, 0x00);
 }
 
 static void stz_absx(struct cpu_t *cpu, uint16_t oper) {
-   mem_set_byte_absx(cpu, oper, 0x00);
+   set_byte_absx(cpu, oper, 0x00);
 }
 
 static void trb_zpg(struct cpu_t *cpu, uint8_t oper) {
    cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
    uint8_t r = mem_get_byte(cpu, oper) & ~cpu->state.a;
-   mem_set_byte_zpg(cpu, oper, r);
+   set_byte_zpg(cpu, oper, r);
 }
 
 static void trb_abs(struct cpu_t *cpu, uint16_t oper) {
    cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
    uint8_t r = mem_get_byte(cpu, oper) & (cpu->state.a ^ 0xff);
-   mem_set_byte_abs(cpu, oper, r);
+   set_byte_abs(cpu, oper, r);
 }
 
 static void tsb_zpg(struct cpu_t *cpu, uint8_t oper) {
    cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
    uint8_t r = mem_get_byte(cpu, oper) | cpu->state.a;
-   mem_set_byte_zpg(cpu, oper, r);
+   set_byte_zpg(cpu, oper, r);
 }
 
 static void tsb_abs(struct cpu_t *cpu, uint16_t oper) {
    cpu->state.z = (mem_get_byte(cpu, oper) & cpu->state.a) == 0;
    uint8_t r = mem_get_byte(cpu, oper) | cpu->state.a;
-   mem_set_byte_abs(cpu, oper, r);
+   set_byte_abs(cpu, oper, r);
 }
 
 static void bbr(struct cpu_t *cpu, uint8_t bit, uint8_t zp, int8_t label) {
-   if ((mem_get_byte_zpg(cpu, zp) & bit) == 0) {
+   if ((get_byte_zpg(cpu, zp) & bit) == 0) {
       cpu->state.pc += label;
    }
 }
@@ -1346,7 +1449,7 @@ static void bbr7(struct cpu_t *cpu, uint16_t oper) {
 }
 
 static void bbs(struct cpu_t *cpu, uint8_t bit, uint8_t zp, int8_t label) {
-   if ((mem_get_byte_zpg(cpu, zp) & bit) != 0) {
+   if ((get_byte_zpg(cpu, zp) & bit) != 0) {
       cpu->state.pc += label;
    }
 }
@@ -1384,7 +1487,7 @@ static void bbs7(struct cpu_t *cpu, uint16_t oper) {
 }
 
 static void rmb(struct cpu_t *cpu, uint8_t bit, uint8_t zp) {
-   mem_set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) & ~bit);
+   set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) & ~bit);
 }
 
 static void rmb0(struct cpu_t *cpu, uint8_t oper) {
@@ -1420,7 +1523,7 @@ static void rmb7(struct cpu_t *cpu, uint8_t oper) {
 }
 
 static void smb(struct cpu_t *cpu, uint8_t bit, uint8_t zp) {
-   mem_set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) | bit);
+   set_byte_zpg(cpu, zp, mem_get_byte(cpu, zp) | bit);
 }
 
 static void smb0(struct cpu_t *cpu, uint8_t oper) {

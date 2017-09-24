@@ -96,6 +96,8 @@ struct ewm_two_t {
 
    int lua_key_down_fn;
    int lua_key_up_fn;
+
+   bool paused;
 };
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);

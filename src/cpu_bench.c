@@ -20,6 +20,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+#include <sys/utsname.h>
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -30,12 +32,25 @@
 #include "mem.h"
 #include "utl.h"
 
-#define CPU_BENCH_ITERATIONS (10 * 1000 * 1000)
+uint64_t get_iterations() {
+   struct utsname name;
+   if (uname(&name) == 0) {
+      if (strcmp(name.machine, "x86_64") == 0) {
+         return 1000 * 1000 * 1000;
+      }
+      if (strcmp(name.machine, "armv6l") == 0) {
+         return 100 * 1000 * 1000;
+      }
+   }
+   return 10 * 1000 * 1000;
+}
 
 void test(struct cpu_t *cpu, uint8_t opcode) {
    uint64_t runs[3];
 
    struct cpu_instruction_t *ins = &cpu->instructions[opcode];
+
+   uint64_t iterations = get_iterations();
 
    for (int run = 0; run < 3; run++) {
       struct timespec start;
@@ -44,19 +59,22 @@ void test(struct cpu_t *cpu, uint8_t opcode) {
          exit(1);
       }
 
+      cpu->state.x = 0x12;
+      cpu->state.y = 0x12;
+
       switch (ins->bytes) {
          case 1:
-            for (uint64_t i = 0; i < CPU_BENCH_ITERATIONS; i++) {
+            for (uint64_t i = 0; i < iterations; i++) {
                ((cpu_instruction_handler_t) ins->handler)(cpu);
             }
             break;
          case 2:
-            for (uint64_t i = 0; i < CPU_BENCH_ITERATIONS; i++) {
+            for (uint64_t i = 0; i < iterations; i++) {
                ((cpu_instruction_handler_byte_t) ins->handler)(cpu, 0x12);
             }
             break;
          case 3:
-            for (uint64_t i = 0; i < CPU_BENCH_ITERATIONS; i++) {
+            for (uint64_t i = 0; i < iterations; i++) {
                ((cpu_instruction_handler_word_t) ins->handler)(cpu, 0x1234);
             }
             break;

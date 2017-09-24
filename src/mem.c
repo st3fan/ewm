@@ -50,8 +50,6 @@ uint8_t mem_get_byte(struct cpu_t *cpu, uint16_t addr) {
    return 0;
 }
 
-extern struct ewm_two_t *two;
-
 void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
    if (addr < cpu->ram_size) {
       cpu->ram[addr] = v;
@@ -70,123 +68,15 @@ void mem_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
    }
 }
 
-// Getters
-
-uint8_t mem_get_byte_abs(struct cpu_t *cpu, uint16_t addr) {
-  return mem_get_byte(cpu, addr);
-}
-
-uint8_t mem_get_byte_absx(struct cpu_t *cpu, uint16_t addr) {
-   return mem_get_byte(cpu, addr + cpu->state.x);
-}
-
-uint8_t mem_get_byte_absy(struct cpu_t *cpu, uint16_t addr) {
-  return mem_get_byte(cpu, addr + cpu->state.y);
-}
-
-uint8_t mem_get_byte_zpg(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, addr);
-}
-
-uint8_t mem_get_byte_zpgx(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, ((uint16_t) addr + cpu->state.x) & 0x00ff);
-}
-
-uint8_t mem_get_byte_zpgy(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, ((uint16_t) addr + cpu->state.y) & 0x00ff);
-}
-
-uint8_t mem_get_byte_indx(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, (((uint16_t) cpu->ram[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->ram[((uint16_t) addr+cpu->state.x) & 0x00ff]));
-}
-
-uint8_t mem_get_byte_indy(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, (((uint16_t) cpu->ram[addr+1] << 8) | (uint16_t) cpu->ram[addr]) + cpu->state.y);
-}
-
-uint8_t mem_get_byte_ind(struct cpu_t *cpu, uint8_t addr) {
-   return mem_get_byte(cpu, ((uint16_t) cpu->ram[addr+1] << 8) | (uint16_t) cpu->ram[addr]);
-}
+// TODO Where are these used?
 
 uint16_t mem_get_word(struct cpu_t *cpu, uint16_t addr) {
   return ((uint16_t) mem_get_byte(cpu, addr+1) << 8) | (uint16_t) mem_get_byte(cpu, addr);
 }
 
-// Setters
-
-void mem_set_byte_zpg(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, addr, v);
-}
-
-void mem_set_byte_zpgx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, ((uint16_t) addr + cpu->state.x) & 0x00ff, v);
-}
-
-void mem_set_byte_zpgy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, ((uint16_t) addr + cpu->state.y) & 0x00ff, v);
-}
-
-void mem_set_byte_abs(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr, v);
-}
-
-void mem_set_byte_absx(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr+cpu->state.x, v);
-}
-
-void mem_set_byte_absy(struct cpu_t *cpu, uint16_t addr, uint8_t v) {
-  mem_set_byte(cpu, addr+cpu->state.y, v);
-}
-
-void mem_set_byte_indx(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->ram[((uint16_t)addr+1+cpu->state.x)&0x00ff] << 8) | (uint16_t) cpu->ram[((uint16_t) addr+cpu->state.x) & 0x00ff]), v);
-}
-
-void mem_set_byte_indy(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->ram[addr+1] << 8) | (uint16_t) cpu->ram[addr]) + cpu->state.y, v);
-}
-
-void mem_set_byte_ind(struct cpu_t *cpu, uint8_t addr, uint8_t v) {
-   mem_set_byte(cpu, (((uint16_t) cpu->ram[addr+1] << 8) | (uint16_t) cpu->ram[addr]), v);
-}
-
 void mem_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v) {
   mem_set_byte(cpu, addr+0, (uint8_t) v); // TODO Did I do this right?
   mem_set_byte(cpu, addr+1, (uint8_t) (v >> 8));
-}
-
-/* MOD */
-
-void mem_mod_byte_zpg(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
-  mem_set_byte_zpg(cpu, addr, op(cpu, mem_get_byte_zpg(cpu, addr)));
-}
-
-void mem_mod_byte_zpgx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
-  mem_set_byte_zpgx(cpu, addr, op(cpu, mem_get_byte_zpgx(cpu, addr)));
-}
-
-void mem_mod_byte_zpgy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
-  mem_set_byte_zpgy(cpu, addr, op(cpu, mem_get_byte_zpgy(cpu, addr)));
-}
-
-void mem_mod_byte_abs(struct cpu_t *cpu, uint16_t addr, mem_mod_t op) {
-  mem_set_byte_abs(cpu, addr, op(cpu, mem_get_byte_abs(cpu, addr)));
-}
-
-void mem_mod_byte_absx(struct cpu_t *cpu, uint16_t addr, mem_mod_t op) {
-  mem_set_byte_absx(cpu, addr, op(cpu, mem_get_byte_absx(cpu, addr)));
-}
-
-void mem_mod_byte_absy(struct cpu_t *cpu, uint16_t addr, mem_mod_t op) {
-  mem_set_byte_absy(cpu, addr, op(cpu, mem_get_byte_absy(cpu, addr)));
-}
-
-void mem_mod_byte_indx(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
-  mem_set_byte_indx(cpu, addr, op(cpu, mem_get_byte_indx(cpu, addr)));
-}
-
-void mem_mod_byte_indy(struct cpu_t *cpu, uint8_t addr, mem_mod_t op) {
-  mem_set_byte_indy(cpu, addr, op(cpu, mem_get_byte_indy(cpu, addr)));
 }
 
 // For parsing --memory options
