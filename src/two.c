@@ -34,8 +34,11 @@
 #include "alc.h"
 #include "chr.h"
 #include "scr.h"
+#if defined(EWM_LUA)
 #include "lua.h"
+#endif
 #include "two.h"
+
 
 #define EWM_A2P_SS_KBD                  0xc000
 #define EWM_A2P_SS_KBDSTRB              0xc010
@@ -258,8 +261,10 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
 
    two->type = type;
 
+#if defined(EWM_LUA)
    two->lua_key_down_fn = LUA_NOREF;
    two->lua_key_up_fn = LUA_NOREF;
+#endif
 
    switch (type) {
       case EWM_TWO_TYPE_APPLE2: {
@@ -325,7 +330,11 @@ void ewm_two_destroy(struct ewm_two_t *two) {
    // TODO Or maybe not.
 }
 
+#if defined(EWM_LUA)
+
+//
 // Lua support
+//
 
 static int two_lua_index(lua_State *state) {
    //void *two_data = luaL_checkudata(state, 1, "two_meta_table");
@@ -429,6 +438,8 @@ int ewm_two_init_lua(struct ewm_two_t *two, struct ewm_lua_t *lua) {
    return 0;
 }
 
+#endif
+
 // External API
 
 int ewm_two_load_disk(struct ewm_two_t *two, int drive, char *path) {
@@ -467,6 +478,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             break;
 
          case SDL_KEYDOWN:
+#if defined(EWM_LUA)
             if (two->lua_key_down_fn != LUA_NOREF) {
                lua_rawgeti(two->lua->state, LUA_REGISTRYINDEX, two->lua_key_down_fn);
                ewm_lua_push_two(two->lua, two);
@@ -486,6 +498,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                   return true;
                }
             }
+#endif
 
             if (event.key.keysym.mod & KMOD_CTRL) {
                if (event.key.keysym.sym >= SDLK_a && event.key.keysym.sym <= SDLK_z) {
@@ -541,6 +554,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
             break;
 
          case SDL_KEYUP:
+#if defined(EWM_LUA)
             if (two->lua_key_up_fn != LUA_NOREF) {
                lua_rawgeti(two->lua->state, LUA_REGISTRYINDEX, two->lua_key_up_fn);
                ewm_lua_push_two(two->lua, two);
@@ -560,6 +574,7 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                   return true;
                }
             }
+#endif
 
             if (event.key.keysym.mod & KMOD_ALT) {
                switch (event.key.keysym.sym) {
@@ -656,7 +671,9 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
 #define EWM_TWO_OPT_TRACE  (6)
 #define EWM_TWO_OPT_STRICT (7)
 #define EWM_TWO_OPT_DEBUG  (8)
+#if defined(EWM_LUA)
 #define EWM_TWO_OPT_SCRIPT (9)
+#endif
 
 static struct option one_options[] = {
    { "help",    no_argument,       NULL, EWM_TWO_OPT_HELP   },
@@ -668,7 +685,9 @@ static struct option one_options[] = {
    { "trace",   optional_argument, NULL, EWM_TWO_OPT_TRACE  },
    { "strict",  no_argument,       NULL, EWM_TWO_OPT_STRICT },
    { "debug",   no_argument,       NULL, EWM_TWO_OPT_DEBUG  },
+#if defined(EWM_LUA)
    { "script",  required_argument, NULL, EWM_TWO_OPT_SCRIPT },
+#endif
    { NULL,      0,                 NULL, 0 }
 };
 
@@ -682,7 +701,9 @@ static void usage() {
    fprintf(stderr, "  --trace <file>    trace cpu to file\n");
    fprintf(stderr, "  --strict          run emulator in strict mode\n");
    fprintf(stderr, "  --debug           print debug info\n");
+#if defined(EWM_LUA)
    fprintf(stderr, "  --script <script> load Lua script into the emulator\n");
+#endif
 }
 
 int ewm_two_main(int argc, char **argv) {
@@ -696,7 +717,9 @@ int ewm_two_main(int argc, char **argv) {
    char *trace_path = NULL;
    bool strict = false;
    bool debug = false;
+#if defined(EWM_LUA)
    char *script_path = NULL;
+#endif
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -735,9 +758,11 @@ int ewm_two_main(int argc, char **argv) {
          case EWM_TWO_OPT_DEBUG:
             debug = true;
             break;
+#if defined(EWM_LUA)
          case EWM_TWO_OPT_SCRIPT:
             script_path = optarg;
             break;
+#endif
          default: {
             usage();
             exit(1);
@@ -845,6 +870,7 @@ int ewm_two_main(int argc, char **argv) {
    cpu_strict(two->cpu, strict);
    cpu_trace(two->cpu, trace_path);
 
+#if defined(EWM_LUA)
    // Setup a Lua environment if scripts were specified
 
    if (script_path != NULL) {
@@ -862,6 +888,7 @@ int ewm_two_main(int argc, char **argv) {
          exit(1);
       }
    }
+#endif
 
    // Reset things to a known state
 

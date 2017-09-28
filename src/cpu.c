@@ -37,7 +37,10 @@
 #include "ins.h"
 #include "mem.h"
 #include "fmt.h"
+
+#if defined(EWM_LUA)
 #include "lua.h"
+#endif
 
 // Stack management.
 
@@ -102,6 +105,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
    uint16_t pc = cpu->state.pc;
    cpu->state.pc += i->bytes;
 
+#if defined(EWM_LUA)
    if (i->lua_before_handler != LUA_NOREF) {
       lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, i->lua_before_handler);
       ewm_lua_push_cpu(cpu->lua, cpu);
@@ -121,6 +125,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
          printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
       }
    }
+#endif
 
    /* Execute instruction */
    switch (i->bytes) {
@@ -135,6 +140,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
          break;
    }
 
+#if defined(EWM_LUA)
    if (i->lua_after_handler != LUA_NOREF) {
       lua_rawgeti(cpu->lua->state, LUA_REGISTRYINDEX, i->lua_after_handler);
       ewm_lua_push_cpu(cpu->lua, cpu);
@@ -154,6 +160,7 @@ static int cpu_execute_instruction(struct cpu_t *cpu) {
          printf("cpu: script error: %s\n", lua_tostring(cpu->lua->state, -1));
       }
    }
+#endif
 
    cpu->counter += i->cycles;
 
@@ -432,7 +439,11 @@ int cpu_step(struct cpu_t *cpu) {
    return cpu_execute_instruction(cpu);
 }
 
+#if defined(EWM_LUA)
+
+//
 // Lua support
+//
 
 // cpu state functions
 
@@ -702,3 +713,5 @@ int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua) {
 
    return 0;
 }
+
+#endif

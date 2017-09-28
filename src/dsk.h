@@ -26,9 +26,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if defined(EWM_LUA)
+#include "lua.h"
+#endif
+
 struct cpu_t;
 struct mem_t;
-struct ewm_lua_t;
 
 #define EWM_DSK_DRIVE1 (0)
 #define EWM_DSK_DRIVE2 (1)
@@ -62,7 +65,9 @@ struct ewm_dsk_t {
    struct ewm_dsk_drive_t drives[2];
    uint8_t drive; // 0 based
    int skip;
+#if defined(EWM_LUA)
    struct ewm_lua_t *lua;
+#endif
 };
 
 #define EWM_DSK_TYPE_UNKNOWN (-1)
@@ -74,6 +79,8 @@ struct ewm_dsk_t *ewm_dsk_create(struct cpu_t *cpu);
 int ewm_dsk_set_disk_data(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, void *data, size_t length, int type);
 int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t index, bool readonly, char *path);
 
+#if defined(EWM_LUA)
 int ewm_dsk_init_lua(struct ewm_dsk_t *dsk, struct ewm_lua_t *lua);
+#endif
 
 #endif
