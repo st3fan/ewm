@@ -20,12 +20,23 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-os: osx
+os:
+  - osx
+  - linux
+
+sudo: true
+dist: trusty
+
 language: c
+
 before_install:
-  - brew update
-  - brew install sdl2 lua
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install sdl2 lua; fi
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then sudo apt-get --yes install lua5.1 sdl2; fi
+
 before_script:
   - cd src
+
 script:
   - make
+
