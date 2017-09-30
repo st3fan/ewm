@@ -42,6 +42,9 @@ struct ewm_tty_t {
    int screen_cursor_row;
    int screen_cursor_column;
    int screen_cursor_blink;
+
+   uint32_t *pixels;
+   SDL_Surface *surface;
 };
 
 struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);

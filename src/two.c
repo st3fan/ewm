@@ -629,7 +629,7 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
 
    for (int i = 0; i < 40; i++) {
       int c = s[i] + 0x80;
-      if (two->scr->chr->characters[c] != NULL) {
+      if (two->scr->chr->textures[c] != NULL) {
          SDL_Rect dst;
          dst.x = i * 21;
          dst.y = 24 * 24 + 3;
@@ -637,12 +637,12 @@ static void ewm_two_update_status_bar(struct ewm_two_t *two, double mhz) {
          dst.h = 24;
 
          if (two->dsk->on && ((i == 35 && two->dsk->drive == EWM_DSK_DRIVE1) || (i == 38 && two->dsk->drive == EWM_DSK_DRIVE2))) {
-            SDL_SetTextureColorMod(two->scr->chr->characters[c], 145, 193, 75);
+            SDL_SetTextureColorMod(two->scr->chr->textures[c], 145, 193, 75);
          } else {
-            SDL_SetTextureColorMod(two->scr->chr->characters[c], 255, 0, 0);
+            SDL_SetTextureColorMod(two->scr->chr->textures[c], 255, 0, 0);
          }
 
-         SDL_RenderCopy(two->scr->renderer, two->scr->chr->characters[c], NULL, &dst);
+         SDL_RenderCopy(two->scr->renderer, two->scr->chr->textures[c], NULL, &dst);
       }
    }
 }

@@ -28,6 +28,16 @@ struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
    memset(tty, 0, sizeof(struct ewm_tty_t));
    tty->renderer = renderer;
    tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
+
+   // TODO Call SDL_RendererInfo() and decide if we need to do this. Also figure out the most optimal pixel format.
+   tty->pixels = malloc(4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr) * EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr));
+   tty->surface = SDL_CreateRGBSurfaceWithFormatFrom(tty->pixels,
+                                                     EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
+                                                     EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr),
+                                                     32,
+                                                     4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
+                                                     SDL_PIXELFORMAT_RGB888);
+
    ewm_tty_reset(tty);
    return tty;
 }
@@ -36,17 +46,34 @@ void ewm_tty_destroy(struct ewm_tty_t *tty) {
    // TODO
 }
 
+#if 0
 static inline void ewm_tty_render_character(struct ewm_tty_t *tty, int row, int column, uint8_t c) {
    // TODO Should we learn chr.c about the Apple1 character set instead of mapping it to the Apple ][+ one?
    c += 0x80;
    if (tty->chr->characters[c] != NULL) {
       SDL_Rect dst;
-      dst.x = column * 21;
-      dst.y = row * 24;
-      dst.w = 21;
-      dst.h = 24;
+      dst.x = column * 7;
+      dst.y = row * 8;
+      dst.w = 7;
+      dst.h = 8;
       SDL_SetTextureColorMod(tty->chr->characters[c], 0, 255, 0);
       SDL_RenderCopy(tty->renderer, tty->chr->characters[c], NULL, &dst);
+   }
+}
+#endif
+
+// Take one - get something on the screen. Very inefficient to do it char-by-char, but good baseline.
+static inline void ewm_tty_render_character(struct ewm_tty_t *tty, int row, int column, uint8_t c) {
+   c += 0x80; // TODO This should not be there really
+   uint32_t *src = tty->chr->bitmaps[c];
+   if (src != NULL) {
+      uint32_t *dst = tty->pixels + ((40 * 7 * 8) * row) + (7 * column);
+      for (int y = 0; y < 8; y++) {
+         for (int x = 0; x < 7; x++) {
+            *dst++ = *src++;
+         }
+         dst += (40 * 7) - 7;
+      }
    }
 }
 
@@ -103,4 +130,11 @@ void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
    if (tty->screen_cursor_blink) {
       ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR);
    }
+
+#if 0
+   uint32_t *p = tty->pixels;
+   for (int i = 0; i < 280 * 192; i++) {
+      *p++ = 0xff0000ff;
+   }
+#endif
 }

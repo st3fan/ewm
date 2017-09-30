@@ -96,6 +96,34 @@ static SDL_Texture *_generate_texture(SDL_Renderer *renderer, uint8_t rom_data[2
    return texture;
 }
 
+static uint32_t *_generate_bitmap(struct ewm_chr_t *chr, uint8_t rom_data[2048], int c, bool inverse) {
+   uint32_t *pixels = (uint32_t*) malloc(4 * ewm_chr_width(chr) * ewm_chr_height(chr));
+   if (pixels != NULL) {
+      memset(pixels, 0x00, 4 * ewm_chr_width(chr) * ewm_chr_height(chr));
+
+      uint8_t character_data[8];
+      for (int i = 0; i < 8; i++) {
+         character_data[i] = rom_data[(c * 8) + i + 1];
+         if (inverse) {
+            character_data[i] ^= 0xff;
+         }
+      }
+
+      uint32_t *p = pixels;
+      for (int y = 0; y < 8; y++) {
+         for (int x = 6; x >= 0; x--) {
+            if (character_data[y] & (1 << x)) {
+               *p++ = 0x00ff00ff;
+            } else {
+               *p++ = 0x00000000;
+            }
+         }
+      }
+   }
+
+   return pixels;
+}
+
 static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL_Renderer *renderer) {
    if (rom_type != EWM_CHR_ROM_TYPE_2716) {
       return -1;
@@ -107,28 +135,42 @@ static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL
       return -1;
    }
 
+   // Bitmaps
+
+   for (int c = 0; c < 32; c++) {
+      chr->bitmaps[0xc0 + c] = _generate_bitmap(chr, rom_data, c, false);
+   }
+
+   for (int c = 32; c < 64; c++) {
+      chr->bitmaps[0xa0 + (c-32)] = _generate_bitmap(chr, rom_data, c, false);
+   }
+
+   // TODO The others?
+
+   // Textures
+
    // Normal Text
    for (int c = 0; c < 32; c++) {
-      chr->characters[0xc0 + c] = _generate_texture(renderer, rom_data, c, false);
+      chr->textures[0xc0 + c] = _generate_texture(renderer, rom_data, c, false);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0xa0 + (c-32)] = _generate_texture(renderer, rom_data, c, false);
+      chr->textures[0xa0 + (c-32)] = _generate_texture(renderer, rom_data, c, false);
    }
 
    // Inverse Text
    for (int c = 0; c < 32; c++) {
-      chr->characters[0x00 + c] = _generate_texture(renderer, rom_data, c, true);
+      chr->textures[0x00 + c] = _generate_texture(renderer, rom_data, c, true);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0x20 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
+      chr->textures[0x20 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
    }
 
    // TODO Flashing - Currently simply rendered as inverse
    for (int c = 0; c < 32; c++) {
-      chr->characters[0x40 + c] = _generate_texture(renderer, rom_data, c, true);
+      chr->textures[0x40 + c] = _generate_texture(renderer, rom_data, c, true);
    }
    for (int c = 32; c < 64; c++) {
-      chr->characters[0x60 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
+      chr->textures[0x60 + (c-32)] = _generate_texture(renderer, rom_data, c, true);
    }
 
    return 0;
@@ -142,6 +184,14 @@ struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *ren
       chr = NULL;
    }
    return chr;
+}
+
+int ewm_chr_width(struct ewm_chr_t* chr) {
+   return 7; // TODO Should be based on the ROM type?
+}
+
+int ewm_chr_height(struct ewm_chr_t* chr) {
+   return 8; // TODO Should be based on the ROM type?
 }
 
 #if 0
