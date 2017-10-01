@@ -46,6 +46,7 @@ struct ewm_tty_t {
 
    uint32_t *pixels;
    SDL_Surface *surface;
+   SDL_Texture *texture;
 };
 
 struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);

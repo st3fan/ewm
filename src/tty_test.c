@@ -18,13 +18,7 @@ void test(struct ewm_tty_t *tty) {
       SDL_RenderClear(tty->renderer);
 
       ewm_tty_refresh(tty, 1, EWM_ONE_FPS);
-
-      SDL_Texture *texture = SDL_CreateTextureFromSurface(tty->renderer, tty->surface);
-      if (texture != NULL) {
-         SDL_RenderCopy(tty->renderer, texture, NULL, NULL);
-         SDL_DestroyTexture(texture);
-      }
-
+      SDL_RenderCopy(tty->renderer, tty->texture, NULL, NULL);
       SDL_RenderPresent(tty->renderer);
    }
    Uint64 now = SDL_GetPerformanceCounter();

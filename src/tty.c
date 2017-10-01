@@ -35,6 +35,8 @@ struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
       EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr), 32, 4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
          ewm_sdl_pixel_format(renderer));
 
+   tty->texture = SDL_CreateTexture(renderer, ewm_sdl_pixel_format(renderer), SDL_TEXTUREACCESS_STREAMING, 280, 192);
+
    ewm_tty_reset(tty);
    return tty;
 }
@@ -115,6 +117,21 @@ void ewm_tty_reset(struct ewm_tty_t *tty) {
 }
 
 void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
+
+   uint32_t *pixels;
+   int pitch;
+   if (SDL_LockTexture(tty->texture, NULL, (void**) &pixels, &pitch) != 0) {
+      printf("Cannot lock texture: %s\n", SDL_GetError());
+      exit(1);
+   }
+
+   uint32_t green = tty->chr->green;
+   for (int i = 0; i < 192 * 280; i++) {
+      *pixels++ = green;
+   }
+
+   SDL_UnlockTexture(tty->texture);
+
    for (int row = 0; row < 24; row++) {
       for (int column = 0; column < 40; column++) {
          ewm_tty_render_character(tty, row, column, tty->screen_buffer[(row * EWM_ONE_TTY_COLUMNS) + column]);
