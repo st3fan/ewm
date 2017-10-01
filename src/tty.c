@@ -21,6 +21,7 @@
 // SOFTWARE.
 
 #include "chr.h"
+#include "sdl.h"
 #include "tty.h"
 
 struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
@@ -29,14 +30,10 @@ struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
    tty->renderer = renderer;
    tty->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
 
-   // TODO Call SDL_RendererInfo() and decide if we need to do this. Also figure out the most optimal pixel format.
    tty->pixels = malloc(4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr) * EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr));
-   tty->surface = SDL_CreateRGBSurfaceWithFormatFrom(tty->pixels,
-                                                     EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
-                                                     EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr),
-                                                     32,
-                                                     4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
-                                                     SDL_PIXELFORMAT_RGB888);
+   tty->surface = SDL_CreateRGBSurfaceWithFormatFrom(tty->pixels, EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
+      EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr), 32, 4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
+         ewm_sdl_pixel_format(renderer));
 
    ewm_tty_reset(tty);
    return tty;
@@ -111,6 +108,7 @@ void ewm_tty_reset(struct ewm_tty_t *tty) {
          tty->screen_buffer[(row * EWM_ONE_TTY_COLUMNS) + column] = 0x00;
       }
    }
+
    tty->screen_cursor_row = 0;
    tty->screen_cursor_column = 0;
    tty->screen_dirty = true;
@@ -128,13 +126,8 @@ void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
    }
 
    if (tty->screen_cursor_blink) {
-      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR);
+      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_ON);
+   } else {
+      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_OFF);
    }
-
-#if 0
-   uint32_t *p = tty->pixels;
-   for (int i = 0; i < 280 * 192; i++) {
-      *p++ = 0xff0000ff;
-   }
-#endif
 }

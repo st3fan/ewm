@@ -31,6 +31,7 @@
 
 #include <SDL2/SDL.h>
 
+#include "sdl.h"
 #include "chr.h"
 
 static int _load_rom_data(char *rom_path, uint8_t rom_data[2048]) {
@@ -113,7 +114,7 @@ static uint32_t *_generate_bitmap(struct ewm_chr_t *chr, uint8_t rom_data[2048],
       for (int y = 0; y < 8; y++) {
          for (int x = 6; x >= 0; x--) {
             if (character_data[y] & (1 << x)) {
-               *p++ = 0x00ff00ff;
+               *p++ = chr->green;
             } else {
                *p++ = 0x00000000;
             }
@@ -130,6 +131,9 @@ static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL
    }
    memset(chr, 0x00, sizeof(struct ewm_chr_t));
 
+   chr->renderer = renderer;
+   chr->green = ewm_sdl_green(renderer);
+
    uint8_t rom_data[2048];
    if (_load_rom_data(rom_path, rom_data) != 0) {
       return -1;
@@ -137,15 +141,29 @@ static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL
 
    // Bitmaps
 
+   // Normal Text
    for (int c = 0; c < 32; c++) {
       chr->bitmaps[0xc0 + c] = _generate_bitmap(chr, rom_data, c, false);
    }
-
    for (int c = 32; c < 64; c++) {
       chr->bitmaps[0xa0 + (c-32)] = _generate_bitmap(chr, rom_data, c, false);
    }
 
-   // TODO The others?
+   // Inverse Text
+   for (int c = 0; c < 32; c++) {
+      chr->bitmaps[0x00 + c] = _generate_bitmap(chr, rom_data, c, true);
+   }
+   for (int c = 32; c < 64; c++) {
+      chr->bitmaps[0x20 + (c-32)] = _generate_bitmap(chr, rom_data, c, true);
+   }
+
+   // TODO Flashing - Currently simply rendered as inverse
+   for (int c = 0; c < 32; c++) {
+      chr->bitmaps[0x40 + c] = _generate_bitmap(chr, rom_data, c, true);
+   }
+   for (int c = 32; c < 64; c++) {
+      chr->bitmaps[0x60 + (c-32)] = _generate_bitmap(chr, rom_data, c, true);
+   }
 
    // Textures
 
@@ -193,14 +211,3 @@ int ewm_chr_width(struct ewm_chr_t* chr) {
 int ewm_chr_height(struct ewm_chr_t* chr) {
    return 8; // TODO Should be based on the ROM type?
 }
-
-#if 0
-int main() {
-   struct ewm_chr_t *chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716);
-   if (chr == NULL) {
-      printf("Failed to load character ROM %s\n", "rom/3410036.bin");
-      exit(1);
-   }
-   return 0;
-}
-#endif

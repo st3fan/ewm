@@ -42,32 +42,32 @@ ifeq ($(UNAME), Linux)
 endif
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c lua.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c lua.c sdl.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2 $(LUA_LIBS)
 
 CPU_TEST_EXECUTABLE=cpu_test
-CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_test.c lua.c
+CPU_TEST_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_test.c lua.c sdl.c
 CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=$(LUA_LIBS)
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c lua.c
+SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c lua.c sdl.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 
 TTY_TEST_EXECUTABLE=tty_test
-TTY_TEST_SOURCES=cpu.c ins.c mem.c fmt.c one.c tty.c pia.c chr.c utl.c tty_test.c lua.c
+TTY_TEST_SOURCES=cpu.c ins.c mem.c fmt.c one.c tty.c pia.c chr.c utl.c tty_test.c lua.c sdl.c
 TTY_TEST_OBJECTS=$(TTY_TEST_SOURCES:.c=.o)
 TTY_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 
 CPU_BENCH=cpu_bench
-CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_bench.c lua.c
+CPU_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c cpu_bench.c lua.c sdl.c
 CPU_BENCH_OBJECTS=$(CPU_BENCH_SOURCES:.c=.o)
 CPU_BENCH_LIBS=$(LUA_LIBS)
 
 MEM_BENCH=mem_bench
-MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c mem_bench.c lua.c
+MEM_BENCH_SOURCES=cpu.c ins.c mem.c fmt.c utl.c mem_bench.c lua.c sdl.c
 MEM_BENCH_OBJECTS=$(MEM_BENCH_SOURCES:.c=.o)
 MEM_BENCH_LIBS=$(LUA_LIBS)
 
