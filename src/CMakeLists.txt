@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.7)
 project(EWM)
 
-set(CMAKE_C_FLAGS "-O3 -flto")
-set(LINKER_FLAGS "-flto")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -flto")
+set(CMAKE_C_FLAGS_DEBUG "-g")
+
+set(CMAKE_LINKER_FLAGS_RELEASE "-flto")
+set(CMAKE_LINKER_FLAGS_DEBUG "-g")
 
 include_directories(AFTER SYSTEM /usr/local/include)
 link_directories(/usr/local/lib)
