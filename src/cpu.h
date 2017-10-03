@@ -59,7 +59,9 @@ struct cpu_t {
    uint8_t *ram;
    size_t ram_size;
 
+#if defined(EWM_LUA)
    struct ewm_lua_t *lua;
+#endif
 };
 
 typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
@@ -125,6 +127,8 @@ uint8_t cpu_memory_get_byte(struct cpu_t *cpu, uint16_t addr);
 void cpu_memory_set_word(struct cpu_t *cpu, uint16_t addr, uint16_t v);
 void cpu_memory_set_byte(struct cpu_t *cpu, uint16_t addr, uint8_t v);
 
+#if defined(EWM_LUA)
 int ewm_cpu_init_lua(struct cpu_t *cpu, struct ewm_lua_t *lua);
+#endif
 
 #endif

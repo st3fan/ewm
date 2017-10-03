@@ -30,7 +30,9 @@
 #include "mem.h"
 #include "cpu.h"
 #include "utl.h"
+#if defined(EWM_LUA)
 #include "lua.h"
+#endif
 #include "dsk.h"
 
 //
@@ -555,9 +557,15 @@ int ewm_dsk_set_disk_file(struct ewm_dsk_t *dsk, uint8_t drive, bool readonly, c
    return result;
 }
 
+#if defined(EWM_LUA)
+
+//
 // Lua Support
+//
 
 int ewm_dsk_init_lua(struct ewm_dsk_t *dsk, struct ewm_lua_t *lua) {
    dsk->lua = lua;
    return 0;
 }
+
+#endif

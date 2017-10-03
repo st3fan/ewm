@@ -30,7 +30,9 @@
 #include "cpu.h"
 #include "mem.h"
 #include "utl.h"
+#if defined(EWM_LUA)
 #include "lua.h"
+#endif
 
 int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path, int with_lua) {
    struct cpu_t *cpu = cpu_create(model);
@@ -38,6 +40,7 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path, 
    cpu_reset(cpu);
    cpu->state.pc = start_addr;
 
+#if defined(EWM_LUA)
    if (with_lua) {
       cpu->lua = ewm_lua_create();
       ewm_cpu_init_lua(cpu, cpu->lua);
@@ -47,7 +50,8 @@ int test(int model, uint16_t start_addr, uint16_t success_addr, char *rom_path, 
          exit(1);
       }
    }
-
+#endif
+   
    uint16_t last_pc = cpu->state.pc;
 
    struct timespec start;
@@ -118,8 +122,10 @@ int main(int argc, char **argv) {
    fprintf(stderr, "TEST Running 65C02 tests\n");
    test(EWM_CPU_MODEL_65C02, 0x0400, 0x24a8, "rom/65C02_extended_opcodes_test.bin", 0);
 
+#if defined(EWM_LUA)
    fprintf(stderr, "TEST Running 6502 tests - With Lua\n");
    test(EWM_CPU_MODEL_6502,  0x0400, 0x3399, "rom/6502_functional_test.bin", 1);
    fprintf(stderr, "TEST Running 65C02 tests - With Lua\n");
    test(EWM_CPU_MODEL_65C02, 0x0400, 0x24a8, "rom/65C02_extended_opcodes_test.bin", 1);
+#endif
 }
