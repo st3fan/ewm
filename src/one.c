@@ -26,6 +26,7 @@
 
 #include <SDL2/SDL.h>
 
+#include "sdl.h"
 #include "cpu.h"
 #include "mem.h"
 #include "pia.h"
@@ -253,7 +254,8 @@ int ewm_one_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_Window *window = SDL_CreateWindow("EWM v0.1 / Apple 1", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+   SDL_Window *window = SDL_CreateWindow("EWM v0.1 - Apple 1", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+         280*3, 192*3, SDL_WINDOW_SHOWN);
    if (window == NULL) {
       fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
       return 1;
@@ -265,7 +267,12 @@ int ewm_one_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+   if (ewm_sdl_check_renderer(renderer) != 0) {
+      fprintf(stderr, "ewm: boo: unsupported renderer\n");
+      return 1;
+   }
+
+   SDL_RenderSetLogicalSize(renderer, 280, 192);
 
    // Create the machine
 
@@ -313,6 +320,12 @@ int ewm_one_main(int argc, char **argv) {
 
             ewm_tty_refresh(one->tty, phase, EWM_ONE_FPS);
             one->tty->screen_dirty = false;
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(one->tty->renderer, one->tty->surface);
+            if (texture != NULL) {
+               SDL_RenderCopy(one->tty->renderer, texture, NULL, NULL);
+               SDL_DestroyTexture(texture);
+            }
 
             SDL_RenderPresent(one->tty->renderer);
          }

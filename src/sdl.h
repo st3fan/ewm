@@ -20,38 +20,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#ifndef EWM_TTY_H
-#define EWM_TTY_H
-
-#include <stdbool.h>
-#include <stdint.h>
+#ifndef EWM_SDL
+#define EWM_SDL
 
 #include <SDL2/SDL.h>
 
-#define EWM_ONE_TTY_ROWS 24
-#define EWM_ONE_TTY_COLUMNS 40
-#define EWM_ONE_TTY_CURSOR_ON '@'
-#define EWM_ONE_TTY_CURSOR_OFF ' '
+int ewm_sdl_pixel_format(SDL_Renderer *renderer);
+int ewm_sdl_check_renderer(SDL_Renderer *renderer);
+uint32_t ewm_sdl_green(SDL_Renderer *renderer);
 
-struct ewm_chr_t;
-
-struct ewm_tty_t {
-   SDL_Renderer *renderer;
-   struct ewm_chr_t *chr;
-   bool screen_dirty;
-   uint8_t screen_buffer[EWM_ONE_TTY_ROWS * EWM_ONE_TTY_COLUMNS];
-   int screen_cursor_row;
-   int screen_cursor_column;
-   int screen_cursor_blink;
-
-   uint32_t *pixels;
-   SDL_Surface *surface;
-};
-
-struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer);
-void ewm_tty_destroy(struct ewm_tty_t *tty);
-void ewm_tty_write(struct ewm_tty_t *tty, uint8_t v);
-void ewm_tty_reset(struct ewm_tty_t *tty);
-void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps);
-
-#endif // EWM_TTY_H
+#endif // EWM_SDL
