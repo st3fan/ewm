@@ -41,7 +41,7 @@ static int txt_line_offsets[24] = {
 static inline void scr_render_character(struct scr_t *scr, int row, int column, bool flash) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
    uint8_t c = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
-   if (scr->chr->characters[c] != NULL) {
+   if (scr->chr->textures[c] != NULL) {
       SDL_Rect dst;
       dst.x = column * 21;
       dst.y = row * 24;
@@ -61,12 +61,12 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
       }
 
       if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
-         SDL_SetTextureColorMod(scr->chr->characters[c], 0, 255, 0);
+         SDL_SetTextureColorMod(scr->chr->textures[c], 0, 255, 0);
       } else {
-         SDL_SetTextureColorMod(scr->chr->characters[c], 255, 255, 255);
+         SDL_SetTextureColorMod(scr->chr->textures[c], 255, 255, 255);
       }
 
-      SDL_RenderCopy(scr->renderer, scr->chr->characters[c], NULL, &dst);
+      SDL_RenderCopy(scr->renderer, scr->chr->textures[c], NULL, &dst);
    }
 }
 

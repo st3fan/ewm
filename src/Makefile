@@ -42,7 +42,7 @@ ifeq ($(UNAME), Linux)
 endif
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c lua.c
+EWM_SOURCES=cpu.c ins.c pia.c mem.c ewm.c fmt.c two.c scr.c dsk.c chr.c alc.c one.c tty.c utl.c boo.c lua.c sdl.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2 $(LUA_LIBS)
 
@@ -52,12 +52,12 @@ CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=$(LUA_LIBS)
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c lua.c
+SCR_TEST_SOURCES=cpu.c ins.c mem.c fmt.c two.c scr.c dsk.c chr.c alc.c utl.c scr_test.c lua.c sdl.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 
 TTY_TEST_EXECUTABLE=tty_test
-TTY_TEST_SOURCES=cpu.c ins.c mem.c fmt.c one.c tty.c pia.c chr.c utl.c tty_test.c lua.c
+TTY_TEST_SOURCES=cpu.c ins.c mem.c fmt.c one.c tty.c pia.c chr.c utl.c tty_test.c lua.c sdl.c
 TTY_TEST_OBJECTS=$(TTY_TEST_SOURCES:.c=.o)
 TTY_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 

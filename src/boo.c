@@ -25,6 +25,7 @@
 #include <SDL2/SDL.h>
 
 #include "tty.h"
+#include "sdl.h"
 #include "boo.h"
 
 static char *menu[24] = {
@@ -62,7 +63,8 @@ int ewm_boo_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_Window *window = SDL_CreateWindow("EWM v0.1 / Apple 1", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+   SDL_Window *window = SDL_CreateWindow("EWM v0.1 - Bootloader", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+         280*3, 192*3, SDL_WINDOW_SHOWN);
    if (window == NULL) {
       fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
       return 1;
@@ -74,7 +76,12 @@ int ewm_boo_main(int argc, char **argv) {
       return 1;
    }
 
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+   if (ewm_sdl_check_renderer(renderer) != 0) {
+      fprintf(stderr, "ewm: boo: unsupported renderer\n");
+      return 1;
+   }
+
+   SDL_RenderSetLogicalSize(renderer, 280, 192);
 
    // We only need a tty to display the menu
 
@@ -125,7 +132,6 @@ int ewm_boo_main(int argc, char **argv) {
             SDL_SetRenderDrawColor(tty->renderer, 0, 0, 0, 255);
             SDL_RenderClear(tty->renderer);
 
-
             for (int i = 0; i < 24; i++) {
                char *p = (char*) tty->screen_buffer;
                p += (i * 40);
@@ -135,11 +141,14 @@ int ewm_boo_main(int argc, char **argv) {
             tty->screen_cursor_column = 34;
             tty->screen_cursor_row = 9;
 
-            //strcpy((char*) tty->screen_buffer, "1) APPLE 1  2) REPLICA 1  3) APPLE ][+");
-
-
             ewm_tty_refresh(tty, phase, EWM_BOO_FPS);
             tty->screen_dirty = false;
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(tty->renderer, tty->surface);
+            if (texture != NULL) {
+               SDL_RenderCopy(tty->renderer, texture, NULL, NULL);
+               SDL_DestroyTexture(texture);
+            }
 
             SDL_RenderPresent(tty->renderer);
          }

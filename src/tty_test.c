@@ -16,7 +16,15 @@ void test(struct ewm_tty_t *tty) {
    for (int i = 0; i < 1000; i++) {
       SDL_SetRenderDrawColor(tty->renderer, 0, 0, 0, 255);
       SDL_RenderClear(tty->renderer);
+
       ewm_tty_refresh(tty, 1, EWM_ONE_FPS);
+
+      SDL_Texture *texture = SDL_CreateTextureFromSurface(tty->renderer, tty->surface);
+      if (texture != NULL) {
+         SDL_RenderCopy(tty->renderer, texture, NULL, NULL);
+         SDL_DestroyTexture(texture);
+      }
+
       SDL_RenderPresent(tty->renderer);
    }
    Uint64 now = SDL_GetPerformanceCounter();
@@ -44,7 +52,7 @@ int main() {
       return 1;
    }
 
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+   SDL_RenderSetLogicalSize(renderer, 280, 192);
 
    sleep(3);
 
