@@ -66,7 +66,7 @@ SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 
 TTY_TEST_EXECUTABLE=tty_test
-TTY_TEST_SOURCES=cpu.c ins.c mem.c fmt.c one.c tty.c pia.c chr.c utl.c tty_test.c lua.c sdl.c
+TTY_TEST_SOURCES=$(CPU_SOURCES) one.c tty.c pia.c chr.c tty_test.c sdl.c
 TTY_TEST_OBJECTS=$(TTY_TEST_SOURCES:.c=.o)
 TTY_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 
