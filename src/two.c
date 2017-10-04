@@ -789,7 +789,7 @@ int ewm_two_main(int argc, char **argv) {
       exit(1);
    }
 
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+   SDL_RenderSetLogicalSize(renderer, 280, 192);
 
    // Print what renderer we got
 
@@ -920,11 +920,20 @@ int ewm_two_main(int argc, char **argv) {
 
          two->screen_dirty = 1;
          if (two->screen_dirty || (phase == 0) || (phase == (fps / 2))) {
+            SDL_SetRenderDrawColor(two->scr->renderer, 0, 0, 0, 255);
+            SDL_RenderClear(two->scr->renderer);
+
             ewm_scr_update(two->scr, phase, fps);
             two->screen_dirty = false;
 
             if (two->status_bar_visible) {
                ewm_two_update_status_bar(two, mhz);
+            }
+
+            SDL_Texture *texture = SDL_CreateTextureFromSurface(two->scr->renderer, two->scr->surface);
+            if (texture != NULL) {
+               SDL_RenderCopy(two->scr->renderer, texture, NULL, NULL);
+               SDL_DestroyTexture(texture);
             }
 
             SDL_RenderPresent(two->scr->renderer);

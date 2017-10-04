@@ -29,6 +29,9 @@
 #define EWM_SCR_COLOR_SCHEME_COLOR      (1)
 #define EWM_SCR_COLOR_SCHEME_DEFAULT    (EWM_SCR_COLOR_SCHEME_MONOCHROME)
 
+#define EWM_SCR_WIDTH (280)
+#define EWM_SCR_HEIGHT (192)
+
 struct ewm_two_t;
 struct ewm_chr_t;
 
@@ -40,6 +43,12 @@ struct scr_t {
    SDL_Renderer *renderer;
    struct ewm_chr_t *chr;
    int color_scheme;
+
+   uint32_t *pixels;
+   SDL_Surface *surface;
+
+   uint32_t *lgr_bitmaps[256];
+   uint32_t green;
 };
 
 struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Renderer *renderer);
