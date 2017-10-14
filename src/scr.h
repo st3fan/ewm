@@ -49,8 +49,7 @@ struct scr_t {
 
    uint32_t *lgr_bitmaps[256];
    uint32_t green;
-   uint32_t hgr_colors1[4];
-   uint32_t hgr_colors2[4];
+   uint32_t hgr_colors[6];
 };
 
 struct scr_t *ewm_scr_create(struct ewm_two_t *two, SDL_Renderer *renderer);

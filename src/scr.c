@@ -65,6 +65,7 @@ static inline void scr_render_txt_screen(struct scr_t *scr, bool flash) {
 
 // Lores Rendering
 
+// TODO Are these better http://mrob.com/pub/xapple2/colors.html ?
 static SDL_Color lores_colors[16] = {
    { 0,   0,   0,   255 }, // 0 Black
    { 255, 0,   255, 255 }, // 1 Magenta
@@ -122,18 +123,28 @@ static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
 
 // Hires rendering
 
-static SDL_Color hgr_colors1[16] = {
-   { 0,   0,   0,   255 }, // 00 Black
-   { 0, 249, 0,   255 }, // 01 Green
-   { 255, 64, 255, 255 }, // 10 Purple
-   { 255, 255, 255, 255 }  // 11 White
+// TODO Are these better http://mrob.com/pub/xapple2/colors.html ?
+static SDL_Color hgr_colors[6] = {
+   { 0,     0,   0, 255 }, // 0 Black
+   { 0,   249,   0, 255 }, // 1 Green
+   { 255,  64, 255, 255 }, // 2 Purple
+   { 255, 147,   0, 255 }, // 3 Red
+   { 0,   150, 255, 255 }, // 4 Blue
+   { 255, 255, 255, 255 }  // 5 White
 };
 
-static SDL_Color hgr_colors2[16] = {
-   { 0,   0,   0,   255 }, // 00 Black
-   { 255, 147, 0,   255 }, // 01 Red
-   { 0, 150, 255, 255 }, // 10 Blue
-   { 255, 255, 255, 255 }  // 11 White
+static int hgr_colors1[4] = {
+   0, // Black
+   1, // Green
+   2, // Purple
+   5  // White
+};
+
+static int hgr_colors2[4] = {
+   0, // Black
+   3, // Red
+   4, // Blue
+   5  // White
 };
 
 static uint16_t hgr_page_offsets[2] = {
@@ -192,52 +203,83 @@ inline static int swap(int n) {
    return n;
 }
 
-inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
+inline static void scr_render_hgr_line_color(struct scr_t *scr, int line_num, uint16_t line_base) {
+   int line[280+2];
+   line[0] = 0;
+   line[280+1] = 0;
 
-   uint8_t *src = &scr->two->cpu->ram[line_base];
-   uint32_t *dst = scr->pixels + (40 * 7 * line);
+   if (1) {
+      uint8_t *src = &scr->two->cpu->ram[line_base];
+      int *dst = &line[1];
 
-   for (int i = 0; i < 20; i++) {
-      uint8_t b1 = *src++;
-      uint8_t b2 = *src++;
+      for (int i = 0; i < 20; i++) {
+         uint8_t b1 = *src++;
+         uint8_t b2 = *src++;
 
-      if (b1 & 0b10000000) {
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
-      } else {
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
-      }
+         if (b1 & 0b10000000) {
+            *dst++ = hgr_colors2[swap((b1 & 0b00000011) >> 0)];
+            *dst++ = hgr_colors2[swap((b1 & 0b00000011) >> 0)];
+            *dst++ = hgr_colors2[swap((b1 & 0b00001100) >> 2)];
+            *dst++ = hgr_colors2[swap((b1 & 0b00001100) >> 2)];
+            *dst++ = hgr_colors2[swap((b1 & 0b00110000) >> 4)];
+            *dst++ = hgr_colors2[swap((b1 & 0b00110000) >> 4)];
+         } else {
+            *dst++ = hgr_colors1[swap((b1 & 0b00000011) >> 0)];
+            *dst++ = hgr_colors1[swap((b1 & 0b00000011) >> 0)];
+            *dst++ = hgr_colors1[swap((b1 & 0b00001100) >> 2)];
+            *dst++ = hgr_colors1[swap((b1 & 0b00001100) >> 2)];
+            *dst++ = hgr_colors1[swap((b1 & 0b00110000) >> 4)];
+            *dst++ = hgr_colors1[swap((b1 & 0b00110000) >> 4)];
+         }
 
-      if (b2 & 0b10000000) {
-         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
-      } else {
-         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
+         if (b2 & 0b10000000) {
+            *dst++ = hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+            *dst++ = hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+            *dst++ = hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
+            *dst++ = hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
+            *dst++ = hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
+            *dst++ = hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
+            *dst++ = hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
+            *dst++ = hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
+         } else {
+            *dst++ = hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+            *dst++ = hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+            *dst++ = hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
+            *dst++ = hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
+            *dst++ = hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
+            *dst++ = hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
+            *dst++ = hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
+            *dst++ = hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
+         }
       }
    }
 
+   // Copy the line into the buffer
+
+   if (1) {
+      uint32_t *dst = scr->pixels + (40 * 7 * line_num);
+      for (int i = 1; i < 280+1; i++) {
+         // if current bit is on and either the previous or next bit is on, then this is a white pixel
+
+#if 0
+         uint32_t color = scr->hgr_colors[0]; // Default to black
+
+         if (line[i]) {
+            if ((line[i-1] && line[i-1] != 5) || (line[i+1] && line[i+1] != 5)) {
+               color = scr->hgr_colors[5]; // White
+            } else {
+               color = scr->hgr_colors[line[i]];
+            }
+         } else {
+            if (line[i-1] && line[i+1]) {
+               color = scr->hgr_colors[line[i]]; // TODO This may be more complicated?
+            }
+         }
+
+         *dst++ = color;
+      }
+   }
+#endif
 }
 
 inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
@@ -299,14 +341,9 @@ static int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *
 
    scr->green = SDL_MapRGBA(scr->surface->format, 0, 255, 0, 255);
 
-   for (int i = 0; i < 4; i++) {
-      SDL_Color c = hgr_colors1[i];
-      scr->hgr_colors1[i] = SDL_MapRGBA(scr->surface->format, c.r, c.g, c.b, c.a);
-   }
-
-   for (int i = 0; i < 4; i++) {
-      SDL_Color c = hgr_colors2[i];
-      scr->hgr_colors2[i] = SDL_MapRGBA(scr->surface->format, c.r, c.g, c.b, c.a);
+   for (int i = 0; i < 6; i++) {
+      SDL_Color c = hgr_colors[i];
+      scr->hgr_colors[i] = SDL_MapRGBA(scr->surface->format, c.r, c.g, c.b, c.a);
    }
 
    return 0;
