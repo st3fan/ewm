@@ -29,6 +29,7 @@
 #include "cpu.h"
 #include "two.h"
 #include "chr.h"
+#include "sdl.h"
 #include "scr.h"
 
 // Text rendering
@@ -41,32 +42,16 @@ static int txt_line_offsets[24] = {
 static inline void scr_render_character(struct scr_t *scr, int row, int column, bool flash) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
    uint8_t c = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
-   if (scr->chr->textures[c] != NULL) {
-      SDL_Rect dst;
-      dst.x = column * 21;
-      dst.y = row * 24;
-      dst.w = 21;
-      dst.h = 24;
 
-      if (c >= 0x40 && c <= 0x7f) {
-         if (flash) {
-            c -= 0x40;
-         } else {
-            if (c <= 0x5f) {
-               c += 0x80;
-            } else {
-               c += 0x40;
-            }
+   uint32_t *src = scr->chr->bitmaps[c];
+   if (src != NULL) {
+      uint32_t *dst = scr->pixels + ((40 * 7 * 8) * row) + (7 * column);
+      for (int y = 0; y < 8; y++) {
+         for (int x = 0; x < 7; x++) {
+            *dst++ = *src++;
          }
+         dst += 280 - 7;
       }
-
-      if (scr->color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME) {
-         SDL_SetTextureColorMod(scr->chr->textures[c], 0, 255, 0);
-      } else {
-         SDL_SetTextureColorMod(scr->chr->textures[c], 255, 255, 255);
-      }
-
-      SDL_RenderCopy(scr->renderer, scr->chr->textures[c], NULL, &dst);
    }
 }
 
@@ -81,46 +66,36 @@ static inline void scr_render_txt_screen(struct scr_t *scr, bool flash) {
 // Lores Rendering
 
 static SDL_Color lores_colors[16] = {
-   { 0,   0,   0,   0 }, // 0 Black
-   { 255, 0,   255, 0 }, // 1 Magenta
-   { 0,   0,   204, 0 }, // 2 Dark Blue
-   { 128, 0,   128, 0 }, // 3 Purple
-   { 0,   100, 0,   0 }, // 4 Dark Green
-   { 128, 128, 128, 0 }, // 5 Grey 1
-   { 0,   0,   205, 0 }, // 6 Medium Blue
-   { 173, 216, 230, 0 }, // 7 Light Blue
-   { 165, 42,  42,  0 }, // 8 Brown
-   { 255, 165, 0,   0 }, // 9 Orange
-   { 211, 211, 211, 0 }, // 10 Grey 2
-   { 255, 192, 203, 0 }, // 11 Pink
-   { 144, 238, 144, 0 }, // 12 Light Green
-   { 255, 255, 0,   0 }, // 13 Yellow
-   { 127, 255, 212, 0 }, // 14 Aquamarine
-   { 255, 255, 255, 0 }, // 15 White
+   { 0,   0,   0,   255 }, // 0 Black
+   { 255, 0,   255, 255 }, // 1 Magenta
+   { 0,   0,   204, 255 }, // 2 Dark Blue
+   { 128, 0,   128, 255 }, // 3 Purple
+   { 0,   100, 0,   255 }, // 4 Dark Green
+   { 128, 128, 128, 255 }, // 5 Grey 1
+   { 0,   0,   205, 255 }, // 6 Medium Blue
+   { 173, 216, 230, 255 }, // 7 Light Blue
+   { 165, 42,  42,  255 }, // 8 Brown
+   { 255, 165, 0,   255 }, // 9 Orange
+   { 211, 211, 211, 255 }, // 10 Grey 2
+   { 255, 192, 203, 255 }, // 11 Pink
+   { 144, 238, 144, 255 }, // 12 Light Green
+   { 255, 255, 0,   255 }, // 13 Yellow
+   { 127, 255, 212, 255 }, // 14 Aquamarine
+   { 255, 255, 255, 255 }, // 15 White
 };
 
 static inline void scr_render_lores_block(struct scr_t *scr, int row, int column) {
    uint16_t base = (scr->two->screen_page == EWM_A2P_SCREEN_PAGE1) ? 0x0400 : 0x0800;
-   uint8_t block = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
-   if (block != 0) {
-      SDL_Rect dst;
-      dst.x = column * 21;
-      dst.y = row * 24;
-      dst.w = 21;
-      dst.h = 12;
+   uint8_t c = scr->two->cpu->ram[((txt_line_offsets[row] + base) + column)];
 
-      uint8_t c = block & 0x0f;
-      if (c != 0) {
-         SDL_SetRenderDrawColor(scr->renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
-         SDL_RenderFillRect(scr->renderer, &dst);
-      }
+   uint32_t *src = scr->lgr_bitmaps[c];
+   uint32_t *dst = scr->pixels + ((40 * 7 * 8) * row) + (7 * column);
 
-      c = (block & 0xf0) >> 4;
-      if (c != 0) {
-         dst.y += 12;
-         SDL_SetRenderDrawColor(scr->renderer, lores_colors[c].r, lores_colors[c].g, lores_colors[c].b, lores_colors[c].a);
-         SDL_RenderFillRect(scr->renderer, &dst);
+   for (int y = 0; y < 8; y++) {
+      for (int x = 0; x < 7; x++) {
+         *dst++ = *src++;
       }
+      dst += (40 * 7) - 7;
    }
 }
 
@@ -134,6 +109,7 @@ static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
          scr_render_lores_block(scr, row, column);
       }
    }
+
    // Render bottom 4 lines
    if (mixed) {
       for (int row = 20; row < 24; row++) {
@@ -145,6 +121,20 @@ static inline void scr_render_lgr_screen(struct scr_t *scr, bool flash) {
 }
 
 // Hires rendering
+
+static SDL_Color hgr_colors1[16] = {
+   { 0,   0,   0,   255 }, // 00 Black
+   { 0, 249, 0,   255 }, // 01 Green
+   { 255, 64, 255, 255 }, // 10 Purple
+   { 255, 255, 255, 255 }  // 11 White
+};
+
+static SDL_Color hgr_colors2[16] = {
+   { 0,   0,   0,   255 }, // 00 Black
+   { 255, 147, 0,   255 }, // 01 Red
+   { 0, 150, 255, 255 }, // 10 Blue
+   { 255, 255, 255, 255 }  // 11 White
+};
 
 static uint16_t hgr_page_offsets[2] = {
    0x2000, // $0000 in our buffer, $2000 in emulator
@@ -178,88 +168,76 @@ static uint16_t hgr_line_offsets[192] = {
    0x03d0, 0x07d0, 0x0bd0, 0x0fd0, 0x13d0, 0x17d0, 0x1bd0, 0x1fd0
 };
 
-// CBBBBBBB
-
-static SDL_Color hgr_colors[16] = {
-   { 0,   0,   0,   0 }, // 0 Black
-   { 0,   0,   204, 0 }, // 1 Blue
-   { 128, 0,   128, 0 }, // 2 Purple
-   { 0,   100, 0,   0 }, // 3 Green
-   { 0,   100, 0,   0 }, // 4 Red
-   { 255, 255, 255, 0 }  // 5 White
-};
-
 inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16_t line_base) {
-   int x = 0;
+   uint8_t *src = &scr->two->cpu->ram[line_base];
+   uint32_t *dst = scr->pixels + (40 * 7 * line);
    for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->two->cpu->ram[line_base + i];
+      uint8_t c = *src++;
       for (int j = 0; j < 7; j++) {
-         SDL_Rect dst;
-         dst.x = x * 3;
-         dst.y = line * 3;
-         dst.w = 3;
-         dst.h = 3;
-         if (c & (1 << j)) {
-            SDL_SetRenderDrawColor(scr->renderer, 0, 255, 0, 0);
+	 if (c & (1 << j)) {
+	    *dst++ = scr->green;
          } else {
-            SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 0);
+            *dst++ = 0;
          }
-         SDL_RenderFillRect(scr->renderer, &dst);
-         x++;
       }
    }
 }
 
+inline static int swap(int n) {
+   if (n == 1) {
+      return 2;
+   } else if (n == 2) {
+      return 1;
+   }
+   return n;
+}
+
 inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
 
-   // Pre process the line. We put the color index in bytes to make it easier to handle them
+   uint8_t *src = &scr->two->cpu->ram[line_base];
+   uint32_t *dst = scr->pixels + (40 * 7 * line);
 
-   int pixels[280], x = 0;
-   for (int i = 0; i < 40; i++) {
-      uint8_t c = scr->two->cpu->ram[line_base + i];
-      for (int j = 0; j < 7; j++) {
-         if (c & (1 << j)) {
-            if (x % 2 == 0) {
-               if (c & 0x80) {
-                  pixels[x] = 1; // Blue
-               } else {
-                  pixels[x] = 2; // Purple
-               }
-            } else {
-               if (c & 0x80) {
-                  pixels[x] = 4; // Red
-               } else {
-                  pixels[x] = 3; // Green
-               }
-            }
-         } else {
-            pixels[x] = 0; // Black
-         }
-         x++;
+   for (int i = 0; i < 20; i++) {
+      uint8_t b1 = *src++;
+      uint8_t b2 = *src++;
+
+      if (b1 & 0b10000000) {
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
+         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
+      } else {
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
+         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
+      }
+
+      if (b2 & 0b10000000) {
+         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
+         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
+      } else {
+         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
+         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
       }
    }
 
-   // Flip adject pixels to white
-
-   for (int i = 0; i < (280-1); i++) {
-      if (pixels[i] && pixels[i+1]) {
-         pixels[i] = 5; // White
-      }
-   }
-
-   // Now draw them
-
-   for (x = 0; x < 280; x++) {
-      SDL_Rect dst;
-      dst.x = x * 3;
-      dst.y = line * 3;
-      dst.w = 3;
-      dst.h = 3;
-
-      int c = pixels[x];
-      SDL_SetRenderDrawColor(scr->renderer, hgr_colors[c].r, hgr_colors[c].g, hgr_colors[c].b, hgr_colors[c].a);
-      SDL_RenderFillRect(scr->renderer, &dst);
-   }
 }
 
 inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
@@ -287,13 +265,50 @@ inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
 
 static int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *renderer) {
    memset(scr, 0x00, sizeof(struct scr_t));
+
    scr->two = two;
    scr->renderer = renderer;
+
    scr->chr = ewm_chr_create("rom/3410036.bin", EWM_CHR_ROM_TYPE_2716, renderer);
    if (scr->chr == NULL) {
       fprintf(stderr, "[SCR] Failed to initialize character generator\n");
       return -1;
    }
+
+   scr->pixels = malloc(4 * EWM_SCR_WIDTH * EWM_SCR_HEIGHT);
+   scr->surface = SDL_CreateRGBSurfaceWithFormatFrom(scr->pixels, EWM_SCR_WIDTH, EWM_SCR_HEIGHT,
+      32, 4 * EWM_SCR_WIDTH, ewm_sdl_pixel_format(renderer));
+
+   for (int c = 0; c <= 255; c++) {
+      scr->lgr_bitmaps[c] = malloc(4 * 7 * 8);
+
+      uint32_t *p = scr->lgr_bitmaps[c];
+
+      int color = (c & 0x0f);
+      for (int i = 0; i < (7*4); i++) {
+         *p++ = SDL_MapRGBA(scr->surface->format, lores_colors[color].r, lores_colors[color].g,
+            lores_colors[color].b, lores_colors[color].a);
+      }
+
+      color = (c & 0xf0) >> 4;
+      for (int i = 0; i < (7*4); i++) {
+         *p++ = SDL_MapRGBA(scr->surface->format, lores_colors[color].r, lores_colors[color].g,
+            lores_colors[color].b, lores_colors[color].a);
+      }
+   }
+
+   scr->green = SDL_MapRGBA(scr->surface->format, 0, 255, 0, 255);
+
+   for (int i = 0; i < 4; i++) {
+      SDL_Color c = hgr_colors1[i];
+      scr->hgr_colors1[i] = SDL_MapRGBA(scr->surface->format, c.r, c.g, c.b, c.a);
+   }
+
+   for (int i = 0; i < 4; i++) {
+      SDL_Color c = hgr_colors2[i];
+      scr->hgr_colors2[i] = SDL_MapRGBA(scr->surface->format, c.r, c.g, c.b, c.a);
+   }
+
    return 0;
 }
 

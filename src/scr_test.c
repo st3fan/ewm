@@ -82,7 +82,17 @@ void test(struct scr_t *scr, char *name, test_setup_t test_setup, test_run_t tes
 
    Uint64 start = SDL_GetPerformanceCounter();
    for (int i = 0; i < 1000; i++) {
+      SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 255);
+      SDL_RenderClear(scr->renderer);
+
       test_run(scr);
+
+      SDL_Texture *texture = SDL_CreateTextureFromSurface(scr->renderer, scr->surface);
+      if (texture != NULL) {
+         SDL_RenderCopy(scr->renderer, texture, NULL, NULL);
+         SDL_DestroyTexture(texture);
+      }
+
       SDL_RenderPresent(scr->renderer);
    }
    Uint64 now = SDL_GetPerformanceCounter();
@@ -98,7 +108,8 @@ int main() {
       return 1;
    }
 
-   SDL_Window *window = SDL_CreateWindow("EWM v0.1 / Apple 1", 400, 60, 280*3, 192*3, SDL_WINDOW_SHOWN);
+   SDL_Window *window = SDL_CreateWindow("EWM v0.1 - scr_test", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+      EWM_SCR_WIDTH*3, EWM_SCR_HEIGHT*3, SDL_WINDOW_SHOWN);
    if (window == NULL) {
       fprintf(stderr, "Failed create window: %s\n", SDL_GetError());
       return 1;
@@ -110,7 +121,7 @@ int main() {
       return 1;
    }
 
-   SDL_RenderSetLogicalSize(renderer, 280*3, 192*3);
+   SDL_RenderSetLogicalSize(renderer, EWM_SCR_WIDTH, EWM_SCR_HEIGHT);
 
    sleep(3); // Is this ok? Seems to be needed to get the window on the screen
 
