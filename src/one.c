@@ -31,6 +31,7 @@
 #include "mem.h"
 #include "pia.h"
 #include "tty.h"
+#include "dbg.h"
 #include "one.h"
 
 static void ewm_one_pia_callback(struct ewm_pia_t *pia, void *obj, uint8_t ddr, uint8_t v) {
@@ -176,6 +177,7 @@ static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
 #define EWM_ONE_OPT_MEMORY (2)
 #define EWM_ONE_OPT_TRACE  (3)
 #define EWM_ONE_OPT_STRICT (4)
+#define EWM_ONE_OPT_DEBUG  (5)
 
 static struct option one_options[] = {
    { "help",   no_argument,       NULL, EWM_ONE_OPT_HELP   },
@@ -183,6 +185,7 @@ static struct option one_options[] = {
    { "memory", required_argument, NULL, EWM_ONE_OPT_MEMORY },
    { "trace",  optional_argument, NULL, EWM_ONE_OPT_TRACE  },
    { "strict", no_argument,       NULL, EWM_ONE_OPT_STRICT },
+   { "debug",  no_argument,       NULL, EWM_ONE_OPT_DEBUG  },
    { NULL,     0,                 NULL, 0 }
 };
 
@@ -192,6 +195,7 @@ static void usage() {
    fprintf(stderr, "  --memory <region> add memory region (ram|rom:address:path)\n");
    fprintf(stderr, "  --trace <file>    trace cpu to file\n");
    fprintf(stderr, "  --strict          run emulator in strict mode\n");
+   fprintf(stderr, "  --debug <port>    run debugger on port (default: 6502)\n");
    fprintf(stderr, "\n");
    fprintf(stderr, "Supported models:\n");
    fprintf(stderr, "  apple1    Classic Apple 1, 6502, 8KB RAM, Woz Monitor\n");
@@ -204,6 +208,7 @@ int ewm_one_main(int argc, char **argv) {
    struct ewm_memory_option_t *extra_memory = NULL;
    char *trace_path = NULL;
    bool strict = false;
+   int debug_port = 0;
 
    int ch;
    while ((ch = getopt_long_only(argc, argv, "", one_options, NULL)) != -1) {
@@ -238,6 +243,14 @@ int ewm_one_main(int argc, char **argv) {
          }
          case EWM_ONE_OPT_STRICT: {
             strict = true;
+            break;
+         }
+         case EWM_ONE_OPT_DEBUG: {
+            debug_port = optarg ? atoi(optarg) : 6502;
+            if (debug_port == 0) {
+               fprintf(stderr, "Invalid debugger port\n");
+               exit(1);
+            }
             break;
          }
          default: {

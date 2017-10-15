@@ -14,8 +14,8 @@ set(CPU_SOURCES cpu.c mem.c fmt.c ins.c utl.c)
 set(SDL_SOURCES sdl.c)
 
 set(BOO_SOURCES boo.c tty.c chr.c)
-set(ONE_SOURCES one.c tty.c chr.c pia.c)
-set(TWO_SOURCES two.c scr.c dsk.c chr.c alc.c)
+set(ONE_SOURCES one.c tty.c chr.c pia.c dbg.c)
+set(TWO_SOURCES two.c scr.c dsk.c chr.c alc.c dbg.c)
 
 add_executable(cpu_test ${CPU_SOURCES} cpu_test.c)
 
