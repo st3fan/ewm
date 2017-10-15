@@ -139,7 +139,7 @@ void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
       }
    }
 
-   if (phase != 0 && fps != 0) {
+   if (fps != 0) {
       if ((phase % (fps / 4)) == 0) {
          tty->screen_cursor_blink = !tty->screen_cursor_blink;
       }
