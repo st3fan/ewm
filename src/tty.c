@@ -24,7 +24,7 @@
 #include "sdl.h"
 #include "tty.h"
 
-struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
+struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer, SDL_Color color) {
    struct ewm_tty_t *tty = malloc(sizeof(struct ewm_tty_t));
    memset(tty, 0, sizeof(struct ewm_tty_t));
    tty->renderer = renderer;
@@ -35,6 +35,8 @@ struct ewm_tty_t *ewm_tty_create(SDL_Renderer *renderer) {
       EWM_ONE_TTY_ROWS * ewm_chr_height(tty->chr), 32, 4 * EWM_ONE_TTY_COLUMNS * ewm_chr_width(tty->chr),
          ewm_sdl_pixel_format(renderer));
 
+   tty->screen_cursor_enabled = 1;
+   tty->color = SDL_MapRGBA(tty->surface->format, color.r, color.g, color.b, color.a);
    ewm_tty_reset(tty);
    return tty;
 }
@@ -67,7 +69,15 @@ static inline void ewm_tty_render_character(struct ewm_tty_t *tty, int row, int 
       uint32_t *dst = tty->pixels + ((40 * 7 * 8) * row) + (7 * column);
       for (int y = 0; y < 8; y++) {
          for (int x = 0; x < 7; x++) {
-            *dst++ = *src++;
+            *dst++ = *src++ ? tty->color : 0; // TODO Can be optimized by moving color into chr
+         }
+         dst += (40 * 7) - 7;
+      }
+   } else {
+      uint32_t *dst = tty->pixels + ((40 * 7 * 8) * row) + (7 * column);
+      for (int y = 0; y < 8; y++) {
+         for (int x = 0; x < 7; x++) {
+            *dst++ = 0;
          }
          dst += (40 * 7) - 7;
       }
@@ -114,6 +124,14 @@ void ewm_tty_reset(struct ewm_tty_t *tty) {
    tty->screen_dirty = true;
 }
 
+void ewm_tty_set_line(struct ewm_tty_t *tty, int v, char *line) {
+   if (v < 24) {
+      char buf[41];
+      snprintf(buf, 40, "%-40s", line);
+      memcpy(tty->screen_buffer + (v * 40), buf, 40);
+   }
+}
+
 void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
    for (int row = 0; row < 24; row++) {
       for (int column = 0; column < 40; column++) {
@@ -121,13 +139,17 @@ void ewm_tty_refresh(struct ewm_tty_t *tty, uint32_t phase, uint32_t fps) {
       }
    }
 
-   if ((phase % (fps / 4)) == 0) {
-      tty->screen_cursor_blink = !tty->screen_cursor_blink;
+   if (phase != 0 && fps != 0) {
+      if ((phase % (fps / 4)) == 0) {
+         tty->screen_cursor_blink = !tty->screen_cursor_blink;
+      }
    }
 
-   if (tty->screen_cursor_blink) {
-      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_ON);
-   } else {
-      ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_OFF);
+   if (tty->screen_cursor_enabled) {
+      if (tty->screen_cursor_blink) {
+         ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_ON);
+      } else {
+         ewm_tty_render_character(tty, tty->screen_cursor_row, tty->screen_cursor_column, EWM_ONE_TTY_CURSOR_OFF);
+      }
    }
 }

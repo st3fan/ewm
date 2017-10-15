@@ -61,7 +61,7 @@ CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=$(LUA_LIBS)
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=$(CPU_SOURCES) two.c scr.c dsk.c chr.c alc.c scr_test.c sdl.c
+SCR_TEST_SOURCES=$(CPU_SOURCES) two.c scr.c dsk.c chr.c alc.c scr_test.c sdl.c tty.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 

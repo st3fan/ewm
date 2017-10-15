@@ -37,6 +37,7 @@
 #if defined(EWM_LUA)
 #include "lua.h"
 #endif
+#include "tty.h"
 #include "two.h"
 
 
@@ -303,6 +304,14 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
             return -1;
          }
 
+         SDL_Color red = {255,0,0,255};
+         two->tty = ewm_tty_create(renderer, red);
+         if (two->tty == NULL) {
+            fprintf(stderr, "[TWO] Could not create status tty\n");
+            return -1;
+         }
+         two->tty->screen_cursor_enabled = 0;
+
          break;
       }
 
@@ -522,6 +531,13 @@ static bool ewm_two_poll_event(struct ewm_two_t *two, SDL_Window *window) { // T
                      SDL_SetWindowSize(window, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
                      SDL_RenderSetLogicalSize(two->scr->renderer, 40*7*3, 24*8*3 + (two->status_bar_visible ? (9*3) : 0));
                      break;
+                  case SDLK_p:
+                     if (two->state == EWM_TWO_STATE_PAUSED) {
+                        two->state = EWM_TWO_STATE_RUNNING;
+                     } else {
+                        two->state = EWM_TWO_STATE_PAUSED;
+                     }
+                     break;
                }
             } else if (event.key.keysym.mod == KMOD_NONE) {
                switch (event.key.keysym.sym) {
@@ -704,6 +720,28 @@ static void usage() {
 #if defined(EWM_LUA)
    fprintf(stderr, "  --script <script> load Lua script into the emulator\n");
 #endif
+}
+
+static void ewm_two_render_status(struct ewm_two_t *two, char *msg) {
+   SDL_SetRenderDrawColor(two->scr->renderer, 0, 0, 0, 224);
+   SDL_RenderFillRect(two->scr->renderer, NULL);
+
+   ewm_tty_reset(two->tty);
+
+   ewm_tty_set_line(two->tty,  8, "          ********************          ");
+   ewm_tty_set_line(two->tty,  9, "          *                  *          ");
+   ewm_tty_set_line(two->tty, 10, "          * -+-  PAUSED  -+- *          ");
+   ewm_tty_set_line(two->tty, 11, "          *                  *          ");
+   ewm_tty_set_line(two->tty, 12, "          ********************          ");
+
+   ewm_tty_refresh(two->tty, 0, 0);
+
+   SDL_Texture *texture = SDL_CreateTextureFromSurface(two->tty->renderer, two->tty->surface);
+   if (texture != NULL) {
+      SDL_SetRenderDrawBlendMode(two->scr->renderer, SDL_BLENDMODE_BLEND);
+      SDL_RenderCopy(two->tty->renderer, texture, NULL, NULL);
+      SDL_DestroyTexture(texture);
+   }
 }
 
 int ewm_two_main(int argc, char **argv) {
@@ -910,8 +948,11 @@ int ewm_two_main(int argc, char **argv) {
       }
 
       if ((SDL_GetTicks() - ticks) >= (1000 / fps)) {
-         if (!ewm_two_step_cpu(two, EWM_TWO_SPEED / fps)) {
-            break;
+
+         if (two->state == EWM_TWO_STATE_RUNNING) {
+            if (!ewm_two_step_cpu(two, EWM_TWO_SPEED / fps)) {
+               break;
+            }
          }
 
          // Update the screen when it is flagged dirty or if we enter
@@ -934,6 +975,10 @@ int ewm_two_main(int argc, char **argv) {
             if (texture != NULL) {
                SDL_RenderCopy(two->scr->renderer, texture, NULL, NULL);
                SDL_DestroyTexture(texture);
+            }
+
+            if (two->state == EWM_TWO_STATE_PAUSED) {
+               ewm_two_render_status(two, "PAUSED");
             }
 
             SDL_RenderPresent(two->scr->renderer);

@@ -45,24 +45,28 @@ static int ewm_one_init(struct ewm_one_t *one, int model, SDL_Renderer *renderer
    memset(one, 0, sizeof(struct ewm_one_t));
    one->model = model;
    switch (model) {
-      case EWM_ONE_MODEL_APPLE1:
+      case EWM_ONE_MODEL_APPLE1: {
          one->cpu = cpu_create(EWM_CPU_MODEL_6502);
          cpu_add_ram(one->cpu, 0x0000, 8 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xff00, "rom/apple1.rom");
-         one->tty = ewm_tty_create(renderer);
+         SDL_Color green = {0,255,0,255};
+         one->tty = ewm_tty_create(renderer, green);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;
          one->pia->callback_obj = one;
          break;
-      case EWM_ONE_MODEL_REPLICA1:
+      }
+      case EWM_ONE_MODEL_REPLICA1: {
          one->cpu = cpu_create(EWM_CPU_MODEL_65C02);
          cpu_add_ram(one->cpu, 0x0000, 32 * 1024 - 1);
          cpu_add_rom_file(one->cpu, 0xe000, "rom/krusader.rom");
-         one->tty = ewm_tty_create(renderer);
+         SDL_Color green = {0,255,0,255};
+         one->tty = ewm_tty_create(renderer, green);
          one->pia = ewm_pia_create(one->cpu);
          one->pia->callback = ewm_one_pia_callback;
          one->pia->callback_obj = one;
          break;
+      }
    }
    return 0;
 }

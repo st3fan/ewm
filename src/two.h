@@ -53,10 +53,14 @@
 #define EWM_TWO_FPS_DEFAULT (30)
 #define EWM_TWO_SPEED (1023000)
 
+#define EWM_TWO_STATE_RUNNING (0)
+#define EWM_TWO_STATE_PAUSED (1)
+
 struct mem_t;
 struct ewm_dsk_t;
 struct scr;
 struct ewm_lua_t;
+struct ewm_tty_t;
 
 struct ewm_two_t {
    int type;
@@ -96,6 +100,9 @@ struct ewm_two_t {
 
    int lua_key_down_fn;
    int lua_key_up_fn;
+
+   int state;
+   struct ewm_tty_t *tty;
 };
 
 struct ewm_two_t *ewm_two_create(int type, SDL_Renderer *renderer, SDL_Joystick *joystick);

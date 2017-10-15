@@ -85,7 +85,8 @@ int ewm_boo_main(int argc, char **argv) {
 
    // We only need a tty to display the menu
 
-   struct ewm_tty_t *tty = ewm_tty_create(renderer);
+   SDL_Color green = {255,255,0,255};
+   struct ewm_tty_t *tty = ewm_tty_create(renderer, green);
 
    // Main loop
 
