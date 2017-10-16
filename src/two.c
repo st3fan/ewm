@@ -960,7 +960,7 @@ int ewm_two_main(int argc, char **argv) {
          // latter because that is when we update flashing text.
 
          two->screen_dirty = 1;
-         if (two->screen_dirty || (phase == 0) || (phase == (fps / 2))) {
+         if (two->screen_dirty) {
             SDL_SetRenderDrawColor(two->scr->renderer, 0, 0, 0, 255);
             SDL_RenderClear(two->scr->renderer);
 

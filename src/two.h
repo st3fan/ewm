@@ -50,7 +50,7 @@
 #define EWM_A2P_BUTTON4 3 // Actually ony exists on the gs?
 #define EWM_A2P_BUTTON_COUNT 4
 
-#define EWM_TWO_FPS_DEFAULT (30)
+#define EWM_TWO_FPS_DEFAULT (40)
 #define EWM_TWO_SPEED (1023000)
 
 #define EWM_TWO_STATE_RUNNING (0)

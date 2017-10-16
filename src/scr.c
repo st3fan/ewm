@@ -48,7 +48,11 @@ static inline void scr_render_character(struct scr_t *scr, int row, int column, 
       uint32_t *dst = scr->pixels + ((40 * 7 * 8) * row) + (7 * column);
       for (int y = 0; y < 8; y++) {
          for (int x = 0; x < 7; x++) {
-            *dst++ = *src++;
+            if (c >= 0x40 && c < 0x80 && flash) {
+               *dst++ = 0;
+            } else {
+               *dst++ = *src++;
+            }
          }
          dst += 280 - 7;
       }
@@ -329,17 +333,19 @@ void ewm_scr_update(struct scr_t *scr, int phase, int fps) {
    SDL_SetRenderDrawColor(scr->renderer, 0, 0, 0, 255);
    SDL_RenderClear(scr->renderer);
 
+   int flash = ((phase / (fps/4)) % 2);
+
    switch (scr->two->screen_mode) {
       case EWM_A2P_SCREEN_MODE_TEXT:
-         scr_render_txt_screen(scr, phase >= (fps / 2));
+         scr_render_txt_screen(scr, flash);
          break;
       case EWM_A2P_SCREEN_MODE_GRAPHICS:
          switch (scr->two->screen_graphics_mode) {
             case EWM_A2P_SCREEN_GRAPHICS_MODE_LGR:
-               scr_render_lgr_screen(scr, phase >= (fps / 2));
+               scr_render_lgr_screen(scr, flash);
                break;
             case EWM_A2P_SCREEN_GRAPHICS_MODE_HGR:
-               scr_render_hgr_screen(scr, phase >= (fps / 2));
+               scr_render_hgr_screen(scr, flash);
                break;
          }
          break;
