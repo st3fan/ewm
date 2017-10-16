@@ -31,11 +31,12 @@ struct ewm_chr_t {
    SDL_Renderer *renderer;
    SDL_Texture *textures[256];
    uint32_t *bitmaps[256];
-   uint32_t green;
+   uint32_t color;
 };
 
 struct ewm_chr_t* ewm_chr_create(char *rom_path, int rom_type, SDL_Renderer *renderer);
 int ewm_chr_width(struct ewm_chr_t* chr);
 int ewm_chr_height(struct ewm_chr_t* chr);
+void ewm_chr_set_color(struct ewm_chr_t* chr, uint32_t color);
 
 #endif

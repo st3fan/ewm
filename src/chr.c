@@ -114,7 +114,7 @@ static uint32_t *_generate_bitmap(struct ewm_chr_t *chr, uint8_t rom_data[2048],
       for (int y = 0; y < 8; y++) {
          for (int x = 6; x >= 0; x--) {
             if (character_data[y] & (1 << x)) {
-               *p++ = chr->green;
+               *p++ = chr->color;
             } else {
                *p++ = 0x00000000;
             }
@@ -132,7 +132,7 @@ static int ewm_chr_init(struct ewm_chr_t *chr, char *rom_path, int rom_type, SDL
    memset(chr, 0x00, sizeof(struct ewm_chr_t));
 
    chr->renderer = renderer;
-   chr->green = ewm_sdl_green(renderer);
+   chr->color = ewm_sdl_green(renderer);
 
    uint8_t rom_data[2048];
    if (_load_rom_data(rom_path, rom_data) != 0) {
@@ -210,4 +210,17 @@ int ewm_chr_width(struct ewm_chr_t* chr) {
 
 int ewm_chr_height(struct ewm_chr_t* chr) {
    return 8; // TODO Should be based on the ROM type?
+}
+
+void ewm_chr_set_color(struct ewm_chr_t* chr, uint32_t color) {
+   for (int i = 0; i < 255; i++) {
+      uint32_t *bitmap = chr->bitmaps[i];
+      if (bitmap != NULL) {
+         for (int j = 0; j < ewm_chr_width(chr) * ewm_chr_height(chr); j++) {
+            if (bitmap[j] != 0) {
+               bitmap[j] = color;
+            }
+         }
+      }
+   }
 }

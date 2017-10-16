@@ -302,6 +302,7 @@ static int ewm_scr_init(struct scr_t *scr, struct ewm_two_t *two, SDL_Renderer *
    }
 
    scr->green = SDL_MapRGBA(scr->surface->format, 0, 255, 0, 255);
+   scr->white = SDL_MapRGBA(scr->surface->format, 255, 255, 255, 255);
 
    for (int i = 0; i < 4; i++) {
       SDL_Color c = hgr_colors1[i];
@@ -354,4 +355,5 @@ void ewm_scr_update(struct scr_t *scr, int phase, int fps) {
 
 void ewm_scr_set_color_scheme(struct scr_t *scr, int color_scheme) {
    scr->color_scheme = color_scheme;
+   ewm_chr_set_color(scr->chr, color_scheme == EWM_SCR_COLOR_SCHEME_MONOCHROME ? scr->green : scr->white);
 }

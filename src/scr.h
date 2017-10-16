@@ -49,6 +49,7 @@ struct scr_t {
 
    uint32_t *lgr_bitmaps[256];
    uint32_t green;
+   uint32_t white;
    uint32_t hgr_colors1[4];
    uint32_t hgr_colors2[4];
 };
