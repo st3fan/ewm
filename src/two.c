@@ -43,6 +43,7 @@
 
 #define EWM_A2P_SS_KBD                  0xc000
 #define EWM_A2P_SS_KBDSTRB              0xc010
+#define EWM_A2P_SS_TAPEOUT              0xc020
 #define EWM_A2P_SS_SPKR                 0xc030
 
 #define EWM_A2P_SS_SCREEN_MODE_GRAPHICS 0xc050
@@ -121,6 +122,10 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
          two->screen_dirty = true;
          break;
 
+      case EWM_A2P_SS_TAPEOUT:
+         // Ignore this
+         break;
+
       case EWM_A2P_SS_SPKR:
          // TODO Implement speaker support
          break;
@@ -193,10 +198,6 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
          two->key &= 0x7f;
          break;
 
-      case EWM_A2P_SS_SPKR:
-         // TODO Implement speaker support
-         break;
-
       case EWM_A2P_SS_SCREEN_MODE_GRAPHICS:
          two->screen_mode = EWM_A2P_SCREEN_MODE_GRAPHICS;
          two->screen_dirty = true;
@@ -231,6 +232,14 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
       case EWM_A2P_SS_SCREEN_PAGE2:
          two->screen_page = EWM_A2P_SCREEN_PAGE2;
          two->screen_dirty = true;
+         break;
+
+      case EWM_A2P_SS_TAPEOUT:
+         // Ignore this
+         break;
+
+      case EWM_A2P_SS_SPKR:
+         // TODO Implement speaker support
          break;
 
       case EWM_A2P_SS_SETAN0:
