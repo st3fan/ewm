@@ -193,6 +193,9 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
    struct ewm_two_t *two = (struct ewm_two_t*) mem->obj;
    //printf("ewm_two_iom_write(%x)\n", addr);
    switch (addr) {
+      case EWM_A2P_SS_KBD:
+         // Ignore - This is CLR80STORE on the IIe
+         break;
 
       case EWM_A2P_SS_KBDSTRB:
          two->key &= 0x7f;
