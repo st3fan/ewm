@@ -52,3 +52,17 @@ Here are some of the things I want to accomplish for each emulated machine:
 * Audio Support
 * Display Emulation - High resolution graphics - Mostly works.
 
+## Building the emulator
+
+```
+cd src
+make
+```
+
+## Running the emulator
+
+From the command line:
+
+```
+./src/ewm two --color --drive1 disks/DOS33-SamplePrograms.dsk
+```

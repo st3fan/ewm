@@ -38,6 +38,7 @@ static void usage() {
    fprintf(stderr, "\n");
    fprintf(stderr, "If no command is specified, the 'bootloader' will be run, which\n");
    fprintf(stderr, "allows the user to interactively select what emulator to start.\n");
+   fprintf(stderr, "\nSuggestion: to get started, try 'ewm two --color --drive1 <disk file>'\n");
 }
 
 int main(int argc, char **argv) {
