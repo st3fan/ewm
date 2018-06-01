@@ -22,11 +22,11 @@ add_executable(cpu_test ${CPU_SOURCES} cpu_test.c)
 add_executable(cpu_bench ${CPU_SOURCES} cpu_bench.c)
 
 add_executable(ewm ${CPU_SOURCES} ${BOO_SOURCES} ${ONE_SOURCES} ${TWO_SOURCES} ${SDL_SOURCES} ewm.c)
-target_link_libraries(ewm SDL2)
+target_link_libraries(ewm SDL2 readline)
 
 add_executable(tty_test ${CPU_SOURCES} ${ONE_SOURCES} ${SDL_SOURCES} tty_test.c)
-target_link_libraries(tty_test SDL2)
+target_link_libraries(tty_test SDL2 readline)
 
 add_executable(scr_test ${CPU_SOURCES} ${TWO_SOURCES} ${SDL_SOURCES} scr_test.c)
-target_link_libraries(scr_test SDL2)
+target_link_libraries(scr_test SDL2 readline)
 

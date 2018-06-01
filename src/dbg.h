@@ -23,4 +23,18 @@
 #ifndef EWM_DBG_H
 #define EWM_DBG_H
 
+struct cpu_t;
+
+struct ewm_dbg_t {
+   struct cpu_t *cpu;
+};
+
+struct ewm_dbg_t *ewm_dbg_create(struct cpu_t *cpu);
+int ewm_dbg_start(struct ewm_dbg_t *dbg);
+
+void ewm_dbg_pause(struct ewm_dbg_t *dbg);
+void ewm_dbg_continue(struct ewm_dbg_t *dbg);
+
+void ewm_dbg_breakpoint_set(struct ewm_dbg_t *dbg, uint16_t addr);
+
 #endif // EWM_DBG_H

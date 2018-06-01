@@ -145,6 +145,10 @@ static bool ewm_one_poll_event(struct ewm_one_t *one, SDL_Window *window) {
 }
 
 static bool ewm_one_step_cpu(struct ewm_one_t *one, int cycles) {
+   if (one->cpu->status == EWM_CPU_STATUS_PAUSED) {
+      return true;
+   }
+
    while (true) {
       int ret = cpu_step(one->cpu);
       if (ret < 0) {
@@ -305,8 +309,16 @@ int ewm_one_main(int argc, char **argv) {
 
    cpu_strict(one->cpu, strict);
    cpu_trace(one->cpu, trace_path);
-
    cpu_reset(one->cpu);
+
+   if (debug_port != 0) {
+      struct ewm_dbg_t *dbg = ewm_dbg_create(one->cpu);
+      ewm_dbg_pause(dbg);
+      if (ewm_dbg_start(dbg) != 0) {
+         printf("ewm: one: failed to start debugger\n");
+         exit(1);
+      }
+   }
 
    // Main loop
 

@@ -38,6 +38,9 @@
 #define EWM_VECTOR_RES 0xfffc
 #define EWM_VECTOR_IRQ 0xfffe
 
+#define EWM_CPU_STATUS_RUNNING (0)
+#define EWM_CPU_STATUS_PAUSED  (1)
+
 struct cpu_instruction_t;
 struct ewm_lua_t;
 
@@ -62,6 +65,8 @@ struct cpu_t {
 #if defined(EWM_LUA)
    struct ewm_lua_t *lua;
 #endif
+
+   int status;
 };
 
 typedef void (*cpu_instruction_handler_t)(struct cpu_t *cpu);
