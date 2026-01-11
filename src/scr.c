@@ -187,61 +187,47 @@ inline static void scr_render_hgr_line_green(struct scr_t *scr, int line, uint16
    }
 }
 
-inline static int swap(int n) {
-   if (n == 1) {
-      return 2;
-   } else if (n == 2) {
-      return 1;
-   }
-   return n;
-}
-
 inline static void scr_render_hgr_line_color(struct scr_t *scr, int line, uint16_t line_base) {
-
-   uint8_t *src = &scr->two->cpu->ram[line_base];
+   uint8_t *mem = &scr->two->cpu->ram[line_base];
    uint32_t *dst = scr->pixels + (40 * 7 * line);
 
-   for (int i = 0; i < 20; i++) {
-      uint8_t b1 = *src++;
-      uint8_t b2 = *src++;
+   for (int col = 0; col < 280; col++) {
+      int byte_idx = col / 7;
+      int bit_idx = col % 7;
+      uint8_t data = mem[byte_idx];
+      int high_bit = (data >> 7) & 1;
+      int pixel_on = (data >> bit_idx) & 1;
 
-      if (b1 & 0b10000000) {
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
-         *dst++ = scr->hgr_colors2[swap((b1 & 0b00110000) >> 4)];
-      } else {
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00000011) >> 0)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00001100) >> 2)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
-         *dst++ = scr->hgr_colors1[swap((b1 & 0b00110000) >> 4)];
+      uint32_t *colors = high_bit ? scr->hgr_colors2 : scr->hgr_colors1;
+
+      if (!pixel_on) {
+         *dst++ = 0;
+         continue;
       }
 
-      if (b2 & 0b10000000) {
-         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors2[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
-         *dst++ = scr->hgr_colors2[swap( (b2 & 0b01100000) >> 5)];
+      // Check adjacent pixels for white detection
+      int left_on = 0, right_on = 0;
+
+      if (col > 0) {
+         int left_byte = (col - 1) / 7;
+         int left_bit = (col - 1) % 7;
+         left_on = (mem[left_byte] >> left_bit) & 1;
+      }
+      if (col < 279) {
+         int right_byte = (col + 1) / 7;
+         int right_bit = (col + 1) % 7;
+         right_on = (mem[right_byte] >> right_bit) & 1;
+      }
+
+      if (left_on || right_on) {
+         *dst++ = colors[3];  // White
       } else {
-         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors1[(((b1 & 0b01000000) >> 5) | (b2 & 0b00000001))];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00000110) >> 1)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b00011000) >> 3)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
-         *dst++ = scr->hgr_colors1[swap( (b2 & 0b01100000) >> 5)];
+         // Isolated pixel - color depends on column parity
+         // Even column (0,2,4...) = Violet/Blue (index 2)
+         // Odd column (1,3,5...) = Green/Orange (index 1)
+         *dst++ = colors[(col & 1) ? 1 : 2];
       }
    }
-
 }
 
 inline static void scr_render_hgr_screen(struct scr_t *scr, bool flash) {
