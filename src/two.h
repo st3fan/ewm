@@ -61,11 +61,13 @@ struct ewm_dsk_t;
 struct scr;
 struct ewm_lua_t;
 struct ewm_tty_t;
+struct ewm_snd_t;
 
 struct ewm_two_t {
    int type;
    struct cpu_t *cpu;
    struct scr_t *scr;
+   struct ewm_snd_t *snd;
    struct ewm_lua_t *lua;
    struct ewm_dsk_t *dsk;
    struct ewm_alc_t *alc;

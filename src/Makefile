@@ -51,7 +51,7 @@ ifdef LUA
 endif
 
 EWM_EXECUTABLE=ewm
-EWM_SOURCES=$(CPU_SOURCES) pia.c ewm.c two.c scr.c dsk.c chr.c alc.c one.c tty.c boo.c sdl.c
+EWM_SOURCES=$(CPU_SOURCES) pia.c ewm.c two.c scr.c snd.c dsk.c chr.c alc.c one.c tty.c boo.c sdl.c
 EWM_OBJECTS=$(EWM_SOURCES:.c=.o)
 EWM_LIBS=-lSDL2 $(LUA_LIBS)
 
@@ -61,7 +61,7 @@ CPU_TEST_OBJECTS=$(CPU_TEST_SOURCES:.c=.o)
 CPU_TEST_LIBS=$(LUA_LIBS)
 
 SCR_TEST_EXECUTABLE=scr_test
-SCR_TEST_SOURCES=$(CPU_SOURCES) two.c scr.c dsk.c chr.c alc.c scr_test.c sdl.c tty.c
+SCR_TEST_SOURCES=$(CPU_SOURCES) two.c scr.c snd.c dsk.c chr.c alc.c scr_test.c sdl.c tty.c
 SCR_TEST_OBJECTS=$(SCR_TEST_SOURCES:.c=.o)
 SCR_TEST_LIBS=-lSDL2 $(LUA_LIBS)
 

@@ -34,6 +34,7 @@
 #include "alc.h"
 #include "chr.h"
 #include "scr.h"
+#include "snd.h"
 #if defined(EWM_LUA)
 #include "lua.h"
 #endif
@@ -127,7 +128,7 @@ static uint8_t ewm_two_iom_read(struct cpu_t *cpu, struct mem_t *mem, uint16_t a
          break;
 
       case EWM_A2P_SS_SPKR:
-         // TODO Implement speaker support
+         ewm_snd_toggle_speaker(two->snd, two->cpu->counter);
          break;
 
       case EWM_A2P_SS_PB0:
@@ -242,7 +243,7 @@ static void ewm_two_iom_write(struct cpu_t *cpu, struct mem_t *mem, uint16_t add
          break;
 
       case EWM_A2P_SS_SPKR:
-         // TODO Implement speaker support
+         ewm_snd_toggle_speaker(two->snd, two->cpu->counter);
          break;
 
       case EWM_A2P_SS_SETAN0:
@@ -313,6 +314,12 @@ static int ewm_two_init(struct ewm_two_t *two, int type, SDL_Renderer *renderer,
          two->scr = ewm_scr_create(two, renderer);
          if (two->scr == NULL) {
             fprintf(stderr, "[TWO] Could not create Screen\n");
+            return -1;
+         }
+
+         two->snd = ewm_snd_create(two);
+         if (two->snd == NULL) {
+            fprintf(stderr, "[TWO] Could not create Sound\n");
             return -1;
          }
 
@@ -822,7 +829,7 @@ int ewm_two_main(int argc, char **argv) {
 
    // Initialize SDL
 
-   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) < 0) {
+   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER | SDL_INIT_EVENTS | SDL_INIT_GAMECONTROLLER) < 0) {
       fprintf(stderr, "Failed to initialize SDL: %s\n", SDL_GetError());
       exit(1);
    }
@@ -966,6 +973,8 @@ int ewm_two_main(int argc, char **argv) {
                break;
             }
          }
+
+         ewm_snd_update(two->snd, two->cpu->counter);
 
          // Update the screen when it is flagged dirty or if we enter
          // the second half of the frames we draw each second. The
