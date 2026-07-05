@@ -186,6 +186,11 @@ impl Dsk {
         &mut self.drives[self.drive]
     }
 
+    /// The selected drive (0 or 1), for the frontend's drive lights.
+    pub fn active_drive(&self) -> usize {
+        self.drive
+    }
+
     /// Port of `dsk_phase`: stepper motor phase change moves the head by
     /// half-tracks, clamped to the 70 half-track range.
     fn phase(&mut self, phase: usize, on: bool) {
