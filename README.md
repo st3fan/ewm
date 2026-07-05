@@ -1,86 +1,98 @@
 # Emulated Woz Machine
 
+EWM is an emulator for the machines Steve Wozniak built: the *Apple 1*, the
+*Replica 1* and the *Apple ][+*. It started life many years ago as a tiny
+6502 emulator written between christmas and new year, and has since grown
+into a full emulator with Disk II support, graphics, and sound.
 
-## Introduction
-
-Two years ago between christmas and new year I wrote a tiny and incomplete 6502 emulator and turned it into an original *Apple 1* emulator. It was a fun and nostalgic project to work on. I grew up with the *Apple II* and never had a change to see an *Apple 1* in action.
-
-A few weeks ago I decided to pick this project up again. I am extremely motivated to turn this into a high quality emulator that supports the *Apple 1*, *Replica 1*, *Apple ][+* and *Apple IIe*. Some of that work is really close to being finished, other work will take many months of spare time hacking.
+> **Note:** EWM is a hobby project and still under development. Things may
+> be incomplete, quirky, or broken — bug reports and pull requests are
+> welcome. See [REWRITE.md](REWRITE.md) for the project's verification
+> gates and a list of known quirks and deliberate divergences.
 
 ![](https://raw.githubusercontent.com/st3fan/ewm/master/screenshots/Screen%20Shot%202016-11-16%20at%203.59.44%20PM.png)
 
-## Goals & Status
+## What's emulated
 
-Here are some of the things I want to accomplish for each emulated machine:
+* **Apple 1** — 6502, 8KB RAM, Woz Monitor
+* **Replica 1** — 65C02, 32KB RAM, KRUSADER assembler ROM
+* **Apple ][+** — 6502, 48KB RAM, Apple Language Card, Disk II with two
+  drives, 40-column text, low-resolution and high-resolution graphics
+  (color or green monochrome), speaker sound, joystick paddles and buttons
 
-### CPU Emulator 
+## Requirements
 
-* ~~6502 support~~
-* ~~65C02 support~~
-* ~~Tracing facility~~
-* Debugger
-* Speed throttling
+* A [Rust toolchain](https://rustup.rs) (the pinned version is in
+  `rust-toolchain.toml`; rustup picks it up automatically)
+* SDL2 — `brew install sdl2` on macOS, `apt install libsdl2-dev` on
+  Debian/Ubuntu
 
-### Apple 1
-
-*8K / 6502 / Classic ROM*
-
-* ~~Terminal based emulation~~
-* ~~Classic display emulation (SDL based)~~
-* Cassette interface
-
-### Replica 1
-
-*32K / 65C02 / KRUSADER ROM*
-
-* ~~Terminal based emulation~~
-* ~~Classic display emulation (SDL based)~~
-* Cassette interface
-* [CFFA1](http://dreher.net/?s=projects/CFforApple1&c=projects/CFforApple1/main.php) Support
-
-### Apple ][+
-
-*48K / 6502*
-
-* ~~Basic Apple ][+ architecture implementation - In progress~~
-* ~~Disk II emulation - In progress~~
-* ~~Display Emulation - 40 Column mode~~
-* ~~Display Emulation - Low resolution graphics~~
-* ~~Apple Language Card~~
-* ~~Joystick Support~~
-* Audio Support
-* Display Emulation - High resolution graphics - Mostly works.
-
-## Building the emulator
-
-EWM is written in Rust (ported from the original C implementation; see
-[REWRITE.md](REWRITE.md) for the full story). You need a Rust toolchain
-(rustup) and SDL2 (`brew install sdl2` / `apt install libsdl2-dev`).
+## Building
 
 ```
 cargo build --release
 ```
 
-## Running the emulator
+## Running
+
+Running EWM with no arguments opens the *bootloader*, a menu where keys
+1/2/3 select the machine to start:
 
 ```
+cargo run --release
+```
+
+Or start a machine directly:
+
+```
+# Apple ][+ with color graphics and the DOS 3.3 sample programs disk
 cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
+
+# Replica 1 (Woz Monitor + KRUSADER)
+cargo run --release -- one --model replica1
+
+# Classic Apple 1
+cargo run --release -- one --model apple1
 ```
 
-Running `cargo run --release` with no arguments opens the bootloader menu,
-where keys 1/2/3 pick the machine. See `--help` on each subcommand
-(`one`, `two`) for all options.
+Each subcommand accepts `--help` for all options. Useful keys while the
+emulator runs:
 
-`cargo test` runs the full verification suite: the Klaus Dormann 6502/65C02
-functional tests, golden instruction traces captured from the C emulator,
-headless machine boot tests, a full DOS 3.3 boot with CATALOG, and a golden
-screenshot comparison. There are also headless consoles for quick
-experiments without a window:
+| Key | Action |
+|---|---|
+| Cmd-Esc | Reset the machine |
+| Cmd-Return | Toggle fullscreen |
+| Cmd-P | Pause (Apple ][+) |
+| Cmd-I | Toggle the status bar with drive lights (Apple ][+) |
+
+There are also headless terminal consoles, handy for quick experiments
+without a window:
 
 ```
-cargo run -p ewm-core --example one                                  # Woz monitor
-cargo run -p ewm-core --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft/DOS
+cargo run -p ewm-core --example one                                  # Woz Monitor
+cargo run -p ewm-core --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
 
+## Testing
+
+```
+cargo test
+```
+
+This runs the full verification suite: the Klaus Dormann 6502 and 65C02
+functional tests, golden instruction traces, headless machine boot tests,
+a complete DOS 3.3 boot with `CATALOG`, and a golden screenshot comparison.
 The cc65 assembly sources under `tests/` are manual test programs for the
 machines themselves and are not part of the automated suite.
+
+## History
+
+EWM was originally written in C and was ported to Rust in 2026 — the full
+phase-by-phase plan, parity checklist, and benchmark numbers are preserved
+in [REWRITE.md](REWRITE.md). The original C implementation lives in the git
+history.
+
+## License
+
+MIT, as declared in `Cargo.toml` (the same license the original C carried
+in its source headers).
