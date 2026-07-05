@@ -15,7 +15,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 4 | Apple 1 SDL frontend | M | Done (manual checklist below) |
 | 5 | Apple ][+ machine, headless, no disk | L | Done |
 | 6 | Disk II | L | Done |
-| 7 | Apple ][+ SDL frontend + boo menu | L | Not started |
+| 7 | Apple ][+ SDL frontend + boo menu | L | Done (manual checklist below) |
 | 8 | Parity sweep, benches, docs | M | Not started |
 | 9 | Remove C, promote Rust to root | M | Not started |
 
@@ -271,6 +271,16 @@ against the C build.
 golden BMP of the text screen. Manual checklist recorded here: boot System Master to
 `]`, `CATALOG`, `RUN` a program from `DOS33-SamplePrograms.dsk` exercising LGR and
 HGR, speaker beeps on boot, paddles respond if a joystick is present.
+
+**Manual checklist results:**
+- [x] Automated golden screenshot: headless System Master boot render matches
+  `rust/ewm/golden/two-boot.bmp` byte for byte (test `boot_screen_matches_golden_bmp`)
+- [x] `ewm two --color --drive1 DOS33-SystemMaster.dsk` opens, renders, and boots
+  (smoke-tested via `--screenshot`); `ewm` (no args) shows the boo menu
+- [ ] Boot System Master to `]` and `CATALOG` by hand
+- [ ] `RUN` an LGR and an HGR program from DOS33-SamplePrograms.dsk
+- [ ] Speaker beeps on boot
+- [ ] Paddles respond if a joystick is present
 
 ## Phase 8 — Parity sweep, benches, docs (M)
 

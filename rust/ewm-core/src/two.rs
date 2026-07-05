@@ -101,6 +101,20 @@ pub struct Two {
     rom: Vec<u8>, // $D000-$FFFF, the six ROM files combined
     pub alc: Alc, // language card, $C080-$C08F + $D000-$FFFF banks
     pub dsk: Dsk, // Disk ][ controller, $C600 ROM + $C0E0-$C0EF
+    extra: Vec<Region>,
+}
+
+/// An extra memory region added with `--memory`.
+struct Region {
+    start: u16,
+    data: Vec<u8>,
+    writable: bool,
+}
+
+impl Region {
+    fn contains(&self, addr: u16) -> bool {
+        addr >= self.start && ((addr - self.start) as usize) < self.data.len()
+    }
 }
 
 impl Two {
@@ -143,7 +157,40 @@ impl Two {
             rom,
             alc: Alc::new(),
             dsk: Dsk::new(),
+            extra: Vec::new(),
         })
+    }
+
+    /// Read access to machine RAM for the renderers, which scan the text
+    /// and hires pages directly (the C renderers read `cpu->ram`).
+    pub fn ram(&self) -> &[u8] {
+        &self.ram
+    }
+
+    /// Add an extra RAM region (`--memory ram:addr:path`). Like the C mem
+    /// list, extras are dispatched before ROM and I/O — but base RAM below
+    /// $C000 wins, matching the `addr < ram_size` fast path in mem.c.
+    pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
+        self.extra.insert(
+            0,
+            Region {
+                start,
+                data,
+                writable: true,
+            },
+        );
+    }
+
+    /// Add an extra ROM region (`--memory rom:addr:path`).
+    pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
+        self.extra.insert(
+            0,
+            Region {
+                start,
+                data,
+                writable: false,
+            },
+        );
     }
 
     /// Port of `ewm_two_load_disk`.
@@ -358,6 +405,13 @@ fn screen_code_to_char(code: u8) -> char {
 
 impl Bus for Two {
     fn read(&mut self, addr: u16) -> u8 {
+        if addr >= 0xc000 {
+            for region in &self.extra {
+                if region.contains(addr) {
+                    return region.data[(addr - region.start) as usize];
+                }
+            }
+        }
         match addr {
             0x0000..=0xbfff => self.ram[addr as usize],
             0xc000..=0xc07f => self.iom_read(addr),
@@ -375,6 +429,16 @@ impl Bus for Two {
     }
 
     fn write(&mut self, addr: u16, b: u8) {
+        if addr >= 0xc000 {
+            for region in &mut self.extra {
+                if region.contains(addr) {
+                    if region.writable {
+                        region.data[(addr - region.start) as usize] = b;
+                    }
+                    return;
+                }
+            }
+        }
         match addr {
             0x0000..=0xbfff => self.ram[addr as usize] = b,
             0xc000..=0xc07f => self.iom_write(addr, b),

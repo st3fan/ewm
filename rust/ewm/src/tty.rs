@@ -16,8 +16,9 @@ pub struct Tty {
     chr: Chr,
     pub screen_dirty: bool,
     screen_buffer: [u8; TTY_ROWS * TTY_COLUMNS],
-    cursor_row: usize,
-    cursor_column: usize,
+    pub cursor_row: usize,
+    pub cursor_column: usize,
+    pub cursor_enabled: bool,
     cursor_blink: bool,
     pub pixels: Vec<u32>,
     color: u32,
@@ -31,6 +32,7 @@ impl Tty {
             screen_buffer: [0; TTY_ROWS * TTY_COLUMNS],
             cursor_row: 0,
             cursor_column: 0,
+            cursor_enabled: true,
             cursor_blink: false,
             pixels: vec![0; TTY_PIXEL_WIDTH * TTY_PIXEL_HEIGHT],
             color,
@@ -102,6 +104,25 @@ impl Tty {
         self.screen_dirty = true;
     }
 
+    /// Port of `ewm_tty_set_line`: place a line of text, space-padded to
+    /// the full 40 columns.
+    pub fn set_line(&mut self, row: usize, line: &str) {
+        if row < TTY_ROWS {
+            let mut bytes = [b' '; TTY_COLUMNS];
+            for (dst, &src) in bytes.iter_mut().zip(line.as_bytes()) {
+                *dst = src;
+            }
+            self.screen_buffer[row * TTY_COLUMNS..(row + 1) * TTY_COLUMNS].copy_from_slice(&bytes);
+        }
+    }
+
+    /// Direct access for the boo menu, which memcpy's into the C buffer.
+    pub fn set_screen(&mut self, lines: &[&str; TTY_ROWS]) {
+        for (row, line) in lines.iter().enumerate() {
+            self.set_line(row, line);
+        }
+    }
+
     /// Port of `ewm_tty_refresh`: render the buffer and the blinking cursor
     /// into the pixel buffer.
     pub fn refresh(&mut self, phase: u32, fps: u32) {
@@ -116,11 +137,13 @@ impl Tty {
             self.cursor_blink = !self.cursor_blink;
         }
 
-        let cursor = if self.cursor_blink {
-            TTY_CURSOR_ON
-        } else {
-            TTY_CURSOR_OFF
-        };
-        self.render_character(self.cursor_row, self.cursor_column, cursor);
+        if self.cursor_enabled {
+            let cursor = if self.cursor_blink {
+                TTY_CURSOR_ON
+            } else {
+                TTY_CURSOR_OFF
+            };
+            self.render_character(self.cursor_row, self.cursor_column, cursor);
+        }
     }
 }
