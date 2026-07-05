@@ -14,6 +14,17 @@ struct Machine {
 impl Machine {
     fn boot() -> Machine {
         let mut two = Two::new(TwoType::Apple2Plus).expect("apple2plus must construct");
+        // Since Phase 6 the Disk II is always present (as in ewm_two_init),
+        // so booting without a disk hangs in the slot 6 boot ROM like the
+        // real machine. Boot the System Master to reach AppleSoft.
+        two.load_disk(
+            0,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../disks/DOS33-SystemMaster.dsk"
+            ),
+        )
+        .expect("cannot load DOS33-SystemMaster.dsk");
         let mut cpu = Cpu::new(two.cpu_model());
         cpu.reset(&mut two);
         Machine { cpu, two }
@@ -58,15 +69,11 @@ impl Machine {
 fn apple2plus_boots_and_evaluates_basic() {
     let mut m = Machine::boot();
 
-    // The Autostart ROM finds no bootable card and drops into AppleSoft.
-    m.step_until(50_000_000, "the ] prompt", |two| {
-        two.text_screen().contains(']')
+    // DOS 3.3 boots and lands at the AppleSoft prompt.
+    m.step_until(400_000_000, "the ] prompt", |two| {
+        let text = two.text_screen();
+        text.contains("DOS VERSION 3.3") && text.contains(']')
     });
-    assert!(
-        m.two.text_screen().contains("APPLE ]["),
-        "banner missing; screen was:\n{}",
-        m.two.text_screen()
-    );
 
     m.type_line("PRINT 2+2");
     m.step(2_000_000);

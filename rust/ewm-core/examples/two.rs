@@ -3,7 +3,7 @@
 //! line-based: type a line, press enter, and the 40×24 text screen is
 //! redrawn.
 //!
-//!     cargo run -p ewm-core --example two
+//!     cargo run -p ewm-core --example two [disk.dsk]
 //!
 //! Try:
 //!
@@ -12,6 +12,11 @@
 //!     20 PRINT "HELLO NUMBER "; I
 //!     30 NEXT I
 //!     RUN
+//!
+//! Or boot DOS 3.3 and explore the disk:
+//!
+//!     cargo run -p ewm-core --example two -- ../disks/DOS33-SystemMaster.dsk
+//!     CATALOG
 //!
 //! Quit with ctrl-C or ctrl-D.
 
@@ -48,16 +53,28 @@ fn print_screen(two: &Two) {
 
 fn main() {
     let mut two = Two::new(TwoType::Apple2Plus).expect("apple2plus");
+
+    if let Some(path) = std::env::args().nth(1) {
+        if let Err(e) = two.load_disk(0, &path) {
+            eprintln!("cannot load disk: {e}");
+            std::process::exit(1);
+        }
+        eprintln!("[drive 1: {path}]");
+    }
+
     let mut cpu = Cpu::new(two.cpu_model());
     cpu.reset(&mut two);
 
     eprintln!("[Apple ][+ — type BASIC, enter sends CR]");
-    // Boot until the AppleSoft prompt appears.
+    // Boot until the AppleSoft prompt appears (via DOS if a disk is in),
+    // then let the boot settle — a transient prompt shows while the DOS
+    // HELLO program is still running.
     let mut spent = 0u64;
-    while !two.text_screen().contains(']') && spent < 50_000_000 {
+    while !two.text_screen().contains(']') && spent < 400_000_000 {
         step(&mut cpu, &mut two, 1_000_000);
         spent += 1_000_000;
     }
+    step(&mut cpu, &mut two, 30_000_000);
     print_screen(&two);
 
     for line in std::io::stdin().lock().lines() {

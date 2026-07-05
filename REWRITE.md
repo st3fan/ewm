@@ -14,7 +14,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 3 | Apple 1 / Replica 1, headless | M | Done |
 | 4 | Apple 1 SDL frontend | M | Done (manual checklist below) |
 | 5 | Apple ][+ machine, headless, no disk | L | Done |
-| 6 | Disk II | L | Not started |
+| 6 | Disk II | L | Done |
 | 7 | Apple ][+ SDL frontend + boo menu | L | Not started |
 | 8 | Parity sweep, benches, docs | M | Not started |
 | 9 | Remove C, promote Rust to root | M | Not started |
