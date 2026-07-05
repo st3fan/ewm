@@ -5,4 +5,5 @@
 
 pub mod bus;
 pub mod cpu;
+pub mod fmt;
 pub mod ins;

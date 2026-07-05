@@ -2,7 +2,7 @@
 //! access goes through a `Bus` passed into `step`/`reset`/`irq`/`nmi`.
 
 use crate::bus::Bus;
-use crate::ins::{Handler, INSTRUCTIONS_6502, Instruction};
+use crate::ins::{Handler, INSTRUCTIONS_6502, Instruction, instructions_65c02};
 
 pub const VECTOR_NMI: u16 = 0xfffa;
 pub const VECTOR_RES: u16 = 0xfffc;
@@ -39,7 +39,7 @@ pub struct Cpu {
     pub c: u8,
     pub counter: u64,
     pub strict: bool,
-    instructions: &'static [Instruction; 256],
+    pub(crate) instructions: &'static [Instruction; 256],
 }
 
 impl Cpu {
@@ -62,9 +62,7 @@ impl Cpu {
             strict: false,
             instructions: match model {
                 Model::M6502 => &INSTRUCTIONS_6502,
-                // TODO Phase 2: the 65C02 table (6502 table with overrides
-                // overlaid, as cpu_initialize() does in cpu.c).
-                Model::M65C02 => &INSTRUCTIONS_6502,
+                Model::M65C02 => instructions_65c02(),
             },
         }
     }
