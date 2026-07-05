@@ -61,6 +61,23 @@ cd src
 make
 ```
 
+## Building the Rust version
+
+The Rust rewrite (see [REWRITE.md](REWRITE.md)) is at feature parity with the
+C build, minus Lua scripting:
+
+```
+cd rust
+cargo build --release
+cargo run --release -p ewm -- two --color --drive1 ../disks/DOS33-SamplePrograms.dsk
+```
+
+`cargo test` runs the full gate (Dormann CPU tests, golden traces, machine
+boot tests, DOS 3.3 boot, golden screenshot). Headless consoles for quick
+experiments: `cargo run -p ewm-core --example one` (Woz monitor) and
+`cargo run -p ewm-core --example two -- ../disks/DOS33-SystemMaster.dsk`
+(AppleSoft/DOS).
+
 ## Running the emulator
 
 From the command line:

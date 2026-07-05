@@ -16,7 +16,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 5 | Apple ][+ machine, headless, no disk | L | Done |
 | 6 | Disk II | L | Done |
 | 7 | Apple ][+ SDL frontend + boo menu | L | Done (manual checklist below) |
-| 8 | Parity sweep, benches, docs | M | Not started |
+| 8 | Parity sweep, benches, docs | M | Done |
 | 9 | Remove C, promote Rust to root | M | Not started |
 
 ## Ground rules (apply to every phase)
@@ -87,6 +87,24 @@ completes. **The tree must build and pass all verification gates after every pha
    (`EWM_TWO_SPEED`, `EWM_TWO_FPS_DEFAULT` in `two.h`).
 6. CPU test success detection = branch-to-self deadlock check; start `$0400`,
    success PC `$3399` (6502) and `$24a8` (65C02), per `cpu_test.c`.
+7. Strict mode is accepted but inert at runtime: the stack checks live only in
+   irq/nmi, whose sole runtime caller (BRK) discards the error — in C and in Rust.
+8. `--fps 0` divides by zero (C: SIGFPE, Rust: panic) — crash parity, not fixed.
+
+## Documented divergences (Rust vs C, deliberate)
+
+1. Flag parsing requires exact `--flag`; C's `getopt_long_only` also accepted
+   single-dash (`-model`) and unambiguous abbreviations.
+2. Unexpected-I/O messages omit the PC (the Bus trait has no CPU access).
+3. Joystick axes are sampled once per frame, not live at the `$C070` trigger
+   (≤ 1 frame of input latency).
+4. `--trace` actually writes traces in Rust (`PC: disassembly  state` per step,
+   via the fmt.rs formatters); in C the write path was dead code.
+5. `--screenshot=<path>` on `ewm two` is a Rust-only hidden debug flag (dumps a
+   BMP after 120 frames, then exits) — it powers the Phase 7 graphics gate.
+6. The `dsk.c` nibblizer's 2-byte out-of-bounds buffer write is not reproduced;
+   the store is skipped (the effective C/JS behavior, see dsk.rs).
+7. Lua (`--script`) is not ported (top-level decision; see Future work).
 
 ---
 
@@ -300,6 +318,55 @@ to preserve" — parity is *documented*, not assumed.
 
 **Gate:** Every row of the parity checklist marked done or explicitly waived; all
 prior automated gates still green; bench numbers recorded.
+
+### Parity checklist (flags)
+
+| Flag | C source | Rust | Status |
+|---|---|---|---|
+| `ewm --help/-h`, `one`, `two`, `boo`, no args → boo | `ewm.c` | `main.rs` | Done |
+| `one --help` | `one.c` | `one.rs` | Done |
+| `one --model apple1\|replica1` (default replica1) | `one.c` | `one.rs` | Done |
+| `one --memory ram\|rom:addr:path` | `one.c` | `one.rs` | Done |
+| `one --trace[=file]` (bare = /dev/stderr) | `one.c` | `one.rs` | Done (writes traces; dead in C) |
+| `one --strict` | `one.c` | `one.rs` | Done (inert, quirk #7) |
+| `two --help` | `two.c` | `two.rs` | Done (usage says "default: 30", actual 40, as C) |
+| `two --drive1/--drive2 <path>` | `two.c` | `two.rs` | Done |
+| `two --color` | `two.c` | `two.rs` | Done |
+| `two --fps <n>` | `two.c` | `two.rs` | Done (0 crashes, quirk #8) |
+| `two --memory` | `two.c` | `two.rs` | Done |
+| `two --trace[=file]` | `two.c` | `two.rs` | Done |
+| `two --strict` | `two.c` | `two.rs` | Done (inert) |
+| `two --debug` | `two.c` | `two.rs` | Done |
+| `two --script` (Lua) | `two.c` | — | Waived (Lua dropped) |
+| `two --screenshot=<path>` | — | `two.rs` | Rust-only debug flag (divergence #5) |
+
+### Parity checklist (features)
+
+| Feature | Verified by |
+|---|---|
+| 6502 + 65C02 cores, all quirks | Dormann ×2, trace_compare, cycle counts equal to C |
+| Apple 1 / Replica 1 machine + PIA | one_boot tests, `--example one` |
+| Apple 1 SDL frontend (tty, keys, fullscreen, reset) | Phase 4 checklist (manual items open) |
+| Apple ][+ machine, soft switches, key latch | two_boot tests, `--example two` |
+| Language card banking | two_boot ALC tests |
+| Disk II (nibblizer, boot ROM, stepper; writes no-op) | dsk unit tests, two_dos (DOS boots + CATALOG) |
+| TEXT/LGR/HGR/mixed/page2 rendering, color schemes | golden BMP gate + Phase 7 checklist |
+| Speaker sound (#188 port) | cycle-stamp test; manual beep check open |
+| Paddles/buttons (controller) | ported; manual check open |
+| Pause / status bar (fake MHz, quirk #3) / boo menu | Phase 7 smoke tests + manual checklist |
+
+### Bench numbers (2026-07-05, Apple Silicon; C at -O3, Rust bench profile)
+
+mem_bench, ms per 100M ops (C → Rust): push_byte 185→199, pull_byte 162→165,
+push_word 319→200, pull_word 171→196; get_byte 82→67, get abs/zp family
+~70-84→~90; get ind/indx/indy 71-96→~195; set_byte family ~68-75→~90-97,
+set ind* ~72-75→~195. The `ind*` gap is the `dyn Bus` dispatch replacing C's
+direct `cpu->ram` reads; at 1.023 MHz the machine needs <0.5% of this.
+
+cpu_bench, ms per 10M handler calls, avg of 3 (C → Rust): LDA imm 6→6,
+LDA zpg 10→11, LDA (zp),Y 9→23, STA zpg 7→9, ADC imm 44→22, JSR 32→19,
+RTS 17→19, SMB0 13→17. Full run: `./src/cpu_bench` vs
+`cargo bench -p ewm-core --bench cpu_bench` (optionally filtered by mnemonic).
 
 ## Phase 9 — Remove C, promote Rust to root (M)
 

@@ -39,6 +39,11 @@ pub struct Cpu {
     pub c: u8,
     pub counter: u64,
     pub strict: bool,
+    /// When set, every step writes one line of disassembly + state before
+    /// executing. The C only ever opened the trace file (the write path was
+    /// dead code); the Rust build makes `--trace` functional using the
+    /// fmt.c formatters — a documented divergence.
+    pub trace: Option<Box<dyn std::io::Write>>,
     pub(crate) instructions: &'static [Instruction; 256],
 }
 
@@ -60,6 +65,7 @@ impl Cpu {
             c: 0,
             counter: 0,
             strict: false,
+            trace: None,
             instructions: match model {
                 Model::M6502 => &INSTRUCTIONS_6502,
                 Model::M65C02 => instructions_65c02(),
@@ -164,6 +170,18 @@ impl Cpu {
     /// Execute one instruction and return the cycles it took (the fixed
     /// per-opcode count from the table, as in `cpu_execute_instruction`).
     pub fn step(&mut self, bus: &mut dyn Bus) -> u32 {
+        if self.trace.is_some() {
+            let line = format!(
+                "{:04X}: {:<24} {}\n",
+                self.pc,
+                crate::fmt::format_instruction(self, bus),
+                crate::fmt::format_state(self)
+            );
+            if let Some(trace) = &mut self.trace {
+                let _ = trace.write_all(line.as_bytes());
+            }
+        }
+
         // Fetch instruction
         let instructions = self.instructions;
         let ins = &instructions[bus.read(self.pc) as usize];
@@ -203,6 +221,42 @@ mod tests {
             cpu.set_status(v);
             assert_eq!(cpu.status(), v | 0x30, "status round-trip for {v:#04x}");
         }
+    }
+
+    #[test]
+    fn trace_writes_disassembly_and_state() {
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct Sink(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut bus = TestBus::new();
+        bus.load(0x0400, &[0xa9, 0x42, 0xea]); // LDA #$42, NOP
+
+        let mut cpu = Cpu::new(Model::M6502);
+        cpu.reset(&mut bus);
+        cpu.pc = 0x0400;
+
+        let sink = Sink(Arc::new(Mutex::new(Vec::new())));
+        cpu.trace = Some(Box::new(sink.clone()));
+        cpu.step(&mut bus);
+        cpu.step(&mut bus);
+
+        let out = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
+        assert_eq!(
+            out,
+            "0400: LDA  #$42                A=00 X=00 Y=00 S=34 SP=FF -----I--\n\
+             0402: NOP                      A=42 X=00 Y=00 S=34 SP=FF -----I--\n"
+        );
     }
 
     #[test]

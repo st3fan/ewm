@@ -29,27 +29,27 @@ pub struct Instruction {
 // but indy does *not* wrap when reading the pointer high byte (C integer
 // promotion makes ($FF),Y read its pointer high byte from $0100).
 
-fn mem_get_byte_abs(bus: &mut dyn Bus, addr: u16) -> u8 {
+pub fn mem_get_byte_abs(bus: &mut dyn Bus, addr: u16) -> u8 {
     bus.read(addr)
 }
 
-fn mem_get_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
+pub fn mem_get_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
     bus.read(addr.wrapping_add(cpu.x as u16))
 }
 
-fn mem_get_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
+pub fn mem_get_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
     bus.read(addr.wrapping_add(cpu.y as u16))
 }
 
-fn mem_get_byte_zpg(bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_zpg(bus: &mut dyn Bus, addr: u8) -> u8 {
     bus.read(addr as u16)
 }
 
-fn mem_get_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
     bus.read((addr as u16 + cpu.x as u16) & 0x00ff)
 }
 
-fn mem_get_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
     bus.read((addr as u16 + cpu.y as u16) & 0x00ff)
 }
 
@@ -73,56 +73,56 @@ fn ind_addr(bus: &mut dyn Bus, addr: u8) -> u16 {
     ((hi as u16) << 8) | lo as u16
 }
 
-fn mem_get_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
     let a = indx_addr(cpu, bus, addr);
     bus.read(a)
 }
 
-fn mem_get_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
     let a = indy_addr(cpu, bus, addr);
     bus.read(a)
 }
 
-fn mem_get_byte_ind(bus: &mut dyn Bus, addr: u8) -> u8 {
+pub fn mem_get_byte_ind(bus: &mut dyn Bus, addr: u8) -> u8 {
     let a = ind_addr(bus, addr);
     bus.read(a)
 }
 
-fn mem_set_byte_zpg(bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_zpg(bus: &mut dyn Bus, addr: u8, v: u8) {
     bus.write(addr as u16, v);
 }
 
-fn mem_set_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
     bus.write((addr as u16 + cpu.x as u16) & 0x00ff, v);
 }
 
-fn mem_set_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
     bus.write((addr as u16 + cpu.y as u16) & 0x00ff, v);
 }
 
-fn mem_set_byte_abs(bus: &mut dyn Bus, addr: u16, v: u8) {
+pub fn mem_set_byte_abs(bus: &mut dyn Bus, addr: u16, v: u8) {
     bus.write(addr, v);
 }
 
-fn mem_set_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
+pub fn mem_set_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
     bus.write(addr.wrapping_add(cpu.x as u16), v);
 }
 
-fn mem_set_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
+pub fn mem_set_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
     bus.write(addr.wrapping_add(cpu.y as u16), v);
 }
 
-fn mem_set_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
     let a = indx_addr(cpu, bus, addr);
     bus.write(a, v);
 }
 
-fn mem_set_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
     let a = indy_addr(cpu, bus, addr);
     bus.write(a, v);
 }
 
-fn mem_set_byte_ind(bus: &mut dyn Bus, addr: u8, v: u8) {
+pub fn mem_set_byte_ind(bus: &mut dyn Bus, addr: u8, v: u8) {
     let a = ind_addr(bus, addr);
     bus.write(a, v);
 }

@@ -8,3 +8,11 @@ license.workspace = true
 
 [dev-dependencies]
 flate2 = "1"
+
+[[bench]]
+name = "cpu_bench"
+harness = false
+
+[[bench]]
+name = "mem_bench"
+harness = false
