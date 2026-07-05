@@ -10,7 +10,14 @@ into a full emulator with Disk II support, graphics, and sound.
 > welcome. See [REWRITE.md](REWRITE.md) for the project's verification
 > gates and a list of known quirks and deliberate divergences.
 
-![](https://raw.githubusercontent.com/st3fan/ewm/master/screenshots/Screen%20Shot%202016-11-16%20at%203.59.44%20PM.png)
+![The EWM bootloader menu](screenshots/Screenshot%202026-07-05%20at%2011.32.44.png)
+
+| | |
+|---|---|
+| ![Replica 1 running KRUSADER](screenshots/Screenshot%202026-07-05%20at%2011.37.23.png) | ![Apple ][+ booting DOS 3.3](screenshots/Screenshot%202026-07-05%20at%2011.30.59.png) |
+| *Replica 1 — KRUSADER 1.3 from the Woz Monitor* | *Apple ][+ — booting the DOS 3.3 sample programs disk* |
+| ![Frogger](screenshots/Screenshot%202026-07-05%20at%2011.31.23.png) | ![Bandits](screenshots/Screenshot%202026-07-05%20at%2011.32.01.png) |
+| *Frogger in color hi-res graphics* | *Bandits by Sirius Software* |
 
 ## What's emulated
 
