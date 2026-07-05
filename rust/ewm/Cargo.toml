@@ -6,4 +6,4 @@ license.workspace = true
 
 [dependencies]
 ewm-core = { path = "../ewm-core" }
-sdl2 = "0.38"
+sdl2 = { version = "0.38", features = ["use-pkgconfig"] }
