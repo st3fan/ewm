@@ -66,5 +66,5 @@ tty_test
 disks
 tmp
 
-rust/target/
+/target/
 
