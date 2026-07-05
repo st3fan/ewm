@@ -6,15 +6,17 @@ on:
   pull_request:
 
 jobs:
+# The C job builds on macOS (like the old Travis config): the tree uses
+  # -Werror and gcc on Linux flags an implicit fallthrough in two.c that
+  # clang does not. src/ is frozen until Phase 9, so the warning cannot be
+  # fixed there.
   c:
     name: C build
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install SDL2
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libsdl2-dev
+        run: brew install sdl2
       - name: Build
         run: make -C src
 
