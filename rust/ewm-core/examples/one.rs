@@ -5,8 +5,13 @@
 //!     cargo run -p ewm-core --example one -- [apple1|replica1]
 //!
 //! Try `E000.E00F` (Replica 1) or `FF00.FFFF` (Apple 1) to dump memory, or
-//! `280: A9 8D 20 EF FF 60` followed by `280R` to run a tiny program. Quit
-//! with ctrl-C or ctrl-D.
+//! deposit and run a tiny program that prints HI! through the monitor's
+//! ECHO routine at $FFEF:
+//!
+//!     280: A9 C8 20 EF FF A9 C9 20 EF FF A9 A1 20 EF FF A9 8D 20 EF FF 60
+//!     280R
+//!
+//! Quit with ctrl-C or ctrl-D.
 
 use std::io::{BufRead, Write};
 
