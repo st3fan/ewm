@@ -13,7 +13,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 2 | 65C02 + disassembler + golden traces | M | Done |
 | 3 | Apple 1 / Replica 1, headless | M | Done |
 | 4 | Apple 1 SDL frontend | M | Done (manual checklist below) |
-| 5 | Apple ][+ machine, headless, no disk | L | Not started |
+| 5 | Apple ][+ machine, headless, no disk | L | Done |
 | 6 | Disk II | L | Not started |
 | 7 | Apple ][+ SDL frontend + boo menu | L | Not started |
 | 8 | Parity sweep, benches, docs | M | Not started |
