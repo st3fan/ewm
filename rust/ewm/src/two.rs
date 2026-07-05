@@ -291,11 +291,12 @@ pub fn main(args: &[String]) -> i32 {
 
     cpu.strict = options.strict;
     if let Some(path) = &options.trace_path {
-        // Tracing is wired end to end in Phase 8; like the current C code,
-        // this only opens the file.
-        if let Err(e) = std::fs::File::create(path) {
-            eprintln!("Cannot open trace file {path}: {e}");
-            return 1;
+        match std::fs::File::create(path) {
+            Ok(file) => cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
+            Err(e) => {
+                eprintln!("Cannot open trace file {path}: {e}");
+                return 1;
+            }
         }
     }
 
