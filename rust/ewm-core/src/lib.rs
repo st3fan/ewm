@@ -7,3 +7,5 @@ pub mod bus;
 pub mod cpu;
 pub mod fmt;
 pub mod ins;
+pub mod one;
+pub mod pia;
