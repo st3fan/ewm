@@ -15,6 +15,20 @@ pub enum OneModel {
     Replica1,
 }
 
+/// An extra memory region added with `--memory` (the C
+/// `cpu_add_ram_file`/`cpu_add_rom_file` path).
+struct Region {
+    start: u16,
+    data: Vec<u8>,
+    writable: bool,
+}
+
+impl Region {
+    fn contains(&self, addr: u16) -> bool {
+        addr >= self.start && ((addr - self.start) as usize) < self.data.len()
+    }
+}
+
 pub struct One {
     pub model: OneModel,
     ram: Vec<u8>,
@@ -22,6 +36,7 @@ pub struct One {
     rom_start: u16,
     pub pia: Pia,
     display: Vec<u8>,
+    extra: Vec<Region>,
 }
 
 impl One {
@@ -37,6 +52,7 @@ impl One {
                 rom_start: 0xff00,
                 pia: Pia::new(),
                 display: Vec::new(),
+                extra: Vec::new(),
             },
             OneModel::Replica1 => One {
                 model,
@@ -45,6 +61,7 @@ impl One {
                 rom_start: 0xe000,
                 pia: Pia::new(),
                 display: Vec::new(),
+                extra: Vec::new(),
             },
         }
     }
@@ -69,10 +86,40 @@ impl One {
     pub fn drain_display(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.display)
     }
+
+    /// Add an extra RAM region (`--memory ram:addr:path`). Like the C
+    /// linked list, regions added later are dispatched first.
+    pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
+        self.extra.insert(
+            0,
+            Region {
+                start,
+                data,
+                writable: true,
+            },
+        );
+    }
+
+    /// Add an extra ROM region (`--memory rom:addr:path`).
+    pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
+        self.extra.insert(
+            0,
+            Region {
+                start,
+                data,
+                writable: false,
+            },
+        );
+    }
 }
 
 impl Bus for One {
     fn read(&mut self, addr: u16) -> u8 {
+        for region in &self.extra {
+            if region.contains(addr) {
+                return region.data[(addr - region.start) as usize];
+            }
+        }
         if (addr as usize) < self.ram.len() {
             return self.ram[addr as usize];
         }
@@ -90,6 +137,14 @@ impl Bus for One {
     }
 
     fn write(&mut self, addr: u16, b: u8) {
+        for region in &mut self.extra {
+            if region.contains(addr) {
+                if region.writable {
+                    region.data[(addr - region.start) as usize] = b;
+                }
+                return;
+            }
+        }
         if (addr as usize) < self.ram.len() {
             self.ram[addr as usize] = b;
             return;

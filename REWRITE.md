@@ -12,7 +12,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 1 | 6502 core (Dormann functional test) | L | Done |
 | 2 | 65C02 + disassembler + golden traces | M | Done |
 | 3 | Apple 1 / Replica 1, headless | M | Done |
-| 4 | Apple 1 SDL frontend | M | Not started |
+| 4 | Apple 1 SDL frontend | M | Done (manual checklist below) |
 | 5 | Apple ][+ machine, headless, no disk | L | Not started |
 | 6 | Disk II | L | Not started |
 | 7 | Apple ][+ SDL frontend + boo menu | L | Not started |
@@ -192,6 +192,14 @@ tty render) rather than inventing a new timing scheme.
 checklist (record results in this file): `cargo run -p ewm -- one --model replica1`
 shows the prompt; typing echoes; Krusader assembles a two-line program; behavior
 matches `src/ewm one` run alongside.
+
+**Manual checklist results:**
+- [x] Unit tests: 'A' glyph bitmap, inverse glyphs, unmapped codes (`chr.rs`)
+- [x] `cargo run -p ewm -- one --model replica1` launches, renders, runs, and
+  exits cleanly (smoke-tested 4s)
+- [ ] Prompt shows and typing echoes (verify by hand)
+- [ ] Krusader assembles a two-line program
+- [ ] Behavior matches `src/ewm one` run alongside
 
 ## Phase 5 — Apple ][+ machine, headless, no disk (L)
 
