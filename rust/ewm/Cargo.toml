@@ -1,0 +1,9 @@
+[package]
+name = "ewm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ewm-core = { path = "../ewm-core" }
+sdl2 = "0.38"
