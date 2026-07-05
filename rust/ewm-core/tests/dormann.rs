@@ -56,3 +56,16 @@ fn dormann_6502() {
         ),
     );
 }
+
+#[test]
+fn dormann_65c02() {
+    run_test(
+        Model::M65C02,
+        0x0400,
+        0x24a8,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../src/rom/65C02_extended_opcodes_test.bin"
+        ),
+    );
+}
