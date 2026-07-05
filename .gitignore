@@ -50,7 +50,7 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-ewm
+src/ewm
 scr_test
 cpu_test
 chr_test
@@ -65,4 +65,6 @@ tty_test
 
 disks
 tmp
+
+rust/target/
 

@@ -8,7 +8,7 @@ completes. **The tree must build and pass all verification gates after every pha
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 0 | Workspace scaffolding + CI | S | Not started |
+| 0 | Workspace scaffolding + CI | S | Done |
 | 1 | 6502 core (Dormann functional test) | L | Not started |
 | 2 | 65C02 + disassembler + golden traces | M | Not started |
 | 3 | Apple 1 / Replica 1, headless | M | Not started |

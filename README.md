@@ -8,6 +8,8 @@ Two years ago between christmas and new year I wrote a tiny and incomplete 6502 
 
 A few weeks ago I decided to pick this project up again. I am extremely motivated to turn this into a high quality emulator that supports the *Apple 1*, *Replica 1*, *Apple ][+* and *Apple IIe*. Some of that work is really close to being finished, other work will take many months of spare time hacking.
 
+> **Note:** A Rust rewrite is in progress; see [REWRITE.md](REWRITE.md). The C build below remains the primary build until the rewrite completes.
+
 ![](https://raw.githubusercontent.com/st3fan/ewm/master/screenshots/Screen%20Shot%202016-11-16%20at%203.59.44%20PM.png)
 
 ## Goals & Status
