@@ -63,11 +63,7 @@ fn dump_line(addr: u16, bytes: &[u8]) -> String {
 }
 
 fn rom(name: &str) -> Vec<u8> {
-    std::fs::read(format!(
-        "{}/../rom/{name}",
-        env!("CARGO_MANIFEST_DIR")
-    ))
-    .expect("cannot read ROM")
+    std::fs::read(format!("{}/../rom/{name}", env!("CARGO_MANIFEST_DIR"))).expect("cannot read ROM")
 }
 
 #[test]
