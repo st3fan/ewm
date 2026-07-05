@@ -17,8 +17,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install SDL2
         run: brew install sdl2
+      # The committed Makefile does not search the Homebrew prefix, and src/
+      # cannot be changed; clang picks these paths up from the environment.
       - name: Build
         run: make -C src
+        env:
+          CPATH: /opt/homebrew/include
+          LIBRARY_PATH: /opt/homebrew/lib
 
   rust:
     name: Rust checks
