@@ -17,7 +17,7 @@ completes. **The tree must build and pass all verification gates after every pha
 | 6 | Disk II | L | Done |
 | 7 | Apple ][+ SDL frontend + boo menu | L | Done (manual checklist below) |
 | 8 | Parity sweep, benches, docs | M | Done |
-| 9 | Remove C, promote Rust to root | M | Not started |
+| 9 | Remove C, promote Rust to root | M | Done |
 
 ## Ground rules (apply to every phase)
 
@@ -389,6 +389,10 @@ trivial.
 one_boot, two_boot, two_dos), `cargo run -- boo` boots both machines, System Master
 boots to `]` and runs `CATALOG`; no `.c`/`.h` files remain; README instructions
 verified by following them literally.
+
+**Completion notes:** `scripts/gen-golden-trace.*` was deleted with the C tree —
+the checked-in golden trace is frozen; regenerating it requires checking out the
+C emulator from git history (tag: the Phase 8 merge). The rewrite is complete.
 
 ---
 
