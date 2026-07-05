@@ -6,31 +6,9 @@ on:
   pull_request:
 
 jobs:
-# The C job builds on macOS (like the old Travis config): the tree uses
-  # -Werror and gcc on Linux flags an implicit fallthrough in two.c that
-  # clang does not. src/ is frozen until Phase 9, so the warning cannot be
-  # fixed there.
-  c:
-    name: C build
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install SDL2
-        run: brew install sdl2
-      # The committed Makefile does not search the Homebrew prefix, and src/
-      # cannot be changed; clang picks these paths up from the environment.
-      - name: Build
-        run: make -C src
-        env:
-          CPATH: /opt/homebrew/include
-          LIBRARY_PATH: /opt/homebrew/lib
-
   rust:
     name: Rust checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: rust
     steps:
       - uses: actions/checkout@v4
       - name: Install SDL2
@@ -38,8 +16,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libsdl2-dev
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
       - name: Format
         run: cargo fmt --check
       - name: Clippy

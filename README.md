@@ -1,14 +1,11 @@
 # Emulated Woz Machine
 
-[![Build Status](https://travis-ci.org/st3fan/ewm.svg?branch=master)](https://travis-ci.org/st3fan/ewm)
 
 ## Introduction
 
 Two years ago between christmas and new year I wrote a tiny and incomplete 6502 emulator and turned it into an original *Apple 1* emulator. It was a fun and nostalgic project to work on. I grew up with the *Apple II* and never had a change to see an *Apple 1* in action.
 
 A few weeks ago I decided to pick this project up again. I am extremely motivated to turn this into a high quality emulator that supports the *Apple 1*, *Replica 1*, *Apple ][+* and *Apple IIe*. Some of that work is really close to being finished, other work will take many months of spare time hacking.
-
-> **Note:** A Rust rewrite is in progress; see [REWRITE.md](REWRITE.md). The C build below remains the primary build until the rewrite completes.
 
 ![](https://raw.githubusercontent.com/st3fan/ewm/master/screenshots/Screen%20Shot%202016-11-16%20at%203.59.44%20PM.png)
 
@@ -56,32 +53,34 @@ Here are some of the things I want to accomplish for each emulated machine:
 
 ## Building the emulator
 
-```
-cd src
-make
-```
-
-## Building the Rust version
-
-The Rust rewrite (see [REWRITE.md](REWRITE.md)) is at feature parity with the
-C build, minus Lua scripting:
+EWM is written in Rust (ported from the original C implementation; see
+[REWRITE.md](REWRITE.md) for the full story). You need a Rust toolchain
+(rustup) and SDL2 (`brew install sdl2` / `apt install libsdl2-dev`).
 
 ```
-cd rust
 cargo build --release
-cargo run --release -p ewm -- two --color --drive1 ../disks/DOS33-SamplePrograms.dsk
 ```
-
-`cargo test` runs the full gate (Dormann CPU tests, golden traces, machine
-boot tests, DOS 3.3 boot, golden screenshot). Headless consoles for quick
-experiments: `cargo run -p ewm-core --example one` (Woz monitor) and
-`cargo run -p ewm-core --example two -- ../disks/DOS33-SystemMaster.dsk`
-(AppleSoft/DOS).
 
 ## Running the emulator
 
-From the command line:
+```
+cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
+```
+
+Running `cargo run --release` with no arguments opens the bootloader menu,
+where keys 1/2/3 pick the machine. See `--help` on each subcommand
+(`one`, `two`) for all options.
+
+`cargo test` runs the full verification suite: the Klaus Dormann 6502/65C02
+functional tests, golden instruction traces captured from the C emulator,
+headless machine boot tests, a full DOS 3.3 boot with CATALOG, and a golden
+screenshot comparison. There are also headless consoles for quick
+experiments without a window:
 
 ```
-./src/ewm two --color --drive1 disks/DOS33-SamplePrograms.dsk
+cargo run -p ewm-core --example one                                  # Woz monitor
+cargo run -p ewm-core --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft/DOS
 ```
+
+The cc65 assembly sources under `tests/` are manual test programs for the
+machines themselves and are not part of the automated suite.
