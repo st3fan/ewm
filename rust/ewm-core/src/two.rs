@@ -6,6 +6,7 @@
 use crate::alc::Alc;
 use crate::bus::Bus;
 use crate::cpu::Model;
+use crate::dsk::{DSK_ROM, Dsk};
 
 pub const TWO_FPS_DEFAULT: u32 = 40;
 pub const TWO_SPEED: u32 = 1_023_000;
@@ -99,6 +100,7 @@ pub struct Two {
     ram: Vec<u8>, // $0000-$BFFF
     rom: Vec<u8>, // $D000-$FFFF, the six ROM files combined
     pub alc: Alc, // language card, $C080-$C08F + $D000-$FFFF banks
+    pub dsk: Dsk, // Disk ][ controller, $C600 ROM + $C0E0-$C0EF
 }
 
 impl Two {
@@ -140,7 +142,13 @@ impl Two {
             ram: vec![0; 0xc000],
             rom,
             alc: Alc::new(),
+            dsk: Dsk::new(),
         })
+    }
+
+    /// Port of `ewm_two_load_disk`.
+    pub fn load_disk(&mut self, drive: usize, path: &str) -> Result<(), String> {
+        self.dsk.set_disk_file(drive, false, path)
     }
 
     /// The Apple ][+ is wired with a 6502.
@@ -354,8 +362,10 @@ impl Bus for Two {
             0x0000..=0xbfff => self.ram[addr as usize],
             0xc000..=0xc07f => self.iom_read(addr),
             0xc080..=0xc08f => self.alc.iom_read(addr),
-            // $C090-$CFFF: no card mapped (Disk II arrives in Phase 6);
-            // unmatched reads return 0 like mem_get_byte.
+            0xc0e0..=0xc0ef => self.dsk.io_read(addr),
+            0xc600..=0xc6ff => DSK_ROM[(addr - 0xc600) as usize],
+            // Remaining $C090-$CFFF slot space is unmapped; unmatched reads
+            // return 0 like mem_get_byte.
             0xc090..=0xcfff => 0,
             0xd000..=0xffff => match self.alc.read(addr) {
                 Some(b) => b,
@@ -369,6 +379,7 @@ impl Bus for Two {
             0x0000..=0xbfff => self.ram[addr as usize] = b,
             0xc000..=0xc07f => self.iom_write(addr, b),
             0xc080..=0xc08f => self.alc.iom_write(addr),
+            0xc0e0..=0xc0ef => self.dsk.io_write(addr, b),
             0xc090..=0xcfff => {}
             // Language-card RAM when write-enabled; otherwise swallowed
             // (ROM), as in the C mem walk.

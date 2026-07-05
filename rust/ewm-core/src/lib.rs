@@ -7,6 +7,7 @@ pub mod alc;
 pub mod bus;
 pub mod chr;
 pub mod cpu;
+pub mod dsk;
 pub mod fmt;
 pub mod ins;
 pub mod one;
