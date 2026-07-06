@@ -7,6 +7,7 @@
 
 use crate::alc::Alc;
 use crate::dsk::{DSK_ROM, Dsk};
+use crate::hdd::{HDD_ROM, Hdd};
 use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp};
 use crate::sdl;
 use crate::snd::Snd;
@@ -292,6 +293,7 @@ pub struct Two {
     pub cpu: Cpu,
     io: DeviceHandle<TwoIo>,
     dsk: DeviceHandle<Dsk>,
+    hdd: Option<DeviceHandle<Hdd>>,
 }
 
 impl Two {
@@ -328,7 +330,23 @@ impl Two {
             cpu: Cpu::new(Model::M6502, mem),
             io,
             dsk,
+            hdd: None,
         })
+    }
+
+    /// Mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive: the
+    /// card's I/O ports plus its boot/driver firmware ROM at $C700. The
+    /// Autostart slot scan runs 7 before 6, so an attached drive boots
+    /// before the Disk II.
+    pub fn attach_hdd(&mut self, path: &str) -> Result<(), String> {
+        let hdd = Hdd::new(path)?;
+        self.hdd = Some(self.cpu.mem.add_device(0xc0f0, 0xc0ff, hdd));
+        self.cpu.mem.add_rom(0xc700, HDD_ROM.to_vec());
+        Ok(())
+    }
+
+    pub fn hdd(&self) -> Option<&Hdd> {
+        self.hdd.map(|h| self.cpu.mem.device(h))
     }
 
     fn io(&self) -> &TwoIo {
@@ -481,6 +499,7 @@ fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --drive1 <path>   load .dsk, .po or nib at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po or nib at path in slot 6 drive 2");
+    eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
     eprintln!("  --color           enable color");
     eprintln!("  --fps <fps>       set fps for display (default: 30)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
@@ -493,6 +512,7 @@ fn usage() {
 struct Options {
     drive1: Option<String>,
     drive2: Option<String>,
+    hdd: Option<String>,
     color: bool,
     fps: u32,
     memory: Vec<MemoryOption>,
@@ -516,6 +536,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             }
             "--drive1" => options.drive1 = it.next().cloned(),
             "--drive2" => options.drive2 = it.next().cloned(),
+            "--hdd" => options.hdd = it.next().cloned(),
             "--color" => options.color = true,
             "--fps" => {
                 // atoi semantics
@@ -695,6 +716,12 @@ pub fn main(args: &[String]) -> i32 {
         && let Err(e) = two.load_disk(1, path)
     {
         eprintln!("[A2P] Cannot load Drive 2 with {path}: {e}");
+        return 1;
+    }
+    if let Some(path) = &options.hdd
+        && let Err(e) = two.attach_hdd(path)
+    {
+        eprintln!("[A2P] Cannot mount hard drive {path}: {e}");
         return 1;
     }
 
