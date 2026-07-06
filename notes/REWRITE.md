@@ -434,6 +434,16 @@ consoles moved to `ewm` with them, so they now build in an SDL-linking
 crate (CI already installs libsdl2-dev; the consoles run as
 `cargo run -p ewm --example …`). Pure code motion; all gates unchanged.
 
+### Speaker synthesis diverges from snd.c (2026-07-06)
+
+`snd.c` held the output at a DC rail forever after the last `$C030` toggle,
+so queue underruns (late frames during game loading) snapped the output to
+silence and back — audible clicks real hardware never makes. `snd.rs` now
+models the AC-coupled speaker: the level decays to zero (~4 ms time
+constant), the queue is primed at startup, and frames carrying signal are
+never dropped. Deliberate behavior divergence, with unit tests on the
+waveform.
+
 ## Sequencing notes
 
 - Phases are strictly ordered 0→9. Phase 4 may be deferred until after 5/6 if
