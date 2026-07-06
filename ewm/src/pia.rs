@@ -4,7 +4,7 @@
 //! keyboard and display are hooked up. As in C the PIA registers itself as
 //! an IO region; the output callback becomes a drainable queue.
 
-use crate::mem::Device;
+use ewm_core::mem::Device;
 
 pub const PIA6820_DDRA: u8 = 0;
 pub const PIA6820_CTLA: u8 = 1;

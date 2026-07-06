@@ -1,14 +1,9 @@
 //! Subcommand dispatch, port of `ewm.c`: `one`, `two`, `boo`, and no
 //! arguments runs the bootloader menu.
 
-mod boo;
-mod one;
-mod scr;
-mod sdl;
-mod snd;
-mod tty;
-
 use std::process::ExitCode;
+
+use ewm::{boo, one, two};
 
 fn usage() {
     eprintln!("Usage: ewm [--help|-h] [<command> [--help|-h] [args]]");
@@ -31,8 +26,6 @@ fn run_boo(args: &[String]) -> i32 {
         boo::BooChoice::Quit => 0,
     }
 }
-
-mod two;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();

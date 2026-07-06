@@ -76,8 +76,8 @@ There are also headless terminal consoles, handy for quick experiments
 without a window:
 
 ```
-cargo run -p ewm-core --example one                                  # Woz Monitor
-cargo run -p ewm-core --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
+cargo run -p ewm --example one                                  # Woz Monitor
+cargo run -p ewm --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
 
 ## Testing

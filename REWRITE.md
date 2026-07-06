@@ -420,6 +420,20 @@ gates passed unchanged. Two notes:
   64K `Memory`, as `cpu_test.c` used) — still orders of magnitude beyond the
   1.023 MHz budget.
 
+### Crate split realigned (2026-07-06)
+
+The workspace crates originally split headless-vs-SDL; they now split
+kernel-vs-machine. `ewm-core` is the generic 6502 system kernel only —
+`cpu`, `mem`, `ins`, `fmt` — with the CPU-level tests (Dormann, golden
+trace) and benches. Everything Apple-specific moved to the `ewm` crate,
+which gained a library target beside its binary: the devices (`pia`, `dsk`,
+`alc`, `chr`) and the machines, where `one.rs` and `two.rs` now each hold
+the machine *and* its SDL loop — the original `one.c`/`two.c` file layout.
+The machine tests (boots, DOS 3.3, language card) and the headless example
+consoles moved to `ewm` with them, so they now build in an SDL-linking
+crate (CI already installs libsdl2-dev; the consoles run as
+`cargo run -p ewm --example …`). Pure code motion; all gates unchanged.
+
 ## Sequencing notes
 
 - Phases are strictly ordered 0→9. Phase 4 may be deferred until after 5/6 if

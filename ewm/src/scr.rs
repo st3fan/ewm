@@ -5,8 +5,8 @@
 //! screenshot test runs headless; the SDL loop uploads the buffer as a
 //! texture.
 
-use ewm_core::chr::{CHR_HEIGHT, CHR_WIDTH, Chr};
-use ewm_core::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two};
+use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr};
+use crate::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two};
 
 pub const SCR_WIDTH: usize = 280;
 pub const SCR_HEIGHT: usize = 192;
@@ -385,7 +385,7 @@ pub fn encode_bmp(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ewm_core::two::TwoType;
+    use crate::two::TwoType;
 
     /// The Phase 7 automated gate: boot the System Master for a fixed
     /// number of cycles (the emulator is deterministic), render the text

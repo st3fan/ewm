@@ -6,7 +6,7 @@
 //! Most of this code is based on Beneath Apple DOS and another open source
 //! emulator at <https://github.com/whscullin/apple2js> (comment from dsk.c).
 
-use crate::mem::Device;
+use ewm_core::mem::Device;
 
 pub const DSK_TRACKS: usize = 35;
 pub const DSK_SECTORS: usize = 16;

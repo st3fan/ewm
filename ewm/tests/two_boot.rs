@@ -2,7 +2,7 @@
 //! AppleSoft, evaluate BASIC via the keyboard latch, and exercise the
 //! language card's banking semantics.
 
-use ewm_core::two::{Two, TwoType};
+use ewm::two::{Two, TwoType};
 
 struct Machine {
     two: Two,
