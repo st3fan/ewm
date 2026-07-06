@@ -1,24 +1,100 @@
-//! Speaker sound, port of `snd.c` (#188): the core's cycle-stamped `$C030`
-//! toggles become a square wave in a sample buffer that is queued to SDL
-//! once per frame.
+//! Speaker sound. The core's cycle-stamped `$C030` toggles become a
+//! waveform that is queued to SDL once per frame.
+//!
+//! This deliberately diverges from `snd.c` (#188): the C held the output
+//! at a DC rail (±amplitude forever after the last toggle), so any queue
+//! underrun — a late frame during game loading, say — snapped the output
+//! to silence and back, which was audible as clicks that real hardware
+//! never makes. Here the level decays toward zero like the real AC-coupled
+//! speaker cone relaxing to rest: silence is actually silence, and
+//! underruns during silence are inaudible.
 
 use sdl2::AudioSubsystem;
 use sdl2::audio::{AudioQueue, AudioSpecDesired};
 
 pub const SND_SAMPLE_RATE: u32 = 44100;
 const SND_BUFFER_SIZE: usize = 4096;
-const SND_AMPLITUDE: i16 = 8000;
+const SND_AMPLITUDE: f32 = 8000.0;
 const SND_CPU_FREQUENCY: u64 = 1_023_000;
+
+/// Per-sample decay factor for the speaker level, ≈ a 4 ms time constant
+/// at 44.1 kHz (exp(-1 / (0.004 * 44100))): fast enough that silence
+/// follows within ~25 ms of the last toggle, slow enough that a 1 kHz
+/// beep keeps its square timbre.
+const SND_DECAY: f32 = 0.9943;
+
+/// Prime the queue with this much silence at startup, as headroom against
+/// late frames.
+const SND_PRIME_SAMPLES: usize = (SND_SAMPLE_RATE as usize) * 64 / 1000;
+
+/// Skip queueing an all-silent frame once this many bytes (100 ms of mono
+/// i16 samples) are already buffered.
+const SND_QUEUE_CAP_BYTES: u32 = SND_SAMPLE_RATE * 2 / 10;
+
+/// The pure synthesis half: toggles in, samples out. Kept free of SDL so
+/// the waveform is unit-testable.
+struct Wave {
+    /// Current output level; jumps to a rail on a toggle and decays toward
+    /// zero between them, like the AC-coupled cone.
+    level: f32,
+    /// Which rail the next toggle jumps to.
+    polarity: bool,
+    frame_start_cycle: u64,
+    buffer: Vec<i16>,
+}
+
+impl Wave {
+    fn new() -> Wave {
+        Wave {
+            level: 0.0,
+            polarity: false,
+            frame_start_cycle: 0,
+            buffer: Vec::with_capacity(SND_BUFFER_SIZE),
+        }
+    }
+
+    fn sample_index(&self, cpu_counter: u64) -> usize {
+        let cycles = cpu_counter.saturating_sub(self.frame_start_cycle);
+        ((cycles * SND_SAMPLE_RATE as u64 / SND_CPU_FREQUENCY) as usize).min(SND_BUFFER_SIZE)
+    }
+
+    fn emit_until(&mut self, sample_index: usize) {
+        while self.buffer.len() < sample_index {
+            self.buffer.push(self.level as i16);
+            self.level *= SND_DECAY;
+            if self.level.abs() < 1.0 {
+                self.level = 0.0;
+            }
+        }
+    }
+
+    /// Render one frame: replay the cycle-stamped toggles into samples up
+    /// to `cpu_counter`, decaying between edges.
+    fn render(&mut self, toggles: &[u64], cpu_counter: u64) -> &[i16] {
+        self.buffer.clear();
+        for &cycle in toggles {
+            let index = self.sample_index(cycle);
+            self.emit_until(index);
+            self.polarity = !self.polarity;
+            self.level = if self.polarity {
+                SND_AMPLITUDE
+            } else {
+                -SND_AMPLITUDE
+            };
+        }
+        let end = self.sample_index(cpu_counter);
+        self.emit_until(end);
+        self.frame_start_cycle = cpu_counter;
+        &self.buffer
+    }
+}
 
 pub struct Snd {
     device: AudioQueue<i16>,
-    speaker_state: bool,
-    buffer: Vec<i16>,
-    frame_start_cycle: u64,
+    wave: Wave,
 }
 
 impl Snd {
-    /// Port of `ewm_snd_init`.
     pub fn new(audio: &AudioSubsystem) -> Result<Snd, String> {
         let desired = AudioSpecDesired {
             freq: Some(SND_SAMPLE_RATE as i32),
@@ -26,63 +102,108 @@ impl Snd {
             samples: Some(512),
         };
         let device = audio.open_queue::<i16, _>(None, &desired)?;
+        // Prime the queue so a late frame does not immediately underrun.
+        let _ = device.queue_audio(&vec![0i16; SND_PRIME_SAMPLES]);
         device.resume();
         Ok(Snd {
             device,
-            speaker_state: false,
-            buffer: Vec::with_capacity(SND_BUFFER_SIZE),
-            frame_start_cycle: 0,
+            wave: Wave::new(),
         })
     }
 
-    /// Port of `ewm_snd_toggle_speaker`, replayed from the core's stamped
-    /// toggle events.
-    fn toggle_speaker(&mut self, cpu_counter: u64) {
-        let cycles_since_frame_start = cpu_counter.saturating_sub(self.frame_start_cycle);
-        let sample_index =
-            (cycles_since_frame_start * SND_SAMPLE_RATE as u64 / SND_CPU_FREQUENCY) as usize;
-
-        let amplitude = if self.speaker_state {
-            SND_AMPLITUDE
-        } else {
-            -SND_AMPLITUDE
-        };
-        while self.buffer.len() < sample_index && self.buffer.len() < SND_BUFFER_SIZE {
-            self.buffer.push(amplitude);
+    /// Queue one frame of samples. When the queue is comfortably full an
+    /// all-silent frame is skipped (inaudible); a frame carrying signal is
+    /// always queued — dropping samples mid-tone is what clicks.
+    pub fn update(&mut self, toggles: &[u64], cpu_counter: u64) {
+        let samples = self.wave.render(toggles, cpu_counter);
+        if samples.is_empty() {
+            return;
         }
+        let silent = samples.iter().all(|&s| s == 0);
+        if silent && self.device.size() >= SND_QUEUE_CAP_BYTES {
+            return;
+        }
+        let _ = self.device.queue_audio(samples);
+    }
+}
 
-        self.speaker_state = !self.speaker_state;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Cycles for `n` samples, rounded up (the inverse of sample_index).
+    fn cycles_for_samples(n: u64) -> u64 {
+        n * SND_CPU_FREQUENCY / SND_SAMPLE_RATE as u64 + 1
     }
 
-    /// Port of `ewm_snd_update`: fill the rest of the frame at the current
-    /// speaker level and queue it, unless SDL already has 100ms buffered.
-    pub fn update(&mut self, toggles: &[u64], cpu_counter: u64) {
-        for &cycle in toggles {
-            self.toggle_speaker(cycle);
+    #[test]
+    fn idle_wave_is_silent() {
+        let mut wave = Wave::new();
+        let samples = wave.render(&[], cycles_for_samples(1000));
+        assert_eq!(samples.len(), 1000);
+        assert!(samples.iter().all(|&s| s == 0), "idle output must be zero");
+    }
+
+    #[test]
+    fn single_toggle_clicks_then_decays_to_silence() {
+        // The regression test for the loading clicks: after a toggle the
+        // level must return to zero instead of holding a DC rail.
+        let mut wave = Wave::new();
+        let samples = wave.render(&[0], cycles_for_samples(4410)).to_vec(); // 100ms
+
+        assert_eq!(samples[0], SND_AMPLITUDE as i16, "full-amplitude edge");
+        // Monotonic decay in magnitude...
+        for pair in samples.windows(2) {
+            assert!(pair[1].abs() <= pair[0].abs(), "decay must be monotonic");
         }
+        // ...reaching true zero within 50 ms.
+        assert!(
+            samples[2205..].iter().all(|&s| s == 0),
+            "level must decay to silence within 50ms"
+        );
+    }
 
-        let cycles_this_frame = cpu_counter.saturating_sub(self.frame_start_cycle);
-        let mut samples_needed =
-            (cycles_this_frame * SND_SAMPLE_RATE as u64 / SND_CPU_FREQUENCY) as usize;
-        samples_needed = samples_needed.min(SND_BUFFER_SIZE);
+    #[test]
+    fn toggle_burst_returns_to_silence() {
+        // The power-on beep: toggles at ~1 kHz, then nothing. The C
+        // implementation held ±8000 forever afterwards. Frames are 50ms
+        // (2205 samples), within the buffer cap.
+        let mut wave = Wave::new();
+        let toggles: Vec<u64> = (0..64).map(|i| i * 512).collect(); // ends ~31.5ms in
+        let first = wave.render(&toggles, cycles_for_samples(2205)).to_vec();
+        assert_eq!(first.len(), 2205);
+        assert!(
+            first.iter().any(|&s| s.abs() > 4000),
+            "the beep itself must be audible"
+        );
 
-        let amplitude = if self.speaker_state {
-            SND_AMPLITUDE
-        } else {
-            -SND_AMPLITUDE
-        };
-        while self.buffer.len() < samples_needed {
-            self.buffer.push(amplitude);
-        }
+        let second = wave.render(&[], 2 * cycles_for_samples(2205)).to_vec();
+        assert_eq!(second.len(), 2205);
+        assert!(
+            second[1102..].iter().all(|&s| s == 0),
+            "silence after the beep, not a held rail"
+        );
+    }
 
-        if !self.buffer.is_empty() {
-            let queued = self.device.size();
-            if queued < SND_SAMPLE_RATE * 2 / 10 {
-                let _ = self.device.queue_audio(&self.buffer);
-            }
-        }
+    #[test]
+    fn sample_count_matches_cycle_span() {
+        let mut wave = Wave::new();
+        // One 40fps frame: 1023000/40 cycles -> 44100/40 samples.
+        let samples = wave.render(&[], 1_023_000 / 40);
+        assert_eq!(samples.len(), 44100 / 40);
+        // The next frame is relative to the new start cycle.
+        let samples = wave.render(&[], 2 * (1_023_000 / 40));
+        assert_eq!(samples.len(), 44100 / 40);
+    }
 
-        self.buffer.clear();
-        self.frame_start_cycle = cpu_counter;
+    #[test]
+    fn square_wave_alternates_rails() {
+        let mut wave = Wave::new();
+        // Toggle every ~46 cycles* 512 apart = 1kHz-ish; check both rails
+        // appear with full amplitude while the tone plays.
+        let toggles: Vec<u64> = (0..64).map(|i| i * 512).collect();
+        let samples = wave.render(&toggles, 64 * 512).to_vec();
+        assert!(samples.iter().any(|&s| s > 7000));
+        assert!(samples.iter().any(|&s| s < -7000));
     }
 }

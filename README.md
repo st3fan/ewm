@@ -7,7 +7,7 @@ into a full emulator with Disk II support, graphics, and sound.
 
 > **Note:** EWM is a hobby project and still under development. Things may
 > be incomplete, quirky, or broken — bug reports and pull requests are
-> welcome. See [REWRITE.md](REWRITE.md) for the project's verification
+> welcome. See [REWRITE.md](notes/REWRITE.md) for the project's verification
 > gates and a list of known quirks and deliberate divergences.
 
 ![The EWM bootloader menu](screenshots/Screenshot%202026-07-05%20at%2011.32.44.png)
@@ -101,7 +101,7 @@ machines themselves and are not part of the automated suite.
 
 EWM was originally written in C and was ported to Rust in 2026 — the full
 phase-by-phase plan, parity checklist, and benchmark numbers are preserved
-in [REWRITE.md](REWRITE.md). The original C implementation lives in the git
+in [REWRITE.md](notes/REWRITE.md). The original C implementation lives in the git
 history.
 
 ## License
