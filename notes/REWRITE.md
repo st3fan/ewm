@@ -444,6 +444,16 @@ constant), the queue is primed at startup, and frames carrying signal are
 never dropped. Deliberate behavior divergence, with unit tests on the
 waveform.
 
+### Reset rebound from Cmd-Esc to Cmd-R (2026-07-06)
+
+The C key map used Cmd-Esc for machine reset, but on macOS AppKit claims
+Cmd-Esc as a cancel key equivalent (`cancelOperation:`) before SDL ever
+sees the event — confirmed with `--debug` key logging: Cmd-Return arrives,
+Cmd-Esc never does, in the C as much as in the Rust. Reset is now Cmd-R in
+both frontends (Cmd-letter combos are reliably delivered; Cmd-I and Cmd-P
+already depend on that). Divergence from the C key map. The `--debug` flag
+now also logs KeyDown events, which is how this was diagnosed.
+
 ## Sequencing notes
 
 - Phases are strictly ordered 0→9. Phase 4 may be deferred until after 5/6 if

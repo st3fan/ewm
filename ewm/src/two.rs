@@ -806,10 +806,19 @@ pub fn main(args: &[String]) -> i32 {
                 }
 
                 Event::KeyDown {
-                    keycode: Some(keycode),
+                    keycode,
+                    scancode,
                     keymod,
                     ..
                 } => {
+                    if options.debug {
+                        eprintln!(
+                            "[SDL] KeyDown keycode={keycode:?} scancode={scancode:?} keymod={keymod:?}"
+                        );
+                    }
+                    let Some(keycode) = keycode else {
+                        continue;
+                    };
                     let sym = keycode.into_i32();
                     if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
                         if (Keycode::A.into_i32()..=Keycode::Z.into_i32()).contains(&sym) {
@@ -817,7 +826,10 @@ pub fn main(args: &[String]) -> i32 {
                         }
                     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
                         match keycode {
-                            Keycode::Escape => {
+                            // Cmd-R, not Cmd-Esc: AppKit claims Cmd-Esc as a
+                            // cancel key equivalent on macOS, so SDL never
+                            // sees it.
+                            Keycode::R => {
                                 eprintln!("[SDL] Reset");
                                 two.cpu.reset();
                             }

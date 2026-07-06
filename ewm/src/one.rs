@@ -152,7 +152,9 @@ fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event
         // TODO Implement control codes 1b - 1f (comment from one.c)
     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
         match *keycode {
-            Keycode::Escape => {
+            // Cmd-R, not Cmd-Esc: AppKit claims Cmd-Esc as a cancel key
+            // equivalent on macOS, so SDL never sees it.
+            Keycode::R => {
                 one.cpu.reset();
                 tty.reset();
             }
