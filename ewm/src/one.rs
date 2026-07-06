@@ -9,10 +9,11 @@ use crate::sdl;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::mem::{DeviceHandle, Memory};
-use sdl2::event::Event;
-use sdl2::keyboard::{Keycode, Mod};
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::video::FullscreenType;
+use sdl3::event::Event;
+use sdl3::keyboard::{Keycode, Mod};
+use sdl3::pixels::PixelFormat;
+use sdl3::sys::render::SDL_RendererLogicalPresentation;
+use sdl3::video::FullscreenType;
 
 static APPLE1_ROM: &[u8] = include_bytes!("../../rom/apple1.rom");
 static KRUSADER_ROM: &[u8] = include_bytes!("../../rom/krusader.rom");
@@ -133,7 +134,7 @@ fn usage() {
     eprintln!("  replica1  Replica 1, 65C02, 48KB RAM, KRUSADER");
 }
 
-fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event: &Event) {
+fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl3::video::Window, event: &Event) {
     let Event::KeyDown {
         keycode: Some(keycode),
         keymod,
@@ -142,12 +143,12 @@ fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event
     else {
         return;
     };
-    let sym = keycode.into_i32();
+    let sym = *keycode as i32;
 
     if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
-        if (Keycode::A.into_i32()..=Keycode::Z.into_i32()).contains(&sym) {
+        if (Keycode::A as i32..=Keycode::Z as i32).contains(&sym) {
             // As in one.c: ctrl-a maps to 0x00 (sym - SDLK_a).
-            one.key((sym - Keycode::A.into_i32()) as u8);
+            one.key((sym - Keycode::A as i32) as u8);
         }
         // TODO Implement control codes 1b - 1f (comment from one.c)
     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
@@ -160,9 +161,9 @@ fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event
             }
             Keycode::Return => {
                 if window.fullscreen_state() == FullscreenType::True {
-                    let _ = window.set_fullscreen(FullscreenType::Off);
+                    let _ = window.set_fullscreen(false);
                 } else {
-                    let _ = window.set_fullscreen(FullscreenType::True);
+                    let _ = window.set_fullscreen(true);
                 }
             }
             _ => {}
@@ -240,7 +241,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Setup SDL
 
-    let context = match sdl2::init() {
+    let context = match sdl3::init() {
         Ok(context) => context,
         Err(e) => {
             eprintln!("Failed to initialize SDL: {e}");
@@ -248,7 +249,6 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
     let video = context.video().expect("Failed to initialize SDL video");
-    let timer = context.timer().expect("Failed to initialize SDL timer");
 
     let window = video
         .window("EWM v0.1 - Apple 1", 280 * 3, 192 * 3)
@@ -262,13 +262,7 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
 
-    let mut canvas = match window.into_canvas().accelerated().build() {
-        Ok(canvas) => canvas,
-        Err(e) => {
-            eprintln!("Failed to create renderer: {e}");
-            return 1;
-        }
-    };
+    let mut canvas = window.into_canvas();
 
     if let Err(e) = sdl::check_renderer(&canvas) {
         eprintln!("{e}");
@@ -276,7 +270,11 @@ pub fn main(args: &[String]) -> i32 {
     }
 
     canvas
-        .set_logical_size(TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
+        .set_logical_size(
+            TTY_PIXEL_WIDTH as u32,
+            TTY_PIXEL_HEIGHT as u32,
+            SDL_RendererLogicalPresentation::LETTERBOX,
+        )
         .expect("Failed to set logical size");
 
     // Create the machine
@@ -326,16 +324,16 @@ pub fn main(args: &[String]) -> i32 {
 
     // Main loop
 
-    video.text_input().start();
+    video.text_input().start(canvas.window());
 
     let texture_creator = canvas.texture_creator();
-    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormatEnum::ARGB8888);
+    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormat::ARGB8888);
     let mut texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create texture");
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let mut ticks = timer.ticks();
+    let mut ticks = sdl3::timer::ticks();
     let mut phase: u32 = 1;
 
     'outer: loop {
@@ -355,14 +353,14 @@ pub fn main(args: &[String]) -> i32 {
 
         // This is very basic throttling that does bursts of CPU cycles.
 
-        if (timer.ticks() - ticks) >= (1000 / ONE_FPS) {
+        if (sdl3::timer::ticks() - ticks) >= (1000 / ONE_FPS) as u64 {
             step_cpu(&mut one, ONE_CPS / ONE_FPS);
             for b in one.drain_display() {
                 tty.write(b);
             }
 
             if tty.screen_dirty || phase == 0 || phase.is_multiple_of(ONE_FPS / 4) {
-                canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 255));
+                canvas.set_draw_color(sdl3::pixels::Color::RGBA(0, 0, 0, 255));
                 canvas.clear();
 
                 tty.refresh(phase, ONE_FPS);
@@ -382,7 +380,7 @@ pub fn main(args: &[String]) -> i32 {
                 canvas.present();
             }
 
-            ticks = timer.ticks();
+            ticks = sdl3::timer::ticks();
 
             phase += 1;
             if phase == ONE_FPS {
