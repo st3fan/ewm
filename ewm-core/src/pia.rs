@@ -1,7 +1,10 @@
 //! 6820 Peripheral I/O Adapter, port of `pia.c`. On the Apple 1 this is
 //! what connects the keyboard and display logic to the CPU. The
 //! implementation is not complete but does enough to support how the
-//! keyboard and display are hooked up.
+//! keyboard and display are hooked up. As in C the PIA registers itself as
+//! an IO region; the output callback becomes a drainable queue.
+
+use crate::mem::Device;
 
 pub const PIA6820_DDRA: u8 = 0;
 pub const PIA6820_CTLA: u8 = 1;
@@ -26,6 +29,7 @@ pub struct Pia {
     pub outb: u8,
     pub ddrb: u8,
     pub ctlb: u8,
+    out: Vec<(u8, u8)>,
 }
 
 impl Pia {
@@ -33,8 +37,25 @@ impl Pia {
         Pia::default()
     }
 
+    pub fn set_ina(&mut self, v: u8) {
+        self.ina = v;
+    }
+
+    pub fn set_irqa1(&mut self) {
+        self.ctla |= 0b1000_0000; // Set IRQA1
+    }
+
+    /// `(ddr, v)` pairs written to the output registers since the last
+    /// drain — the C output callback turned into a queue for the machine to
+    /// route to its display sink.
+    pub fn drain_out(&mut self) -> Vec<(u8, u8)> {
+        std::mem::take(&mut self.out)
+    }
+}
+
+impl Device for Pia {
     /// Port of `pia_read`. Reading the keyboard register clears IRQA1.
-    pub fn read(&mut self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
         match addr {
             KBD_DDR => {
                 if self.ctla & 0b0000_0100 != 0 {
@@ -57,16 +78,15 @@ impl Pia {
         }
     }
 
-    /// Port of `pia_write`. Returns `Some((ddr, v))` when an output register
-    /// was written — this is the C output callback turned into a return
-    /// value, for the machine to route to its display sink.
-    pub fn write(&mut self, addr: u16, v: u8) -> Option<(u8, u8)> {
+    /// Port of `pia_write`. Output-register writes are queued for
+    /// `drain_out`, where the C invoked the callback.
+    fn write(&mut self, addr: u16, v: u8, _cycles: u64) {
         match addr {
             KBD_DDR => {
                 // Check B2 (DDR Access)
                 if self.ctla & 0b0000_0100 != 0 {
                     self.outa = v;
-                    return Some((PIA6820_DDRA, v));
+                    self.out.push((PIA6820_DDRA, v));
                 } else {
                     self.ddra = v;
                 }
@@ -76,7 +96,7 @@ impl Pia {
                 // Check B2 (DDR Access)
                 if self.ctlb & 0b0000_0100 != 0 {
                     self.outb = v;
-                    return Some((PIA6820_DDRB, v));
+                    self.out.push((PIA6820_DDRB, v));
                 } else {
                     self.ddrb = v;
                 }
@@ -84,14 +104,5 @@ impl Pia {
             DSP_CTL => self.ctlb = v & 0b0011_1111,
             _ => {}
         }
-        None
-    }
-
-    pub fn set_ina(&mut self, v: u8) {
-        self.ina = v;
-    }
-
-    pub fn set_irqa1(&mut self) {
-        self.ctla |= 0b1000_0000; // Set IRQA1
     }
 }

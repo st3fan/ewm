@@ -7,13 +7,13 @@
 
 use std::time::Instant;
 
-use ewm_core::bus::TestBus;
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::ins::{Handler, Instruction, instructions_65c02};
+use ewm_core::mem::Memory;
 
 const CPU_BENCH_ITERATIONS: u64 = 10 * 1000 * 1000;
 
-fn test(cpu: &mut Cpu, bus: &mut TestBus, ins: &Instruction) {
+fn test(cpu: &mut Cpu, ins: &Instruction) {
     let mut runs = [0u64; 3];
 
     for run in &mut runs {
@@ -22,17 +22,17 @@ fn test(cpu: &mut Cpu, bus: &mut TestBus, ins: &Instruction) {
         match ins.handler {
             Handler::Implied(f) => {
                 for _ in 0..CPU_BENCH_ITERATIONS {
-                    f(cpu, bus);
+                    f(cpu);
                 }
             }
             Handler::Byte(f) => {
                 for _ in 0..CPU_BENCH_ITERATIONS {
-                    f(cpu, bus, 0x12);
+                    f(cpu, 0x12);
                 }
             }
             Handler::Word(f) => {
                 for _ in 0..CPU_BENCH_ITERATIONS {
-                    f(cpu, bus, 0x1234);
+                    f(cpu, 0x1234);
                 }
             }
         }
@@ -52,9 +52,8 @@ fn test(cpu: &mut Cpu, bus: &mut TestBus, ins: &Instruction) {
 }
 
 fn main() {
-    let mut bus = TestBus::new();
-    let mut cpu = Cpu::new(Model::M65C02);
-    cpu.reset(&mut bus);
+    let mut cpu = Cpu::new(Model::M65C02, Memory::new(0x10000));
+    cpu.reset();
 
     // cargo bench passes a --bench flag through; ignore flag-like args.
     let names: Vec<String> = std::env::args()
@@ -67,13 +66,13 @@ fn main() {
         for name in &names {
             for ins in table.iter() {
                 if ins.name == name {
-                    test(&mut cpu, &mut bus, ins);
+                    test(&mut cpu, ins);
                 }
             }
         }
     } else {
         for ins in table.iter() {
-            test(&mut cpu, &mut bus, ins);
+            test(&mut cpu, ins);
         }
     }
 }

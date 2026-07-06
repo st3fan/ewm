@@ -3,16 +3,15 @@
 //! in beside their only callers. Handlers are ported in `ins.c` source order
 //! so diffs against the C code are positional.
 
-use crate::bus::Bus;
 use crate::cpu::{Cpu, Model};
 
 /// The type-safe version of C's arity-cast `void *handler`: dispatch selects
 /// the variant matching the instruction's operand size.
 #[derive(Clone, Copy)]
 pub enum Handler {
-    Implied(fn(&mut Cpu, &mut dyn Bus)),
-    Byte(fn(&mut Cpu, &mut dyn Bus, u8)),
-    Word(fn(&mut Cpu, &mut dyn Bus, u16)),
+    Implied(fn(&mut Cpu)),
+    Byte(fn(&mut Cpu, u8)),
+    Word(fn(&mut Cpu, u16)),
 }
 
 #[derive(Clone, Copy)]
@@ -29,102 +28,102 @@ pub struct Instruction {
 // but indy does *not* wrap when reading the pointer high byte (C integer
 // promotion makes ($FF),Y read its pointer high byte from $0100).
 
-pub fn mem_get_byte_abs(bus: &mut dyn Bus, addr: u16) -> u8 {
-    bus.read(addr)
+pub fn mem_get_byte_abs(cpu: &mut Cpu, addr: u16) -> u8 {
+    cpu.mem.read(addr)
 }
 
-pub fn mem_get_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
-    bus.read(addr.wrapping_add(cpu.x as u16))
+pub fn mem_get_byte_absx(cpu: &mut Cpu, addr: u16) -> u8 {
+    cpu.mem.read(addr.wrapping_add(cpu.x as u16))
 }
 
-pub fn mem_get_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16) -> u8 {
-    bus.read(addr.wrapping_add(cpu.y as u16))
+pub fn mem_get_byte_absy(cpu: &mut Cpu, addr: u16) -> u8 {
+    cpu.mem.read(addr.wrapping_add(cpu.y as u16))
 }
 
-pub fn mem_get_byte_zpg(bus: &mut dyn Bus, addr: u8) -> u8 {
-    bus.read(addr as u16)
+pub fn mem_get_byte_zpg(cpu: &mut Cpu, addr: u8) -> u8 {
+    cpu.mem.read(addr as u16)
 }
 
-pub fn mem_get_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
-    bus.read((addr as u16 + cpu.x as u16) & 0x00ff)
+pub fn mem_get_byte_zpgx(cpu: &mut Cpu, addr: u8) -> u8 {
+    cpu.mem.read((addr as u16 + cpu.x as u16) & 0x00ff)
 }
 
-pub fn mem_get_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
-    bus.read((addr as u16 + cpu.y as u16) & 0x00ff)
+pub fn mem_get_byte_zpgy(cpu: &mut Cpu, addr: u8) -> u8 {
+    cpu.mem.read((addr as u16 + cpu.y as u16) & 0x00ff)
 }
 
-fn indx_addr(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u16 {
-    let hi = bus.read((addr as u16 + 1 + cpu.x as u16) & 0x00ff);
-    let lo = bus.read((addr as u16 + cpu.x as u16) & 0x00ff);
+fn indx_addr(cpu: &mut Cpu, addr: u8) -> u16 {
+    let hi = cpu.mem.read((addr as u16 + 1 + cpu.x as u16) & 0x00ff);
+    let lo = cpu.mem.read((addr as u16 + cpu.x as u16) & 0x00ff);
     ((hi as u16) << 8) | lo as u16
 }
 
-fn indy_addr(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u16 {
+fn indy_addr(cpu: &mut Cpu, addr: u8) -> u16 {
     // No zero-page wrap on addr + 1, matching mem_get_byte_indy in mem.c.
-    let hi = bus.read(addr as u16 + 1);
-    let lo = bus.read(addr as u16);
+    let hi = cpu.mem.read(addr as u16 + 1);
+    let lo = cpu.mem.read(addr as u16);
     (((hi as u16) << 8) | lo as u16).wrapping_add(cpu.y as u16)
 }
 
-fn ind_addr(bus: &mut dyn Bus, addr: u8) -> u16 {
+fn ind_addr(cpu: &mut Cpu, addr: u8) -> u16 {
     // No zero-page wrap on addr + 1, matching mem_get_byte_ind in mem.c.
-    let hi = bus.read(addr as u16 + 1);
-    let lo = bus.read(addr as u16);
+    let hi = cpu.mem.read(addr as u16 + 1);
+    let lo = cpu.mem.read(addr as u16);
     ((hi as u16) << 8) | lo as u16
 }
 
-pub fn mem_get_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
-    let a = indx_addr(cpu, bus, addr);
-    bus.read(a)
+pub fn mem_get_byte_indx(cpu: &mut Cpu, addr: u8) -> u8 {
+    let a = indx_addr(cpu, addr);
+    cpu.mem.read(a)
 }
 
-pub fn mem_get_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8) -> u8 {
-    let a = indy_addr(cpu, bus, addr);
-    bus.read(a)
+pub fn mem_get_byte_indy(cpu: &mut Cpu, addr: u8) -> u8 {
+    let a = indy_addr(cpu, addr);
+    cpu.mem.read(a)
 }
 
-pub fn mem_get_byte_ind(bus: &mut dyn Bus, addr: u8) -> u8 {
-    let a = ind_addr(bus, addr);
-    bus.read(a)
+pub fn mem_get_byte_ind(cpu: &mut Cpu, addr: u8) -> u8 {
+    let a = ind_addr(cpu, addr);
+    cpu.mem.read(a)
 }
 
-pub fn mem_set_byte_zpg(bus: &mut dyn Bus, addr: u8, v: u8) {
-    bus.write(addr as u16, v);
+pub fn mem_set_byte_zpg(cpu: &mut Cpu, addr: u8, v: u8) {
+    cpu.mem.write(addr as u16, v);
 }
 
-pub fn mem_set_byte_zpgx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
-    bus.write((addr as u16 + cpu.x as u16) & 0x00ff, v);
+pub fn mem_set_byte_zpgx(cpu: &mut Cpu, addr: u8, v: u8) {
+    cpu.mem.write((addr as u16 + cpu.x as u16) & 0x00ff, v);
 }
 
-pub fn mem_set_byte_zpgy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
-    bus.write((addr as u16 + cpu.y as u16) & 0x00ff, v);
+pub fn mem_set_byte_zpgy(cpu: &mut Cpu, addr: u8, v: u8) {
+    cpu.mem.write((addr as u16 + cpu.y as u16) & 0x00ff, v);
 }
 
-pub fn mem_set_byte_abs(bus: &mut dyn Bus, addr: u16, v: u8) {
-    bus.write(addr, v);
+pub fn mem_set_byte_abs(cpu: &mut Cpu, addr: u16, v: u8) {
+    cpu.mem.write(addr, v);
 }
 
-pub fn mem_set_byte_absx(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
-    bus.write(addr.wrapping_add(cpu.x as u16), v);
+pub fn mem_set_byte_absx(cpu: &mut Cpu, addr: u16, v: u8) {
+    cpu.mem.write(addr.wrapping_add(cpu.x as u16), v);
 }
 
-pub fn mem_set_byte_absy(cpu: &Cpu, bus: &mut dyn Bus, addr: u16, v: u8) {
-    bus.write(addr.wrapping_add(cpu.y as u16), v);
+pub fn mem_set_byte_absy(cpu: &mut Cpu, addr: u16, v: u8) {
+    cpu.mem.write(addr.wrapping_add(cpu.y as u16), v);
 }
 
-pub fn mem_set_byte_indx(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
-    let a = indx_addr(cpu, bus, addr);
-    bus.write(a, v);
+pub fn mem_set_byte_indx(cpu: &mut Cpu, addr: u8, v: u8) {
+    let a = indx_addr(cpu, addr);
+    cpu.mem.write(a, v);
 }
 
-pub fn mem_set_byte_indy(cpu: &Cpu, bus: &mut dyn Bus, addr: u8, v: u8) {
-    let a = indy_addr(cpu, bus, addr);
-    bus.write(a, v);
+pub fn mem_set_byte_indy(cpu: &mut Cpu, addr: u8, v: u8) {
+    let a = indy_addr(cpu, addr);
+    cpu.mem.write(a, v);
 }
 
-pub fn mem_set_byte_ind(bus: &mut dyn Bus, addr: u8, v: u8) {
-    let a = ind_addr(bus, addr);
-    bus.write(a, v);
+pub fn mem_set_byte_ind(cpu: &mut Cpu, addr: u8, v: u8) {
+    let a = ind_addr(cpu, addr);
+    cpu.mem.write(a, v);
 }
 
 // Read-modify-write helpers, from mem.c (mem_mod_byte_*). Only the variants
@@ -132,28 +131,28 @@ pub fn mem_set_byte_ind(bus: &mut dyn Bus, addr: u8, v: u8) {
 
 type ModOp = fn(&mut Cpu, u8) -> u8;
 
-fn mem_mod_byte_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, addr: u8, op: ModOp) {
-    let b = mem_get_byte_zpg(bus, addr);
+fn mem_mod_byte_zpg(cpu: &mut Cpu, addr: u8, op: ModOp) {
+    let b = mem_get_byte_zpg(cpu, addr);
     let v = op(cpu, b);
-    mem_set_byte_zpg(bus, addr, v);
+    mem_set_byte_zpg(cpu, addr, v);
 }
 
-fn mem_mod_byte_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, addr: u8, op: ModOp) {
-    let b = mem_get_byte_zpgx(cpu, bus, addr);
+fn mem_mod_byte_zpgx(cpu: &mut Cpu, addr: u8, op: ModOp) {
+    let b = mem_get_byte_zpgx(cpu, addr);
     let v = op(cpu, b);
-    mem_set_byte_zpgx(cpu, bus, addr, v);
+    mem_set_byte_zpgx(cpu, addr, v);
 }
 
-fn mem_mod_byte_abs(cpu: &mut Cpu, bus: &mut dyn Bus, addr: u16, op: ModOp) {
-    let b = mem_get_byte_abs(bus, addr);
+fn mem_mod_byte_abs(cpu: &mut Cpu, addr: u16, op: ModOp) {
+    let b = mem_get_byte_abs(cpu, addr);
     let v = op(cpu, b);
-    mem_set_byte_abs(bus, addr, v);
+    mem_set_byte_abs(cpu, addr, v);
 }
 
-fn mem_mod_byte_absx(cpu: &mut Cpu, bus: &mut dyn Bus, addr: u16, op: ModOp) {
-    let b = mem_get_byte_absx(cpu, bus, addr);
+fn mem_mod_byte_absx(cpu: &mut Cpu, addr: u16, op: ModOp) {
+    let b = mem_get_byte_absx(cpu, addr);
     let v = op(cpu, b);
-    mem_set_byte_absx(cpu, bus, addr, v);
+    mem_set_byte_absx(cpu, addr, v);
 }
 
 fn update_zn(cpu: &mut Cpu, v: u8) {
@@ -200,42 +199,42 @@ fn adc(cpu: &mut Cpu, m: u8) {
     }
 }
 
-fn adc_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn adc_imm(cpu: &mut Cpu, oper: u8) {
     adc(cpu, oper);
 }
 
-fn adc_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn adc_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn adc_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn adc_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn adc_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn adc_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn adc_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     adc(cpu, m);
 }
 
-fn adc_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn adc_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     adc(cpu, m);
 }
 
@@ -246,42 +245,42 @@ fn and(cpu: &mut Cpu, m: u8) {
     update_zn(cpu, cpu.a);
 }
 
-fn and_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn and_imm(cpu: &mut Cpu, oper: u8) {
     and(cpu, oper);
 }
 
-fn and_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn and_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     and(cpu, m);
 }
 
-fn and_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn and_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     and(cpu, m);
 }
 
-fn and_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn and_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     and(cpu, m);
 }
 
-fn and_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn and_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     and(cpu, m);
 }
 
-fn and_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn and_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     and(cpu, m);
 }
 
-fn and_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn and_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     and(cpu, m);
 }
 
-fn and_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn and_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     and(cpu, m);
 }
 
@@ -295,24 +294,24 @@ fn asl(cpu: &mut Cpu, b: u8) -> u8 {
     b
 }
 
-fn asl_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn asl_acc(cpu: &mut Cpu) {
     cpu.a = asl(cpu, cpu.a);
 }
 
-fn asl_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, asl);
+fn asl_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, asl);
 }
 
-fn asl_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, asl);
+fn asl_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, asl);
 }
 
-fn asl_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, asl);
+fn asl_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, asl);
 }
 
-fn asl_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, asl);
+fn asl_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, asl);
 }
 
 /* BIT */
@@ -324,61 +323,61 @@ fn bit(cpu: &mut Cpu, m: u8) {
     cpu.z = (t == 0) as u8;
 }
 
-fn bit_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn bit_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     bit(cpu, m);
 }
 
-fn bit_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn bit_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     bit(cpu, m);
 }
 
 /* Bxx Branches */
 
-fn bcc(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bcc(cpu: &mut Cpu, oper: u8) {
     if cpu.c == 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bcs(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bcs(cpu: &mut Cpu, oper: u8) {
     if cpu.c != 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn beq(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn beq(cpu: &mut Cpu, oper: u8) {
     if cpu.z != 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bmi(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bmi(cpu: &mut Cpu, oper: u8) {
     if cpu.n != 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bne(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bne(cpu: &mut Cpu, oper: u8) {
     if cpu.z == 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bpl(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bpl(cpu: &mut Cpu, oper: u8) {
     if cpu.n == 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bvc(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bvc(cpu: &mut Cpu, oper: u8) {
     if cpu.v == 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
 }
 
-fn bvs(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bvs(cpu: &mut Cpu, oper: u8) {
     if cpu.v != 0 {
         cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
     }
@@ -386,29 +385,29 @@ fn bvs(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
 
 /* BRK */
 
-fn brk(cpu: &mut Cpu, bus: &mut dyn Bus) {
+fn brk(cpu: &mut Cpu) {
     cpu.b = 1;
     if cpu.model == Model::M65C02 {
         cpu.d = 0;
     }
-    let _ = cpu.irq(bus);
+    let _ = cpu.irq();
 }
 
 /* CLx */
 
-fn clc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn clc(cpu: &mut Cpu) {
     cpu.c = 0;
 }
 
-fn cld(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn cld(cpu: &mut Cpu) {
     cpu.d = 0;
 }
 
-fn cli(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn cli(cpu: &mut Cpu) {
     cpu.i = 0;
 }
 
-fn clv(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn clv(cpu: &mut Cpu) {
     cpu.v = 0;
 }
 
@@ -421,42 +420,42 @@ fn cmp(cpu: &mut Cpu, m: u8) {
     cpu.z = (t == 0) as u8;
 }
 
-fn cmp_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn cmp_imm(cpu: &mut Cpu, oper: u8) {
     cmp(cpu, oper);
 }
 
-fn cmp_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn cmp_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn cmp_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn cmp_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn cmp_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn cmp_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn cmp_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     cmp(cpu, m);
 }
 
-fn cmp_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn cmp_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     cmp(cpu, m);
 }
 
@@ -468,17 +467,17 @@ fn cpx(cpu: &mut Cpu, m: u8) {
     update_zn(cpu, t);
 }
 
-fn cpx_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn cpx_imm(cpu: &mut Cpu, oper: u8) {
     cpx(cpu, oper);
 }
 
-fn cpx_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn cpx_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     cpx(cpu, m);
 }
 
-fn cpx_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn cpx_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     cpx(cpu, m);
 }
 
@@ -490,17 +489,17 @@ fn cpy(cpu: &mut Cpu, m: u8) {
     update_zn(cpu, t);
 }
 
-fn cpy_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn cpy_imm(cpu: &mut Cpu, oper: u8) {
     cpy(cpu, oper);
 }
 
-fn cpy_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn cpy_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     cpy(cpu, m);
 }
 
-fn cpy_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn cpy_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     cpy(cpu, m);
 }
 
@@ -512,28 +511,28 @@ fn dec(cpu: &mut Cpu, b: u8) -> u8 {
     t
 }
 
-fn dec_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, dec);
+fn dec_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, dec);
 }
 
-fn dec_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, dec);
+fn dec_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, dec);
 }
 
-fn dec_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, dec);
+fn dec_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, dec);
 }
 
-fn dec_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, dec);
+fn dec_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, dec);
 }
 
-fn dex(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn dex(cpu: &mut Cpu) {
     cpu.x = cpu.x.wrapping_sub(1);
     update_zn(cpu, cpu.x);
 }
 
-fn dey(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn dey(cpu: &mut Cpu) {
     cpu.y = cpu.y.wrapping_sub(1);
     update_zn(cpu, cpu.y);
 }
@@ -545,42 +544,42 @@ fn eor(cpu: &mut Cpu, m: u8) {
     update_zn(cpu, cpu.a);
 }
 
-fn eor_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn eor_imm(cpu: &mut Cpu, oper: u8) {
     eor(cpu, oper);
 }
 
-fn eor_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn eor_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn eor_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn eor_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn eor_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn eor_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn eor_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     eor(cpu, m);
 }
 
-fn eor_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn eor_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     eor(cpu, m);
 }
 
@@ -592,142 +591,142 @@ fn inc(cpu: &mut Cpu, b: u8) -> u8 {
     t
 }
 
-fn inc_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, inc);
+fn inc_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, inc);
 }
 
-fn inc_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, inc);
+fn inc_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, inc);
 }
 
-fn inc_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, inc);
+fn inc_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, inc);
 }
 
-fn inc_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, inc);
+fn inc_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, inc);
 }
 
-fn inx(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn inx(cpu: &mut Cpu) {
     cpu.x = cpu.x.wrapping_add(1);
     update_zn(cpu, cpu.x);
 }
 
-fn iny(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn iny(cpu: &mut Cpu) {
     cpu.y = cpu.y.wrapping_add(1);
     update_zn(cpu, cpu.y);
 }
 
 /* JMP */
 
-fn jmp_abs(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u16) {
+fn jmp_abs(cpu: &mut Cpu, oper: u16) {
     cpu.pc = oper;
 }
 
-fn jmp_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.pc = bus.read_word(oper);
+fn jmp_ind(cpu: &mut Cpu, oper: u16) {
+    cpu.pc = cpu.mem.read_word(oper);
 }
 
 /* JSR */
 
-fn jsr_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.push_word(bus, cpu.pc.wrapping_sub(1));
+fn jsr_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.push_word(cpu.pc.wrapping_sub(1));
     cpu.pc = oper;
 }
 
 /* LDA */
 
-fn lda_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn lda_imm(cpu: &mut Cpu, oper: u8) {
     cpu.a = oper;
     update_zn(cpu, cpu.a);
 }
 
-fn lda_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.a = mem_get_byte_zpg(bus, oper);
+fn lda_zpg(cpu: &mut Cpu, oper: u8) {
+    cpu.a = mem_get_byte_zpg(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.a = mem_get_byte_zpgx(cpu, bus, oper);
+fn lda_zpgx(cpu: &mut Cpu, oper: u8) {
+    cpu.a = mem_get_byte_zpgx(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.a = mem_get_byte_abs(bus, oper);
+fn lda_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.a = mem_get_byte_abs(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.a = mem_get_byte_absx(cpu, bus, oper);
+fn lda_absx(cpu: &mut Cpu, oper: u16) {
+    cpu.a = mem_get_byte_absx(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.a = mem_get_byte_absy(cpu, bus, oper);
+fn lda_absy(cpu: &mut Cpu, oper: u16) {
+    cpu.a = mem_get_byte_absy(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.a = mem_get_byte_indx(cpu, bus, oper);
+fn lda_indx(cpu: &mut Cpu, oper: u8) {
+    cpu.a = mem_get_byte_indx(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn lda_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.a = mem_get_byte_indy(cpu, bus, oper);
+fn lda_indy(cpu: &mut Cpu, oper: u8) {
+    cpu.a = mem_get_byte_indy(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
 /* LDX */
 
-fn ldx_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn ldx_imm(cpu: &mut Cpu, oper: u8) {
     cpu.x = oper;
     update_zn(cpu, cpu.x);
 }
 
-fn ldx_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.x = mem_get_byte_zpg(bus, oper);
+fn ldx_zpg(cpu: &mut Cpu, oper: u8) {
+    cpu.x = mem_get_byte_zpg(cpu, oper);
     update_zn(cpu, cpu.x);
 }
 
-fn ldx_zpgy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.x = mem_get_byte_zpgy(cpu, bus, oper);
+fn ldx_zpgy(cpu: &mut Cpu, oper: u8) {
+    cpu.x = mem_get_byte_zpgy(cpu, oper);
     update_zn(cpu, cpu.x);
 }
 
-fn ldx_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.x = mem_get_byte_abs(bus, oper);
+fn ldx_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.x = mem_get_byte_abs(cpu, oper);
     update_zn(cpu, cpu.x);
 }
 
-fn ldx_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.x = mem_get_byte_absy(cpu, bus, oper);
+fn ldx_absy(cpu: &mut Cpu, oper: u16) {
+    cpu.x = mem_get_byte_absy(cpu, oper);
     update_zn(cpu, cpu.x);
 }
 
 /* LDY */
 
-fn ldy_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn ldy_imm(cpu: &mut Cpu, oper: u8) {
     cpu.y = oper;
     update_zn(cpu, cpu.y);
 }
 
-fn ldy_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.y = mem_get_byte_zpg(bus, oper);
+fn ldy_zpg(cpu: &mut Cpu, oper: u8) {
+    cpu.y = mem_get_byte_zpg(cpu, oper);
     update_zn(cpu, cpu.y);
 }
 
-fn ldy_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.y = mem_get_byte_zpgx(cpu, bus, oper);
+fn ldy_zpgx(cpu: &mut Cpu, oper: u8) {
+    cpu.y = mem_get_byte_zpgx(cpu, oper);
     update_zn(cpu, cpu.y);
 }
 
-fn ldy_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.y = mem_get_byte_abs(bus, oper);
+fn ldy_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.y = mem_get_byte_abs(cpu, oper);
     update_zn(cpu, cpu.y);
 }
 
-fn ldy_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.y = mem_get_byte_absx(cpu, bus, oper);
+fn ldy_absx(cpu: &mut Cpu, oper: u16) {
+    cpu.y = mem_get_byte_absx(cpu, oper);
     update_zn(cpu, cpu.y);
 }
 
@@ -740,29 +739,29 @@ fn lsr(cpu: &mut Cpu, b: u8) -> u8 {
     b
 }
 
-fn lsr_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn lsr_acc(cpu: &mut Cpu) {
     cpu.a = lsr(cpu, cpu.a);
 }
 
-fn lsr_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, lsr);
+fn lsr_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, lsr);
 }
 
-fn lsr_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, lsr);
+fn lsr_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, lsr);
 }
 
-fn lsr_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, lsr);
+fn lsr_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, lsr);
 }
 
-fn lsr_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, lsr);
+fn lsr_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, lsr);
 }
 
 /* NOP */
 
-fn nop(_cpu: &mut Cpu, _bus: &mut dyn Bus) {}
+fn nop(_cpu: &mut Cpu) {}
 
 /* ORA */
 
@@ -771,62 +770,62 @@ fn ora(cpu: &mut Cpu, m: u8) {
     update_zn(cpu, cpu.a);
 }
 
-fn ora_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn ora_imm(cpu: &mut Cpu, oper: u8) {
     ora(cpu, oper);
 }
 
-fn ora_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn ora_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn ora_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn ora_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn ora_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn ora_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn ora_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     ora(cpu, m);
 }
 
-fn ora_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn ora_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     ora(cpu, m);
 }
 
 /* P** */
 
-fn pha(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.push_byte(bus, cpu.a);
+fn pha(cpu: &mut Cpu) {
+    cpu.push_byte(cpu.a);
 }
 
-fn pla(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.a = cpu.pull_byte(bus);
+fn pla(cpu: &mut Cpu) {
+    cpu.a = cpu.pull_byte();
     update_zn(cpu, cpu.a);
 }
 
-fn php(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.push_byte(bus, cpu.status());
+fn php(cpu: &mut Cpu) {
+    cpu.push_byte(cpu.status());
 }
 
-fn plp(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    let s = cpu.pull_byte(bus);
+fn plp(cpu: &mut Cpu) {
+    let s = cpu.pull_byte();
     cpu.set_status(s);
 }
 
@@ -840,24 +839,24 @@ fn rol(cpu: &mut Cpu, b: u8) -> u8 {
     b
 }
 
-fn rol_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn rol_acc(cpu: &mut Cpu) {
     cpu.a = rol(cpu, cpu.a);
 }
 
-fn rol_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, rol);
+fn rol_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, rol);
 }
 
-fn rol_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, rol);
+fn rol_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, rol);
 }
 
-fn rol_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, rol);
+fn rol_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, rol);
 }
 
-fn rol_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, rol);
+fn rol_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, rol);
 }
 
 /* ROR */
@@ -870,38 +869,38 @@ fn ror(cpu: &mut Cpu, b: u8) -> u8 {
     b
 }
 
-fn ror_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn ror_acc(cpu: &mut Cpu) {
     cpu.a = ror(cpu, cpu.a);
 }
 
-fn ror_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpg(cpu, bus, oper, ror);
+fn ror_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpg(cpu, oper, ror);
 }
 
-fn ror_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_mod_byte_zpgx(cpu, bus, oper, ror);
+fn ror_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_mod_byte_zpgx(cpu, oper, ror);
 }
 
-fn ror_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_abs(cpu, bus, oper, ror);
+fn ror_abs(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_abs(cpu, oper, ror);
 }
 
-fn ror_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_mod_byte_absx(cpu, bus, oper, ror);
+fn ror_absx(cpu: &mut Cpu, oper: u16) {
+    mem_mod_byte_absx(cpu, oper, ror);
 }
 
 /* RTI */
 
-fn rti(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    let s = cpu.pull_byte(bus);
+fn rti(cpu: &mut Cpu) {
+    let s = cpu.pull_byte();
     cpu.set_status(s);
-    cpu.pc = cpu.pull_word(bus);
+    cpu.pc = cpu.pull_word();
 }
 
 /* RTS */
 
-fn rts(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.pc = cpu.pull_word(bus).wrapping_add(1);
+fn rts(cpu: &mut Cpu) {
+    cpu.pc = cpu.pull_word().wrapping_add(1);
 }
 
 /* SBC */
@@ -943,149 +942,149 @@ fn sbc(cpu: &mut Cpu, m: u8) {
     }
 }
 
-fn sbc_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn sbc_imm(cpu: &mut Cpu, oper: u8) {
     sbc(cpu, oper);
 }
 
-fn sbc_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpg(bus, oper);
+fn sbc_zpg(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpg(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn sbc_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_abs(bus, oper);
+fn sbc_abs(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_abs(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn sbc_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absy(cpu, bus, oper);
+fn sbc_absy(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absy(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indx(cpu, bus, oper);
+fn sbc_indx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indx(cpu, oper);
     sbc(cpu, m);
 }
 
-fn sbc_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_indy(cpu, bus, oper);
+fn sbc_indy(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_indy(cpu, oper);
     sbc(cpu, m);
 }
 
 /* SEx */
 
-fn sec(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn sec(cpu: &mut Cpu) {
     cpu.c = 1;
 }
 
-fn sed(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn sed(cpu: &mut Cpu) {
     cpu.d = 1;
 }
 
-fn sei(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn sei(cpu: &mut Cpu) {
     cpu.i = 1;
 }
 
 /* STA */
 
-fn sta_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpg(bus, oper, cpu.a);
+fn sta_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpg(cpu, oper, cpu.a);
 }
 
-fn sta_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpgx(cpu, bus, oper, cpu.a);
+fn sta_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpgx(cpu, oper, cpu.a);
 }
 
-fn sta_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_abs(bus, oper, cpu.a);
+fn sta_abs(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_abs(cpu, oper, cpu.a);
 }
 
-fn sta_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_absx(cpu, bus, oper, cpu.a);
+fn sta_absx(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_absx(cpu, oper, cpu.a);
 }
 
-fn sta_absy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_absy(cpu, bus, oper, cpu.a);
+fn sta_absy(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_absy(cpu, oper, cpu.a);
 }
 
-fn sta_indx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_indx(cpu, bus, oper, cpu.a);
+fn sta_indx(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_indx(cpu, oper, cpu.a);
 }
 
-fn sta_indy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_indy(cpu, bus, oper, cpu.a);
+fn sta_indy(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_indy(cpu, oper, cpu.a);
 }
 
 /* STX */
 
-fn stx_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpg(bus, oper, cpu.x);
+fn stx_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpg(cpu, oper, cpu.x);
 }
 
-fn stx_zpgy(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpgy(cpu, bus, oper, cpu.x);
+fn stx_zpgy(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpgy(cpu, oper, cpu.x);
 }
 
-fn stx_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_abs(bus, oper, cpu.x);
+fn stx_abs(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_abs(cpu, oper, cpu.x);
 }
 
 /* STY */
 
-fn sty_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpg(bus, oper, cpu.y);
+fn sty_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpg(cpu, oper, cpu.y);
 }
 
-fn sty_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpgx(cpu, bus, oper, cpu.y);
+fn sty_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpgx(cpu, oper, cpu.y);
 }
 
-fn sty_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_abs(bus, oper, cpu.y);
+fn sty_abs(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_abs(cpu, oper, cpu.y);
 }
 
 /* Txx */
 
-fn tax(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn tax(cpu: &mut Cpu) {
     cpu.x = cpu.a;
     update_zn(cpu, cpu.x);
 }
 
-fn tay(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn tay(cpu: &mut Cpu) {
     cpu.y = cpu.a;
     update_zn(cpu, cpu.y);
 }
 
-fn tsx(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn tsx(cpu: &mut Cpu) {
     cpu.x = cpu.sp;
     update_zn(cpu, cpu.x);
 }
 
-fn txa(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn txa(cpu: &mut Cpu) {
     cpu.a = cpu.x;
     update_zn(cpu, cpu.a);
 }
 
-fn txs(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn txs(cpu: &mut Cpu) {
     cpu.sp = cpu.x;
 }
 
-fn tya(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn tya(cpu: &mut Cpu) {
     cpu.a = cpu.y;
     update_zn(cpu, cpu.a);
 }
 
-fn unimplemented(_cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn unimplemented(_cpu: &mut Cpu) {
     // Undocumented opcodes execute as 1-byte, 2-cycle no-ops, as in ins.c.
 }
 
@@ -1378,393 +1377,297 @@ pub static INSTRUCTIONS_6502: [Instruction; 256] = [
 
 // EWM_CPU_MODEL_65C02
 
-fn ora_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn ora_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     ora(cpu, m);
 }
 
-fn and_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn and_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     and(cpu, m);
 }
 
-fn eor_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn eor_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     eor(cpu, m);
 }
 
-fn adc_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn adc_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     adc(cpu, m);
 }
 
-fn sta_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_ind(bus, oper, cpu.a);
+fn sta_ind(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_ind(cpu, oper, cpu.a);
 }
 
-fn lda_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.a = mem_get_byte_ind(bus, oper);
+fn lda_ind(cpu: &mut Cpu, oper: u8) {
+    cpu.a = mem_get_byte_ind(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
-fn cmp_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn cmp_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     cmp(cpu, m);
 }
 
-fn sbc_ind(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_ind(bus, oper);
+fn sbc_ind(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_ind(cpu, oper);
     sbc(cpu, m);
 }
 
-fn bit_imm(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bit_imm(cpu: &mut Cpu, oper: u8) {
     // Immediate-mode BIT only affects the z flag, as in ins.c.
     let t = cpu.a & oper;
     cpu.z = (t == 0) as u8;
 }
 
-fn bit_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    let m = mem_get_byte_zpgx(cpu, bus, oper);
+fn bit_zpgx(cpu: &mut Cpu, oper: u8) {
+    let m = mem_get_byte_zpgx(cpu, oper);
     bit(cpu, m);
 }
 
-fn bit_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    let m = mem_get_byte_absx(cpu, bus, oper);
+fn bit_absx(cpu: &mut Cpu, oper: u16) {
+    let m = mem_get_byte_absx(cpu, oper);
     bit(cpu, m);
 }
 
-fn dec_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn dec_acc(cpu: &mut Cpu) {
     cpu.a = cpu.a.wrapping_sub(1);
     update_zn(cpu, cpu.a);
 }
 
-fn inc_acc(cpu: &mut Cpu, _bus: &mut dyn Bus) {
+fn inc_acc(cpu: &mut Cpu) {
     cpu.a = cpu.a.wrapping_add(1);
     update_zn(cpu, cpu.a);
 }
 
-fn jmp_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.pc = bus.read_word(oper.wrapping_add(cpu.x as u16));
+fn jmp_absx(cpu: &mut Cpu, oper: u16) {
+    cpu.pc = cpu.mem.read_word(oper.wrapping_add(cpu.x as u16));
 }
 
-fn bra(cpu: &mut Cpu, _bus: &mut dyn Bus, oper: u8) {
+fn bra(cpu: &mut Cpu, oper: u8) {
     cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
 }
 
-fn phx(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.push_byte(bus, cpu.x);
+fn phx(cpu: &mut Cpu) {
+    cpu.push_byte(cpu.x);
 }
 
-fn phy(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.push_byte(bus, cpu.y);
+fn phy(cpu: &mut Cpu) {
+    cpu.push_byte(cpu.y);
 }
 
-fn plx(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.x = cpu.pull_byte(bus);
+fn plx(cpu: &mut Cpu) {
+    cpu.x = cpu.pull_byte();
     update_zn(cpu, cpu.x);
 }
 
-fn ply(cpu: &mut Cpu, bus: &mut dyn Bus) {
-    cpu.y = cpu.pull_byte(bus);
+fn ply(cpu: &mut Cpu) {
+    cpu.y = cpu.pull_byte();
     update_zn(cpu, cpu.y);
 }
 
-fn stz_zpg(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpg(bus, oper, 0x00);
+fn stz_zpg(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpg(cpu, oper, 0x00);
 }
 
-fn stz_zpgx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    mem_set_byte_zpgx(cpu, bus, oper, 0x00);
+fn stz_zpgx(cpu: &mut Cpu, oper: u8) {
+    mem_set_byte_zpgx(cpu, oper, 0x00);
 }
 
-fn stz_abs(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_abs(bus, oper, 0x00);
+fn stz_abs(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_abs(cpu, oper, 0x00);
 }
 
-fn stz_absx(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    mem_set_byte_absx(cpu, bus, oper, 0x00);
+fn stz_absx(cpu: &mut Cpu, oper: u16) {
+    mem_set_byte_absx(cpu, oper, 0x00);
 }
 
-fn trb_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.z = ((bus.read(oper as u16) & cpu.a) == 0) as u8;
-    let r = bus.read(oper as u16) & !cpu.a;
-    mem_set_byte_zpg(bus, oper, r);
+fn trb_zpg(cpu: &mut Cpu, oper: u8) {
+    cpu.z = ((cpu.mem.read(oper as u16) & cpu.a) == 0) as u8;
+    let r = cpu.mem.read(oper as u16) & !cpu.a;
+    mem_set_byte_zpg(cpu, oper, r);
 }
 
-fn trb_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.z = ((bus.read(oper) & cpu.a) == 0) as u8;
-    let r = bus.read(oper) & (cpu.a ^ 0xff);
-    mem_set_byte_abs(bus, oper, r);
+fn trb_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.z = ((cpu.mem.read(oper) & cpu.a) == 0) as u8;
+    let r = cpu.mem.read(oper) & (cpu.a ^ 0xff);
+    mem_set_byte_abs(cpu, oper, r);
 }
 
-fn tsb_zpg(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    cpu.z = ((bus.read(oper as u16) & cpu.a) == 0) as u8;
-    let r = bus.read(oper as u16) | cpu.a;
-    mem_set_byte_zpg(bus, oper, r);
+fn tsb_zpg(cpu: &mut Cpu, oper: u8) {
+    cpu.z = ((cpu.mem.read(oper as u16) & cpu.a) == 0) as u8;
+    let r = cpu.mem.read(oper as u16) | cpu.a;
+    mem_set_byte_zpg(cpu, oper, r);
 }
 
-fn tsb_abs(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    cpu.z = ((bus.read(oper) & cpu.a) == 0) as u8;
-    let r = bus.read(oper) | cpu.a;
-    mem_set_byte_abs(bus, oper, r);
+fn tsb_abs(cpu: &mut Cpu, oper: u16) {
+    cpu.z = ((cpu.mem.read(oper) & cpu.a) == 0) as u8;
+    let r = cpu.mem.read(oper) | cpu.a;
+    mem_set_byte_abs(cpu, oper, r);
 }
 
 // BBR/BBS are 3-byte instructions dispatched as Word: the zero-page address
 // rides in the operand low byte and the relative branch in the high byte,
 // exactly as the C handlers unpack them.
 
-fn bbr(cpu: &mut Cpu, bus: &mut dyn Bus, bit: u8, zp: u8, label: i8) {
-    if (mem_get_byte_zpg(bus, zp) & bit) == 0 {
+fn bbr(cpu: &mut Cpu, bit: u8, zp: u8, label: i8) {
+    if (mem_get_byte_zpg(cpu, zp) & bit) == 0 {
         cpu.pc = cpu.pc.wrapping_add(label as u16);
     }
 }
 
-fn bbr0(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0000_0001,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr0(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0000_0001, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr1(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0000_0010,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr1(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0000_0010, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr2(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0000_0100,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr2(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0000_0100, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr3(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0000_1000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr3(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0000_1000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr4(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0001_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr4(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0001_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr5(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0010_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr5(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0010_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr6(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b0100_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr6(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b0100_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbr7(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbr(
-        cpu,
-        bus,
-        0b1000_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbr7(cpu: &mut Cpu, oper: u16) {
+    bbr(cpu, 0b1000_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs(cpu: &mut Cpu, bus: &mut dyn Bus, bit: u8, zp: u8, label: i8) {
-    if (mem_get_byte_zpg(bus, zp) & bit) != 0 {
+fn bbs(cpu: &mut Cpu, bit: u8, zp: u8, label: i8) {
+    if (mem_get_byte_zpg(cpu, zp) & bit) != 0 {
         cpu.pc = cpu.pc.wrapping_add(label as u16);
     }
 }
 
-fn bbs0(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0000_0001,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs0(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0000_0001, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs1(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0000_0010,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs1(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0000_0010, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs2(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0000_0100,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs2(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0000_0100, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs3(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0000_1000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs3(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0000_1000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs4(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0001_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs4(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0001_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs5(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0010_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs5(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0010_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs6(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b0100_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs6(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b0100_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn bbs7(cpu: &mut Cpu, bus: &mut dyn Bus, oper: u16) {
-    bbs(
-        cpu,
-        bus,
-        0b1000_0000,
-        (oper & 0x00ff) as u8,
-        (oper >> 8) as i8,
-    );
+fn bbs7(cpu: &mut Cpu, oper: u16) {
+    bbs(cpu, 0b1000_0000, (oper & 0x00ff) as u8, (oper >> 8) as i8);
 }
 
-fn rmb(bus: &mut dyn Bus, bit: u8, zp: u8) {
-    let v = bus.read(zp as u16) & !bit;
-    mem_set_byte_zpg(bus, zp, v);
+fn rmb(cpu: &mut Cpu, bit: u8, zp: u8) {
+    let v = cpu.mem.read(zp as u16) & !bit;
+    mem_set_byte_zpg(cpu, zp, v);
 }
 
-fn rmb0(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0000_0001, oper);
+fn rmb0(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0000_0001, oper);
 }
 
-fn rmb1(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0000_0010, oper);
+fn rmb1(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0000_0010, oper);
 }
 
-fn rmb2(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0000_0100, oper);
+fn rmb2(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0000_0100, oper);
 }
 
-fn rmb3(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0000_1000, oper);
+fn rmb3(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0000_1000, oper);
 }
 
-fn rmb4(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0001_0000, oper);
+fn rmb4(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0001_0000, oper);
 }
 
-fn rmb5(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0010_0000, oper);
+fn rmb5(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0010_0000, oper);
 }
 
-fn rmb6(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b0100_0000, oper);
+fn rmb6(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b0100_0000, oper);
 }
 
-fn rmb7(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    rmb(bus, 0b1000_0000, oper);
+fn rmb7(cpu: &mut Cpu, oper: u8) {
+    rmb(cpu, 0b1000_0000, oper);
 }
 
-fn smb(bus: &mut dyn Bus, bit: u8, zp: u8) {
-    let v = bus.read(zp as u16) | bit;
-    mem_set_byte_zpg(bus, zp, v);
+fn smb(cpu: &mut Cpu, bit: u8, zp: u8) {
+    let v = cpu.mem.read(zp as u16) | bit;
+    mem_set_byte_zpg(cpu, zp, v);
 }
 
-fn smb0(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0000_0001, oper);
+fn smb0(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0000_0001, oper);
 }
 
-fn smb1(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0000_0010, oper);
+fn smb1(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0000_0010, oper);
 }
 
-fn smb2(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0000_0100, oper);
+fn smb2(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0000_0100, oper);
 }
 
-fn smb3(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0000_1000, oper);
+fn smb3(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0000_1000, oper);
 }
 
-fn smb4(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0001_0000, oper);
+fn smb4(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0001_0000, oper);
 }
 
-fn smb5(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0010_0000, oper);
+fn smb5(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0010_0000, oper);
 }
 
-fn smb6(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b0100_0000, oper);
+fn smb6(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b0100_0000, oper);
 }
 
-fn smb7(_cpu: &mut Cpu, bus: &mut dyn Bus, oper: u8) {
-    smb(bus, 0b1000_0000, oper);
+fn smb7(cpu: &mut Cpu, oper: u8) {
+    smb(cpu, 0b1000_0000, oper);
 }
 
 // The C table casts the 1-argument nop through 2- and 3-byte handler
 // pointers; Rust needs arity-matched wrappers instead.
 
-fn nop_byte(_cpu: &mut Cpu, _bus: &mut dyn Bus, _oper: u8) {}
+fn nop_byte(_cpu: &mut Cpu, _oper: u8) {}
 
-fn nop_word(_cpu: &mut Cpu, _bus: &mut dyn Bus, _oper: u16) {}
+fn nop_word(_cpu: &mut Cpu, _oper: u16) {}
 
 /// The 65C02 override table, transcribed verbatim from `instructions_65C02`
 /// in ins.c — including its oddities (several `NOP` entries with cycles=1,
@@ -2050,7 +1953,7 @@ pub fn instructions_65c02() -> &'static [Instruction; 256] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bus::TestBus;
+    use crate::mem::Memory;
 
     #[test]
     fn table_is_positionally_consistent() {
@@ -2069,27 +1972,25 @@ mod tests {
 
     #[test]
     fn indx_wraps_in_zero_page() {
-        let mut cpu = Cpu::new(Model::M6502);
-        let mut bus = TestBus::new();
+        let mut cpu = Cpu::new(Model::M6502, Memory::new(0x10000));
         cpu.x = 1;
         // Pointer for ($fe,X) with X=1: low byte at $ff, high byte wraps to $00.
-        bus.write(0x00ff, 0x34);
-        bus.write(0x0000, 0x12);
-        bus.write(0x1234, 0x42);
-        assert_eq!(mem_get_byte_indx(&cpu, &mut bus, 0xfe), 0x42);
+        cpu.mem.write(0x00ff, 0x34);
+        cpu.mem.write(0x0000, 0x12);
+        cpu.mem.write(0x1234, 0x42);
+        assert_eq!(mem_get_byte_indx(&mut cpu, 0xfe), 0x42);
     }
 
     #[test]
     fn indy_does_not_wrap_in_zero_page() {
         // ($ff),Y reads its pointer high byte from $0100, not $0000 — the C
         // code's int promotion in mem_get_byte_indy, preserved on purpose.
-        let mut cpu = Cpu::new(Model::M6502);
-        let mut bus = TestBus::new();
+        let mut cpu = Cpu::new(Model::M6502, Memory::new(0x10000));
         cpu.y = 2;
-        bus.write(0x00ff, 0x00); // pointer low
-        bus.write(0x0100, 0x20); // pointer high (page 1, not zero page!)
-        bus.write(0x0000, 0x99); // decoy: would be the high byte if it wrapped
-        bus.write(0x2002, 0x42);
-        assert_eq!(mem_get_byte_indy(&cpu, &mut bus, 0xff), 0x42);
+        cpu.mem.write(0x00ff, 0x00); // pointer low
+        cpu.mem.write(0x0100, 0x20); // pointer high (page 1, not zero page!)
+        cpu.mem.write(0x0000, 0x99); // decoy: would be the high byte if it wrapped
+        cpu.mem.write(0x2002, 0x42);
+        assert_eq!(mem_get_byte_indy(&mut cpu, 0xff), 0x42);
     }
 }

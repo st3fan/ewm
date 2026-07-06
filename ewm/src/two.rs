@@ -3,7 +3,6 @@
 //! 1023000/fps cycles per frame), renderer + sound + joystick + keyboard,
 //! with the fake ≈1.023 MHz display preserved (quirk #3).
 
-use ewm_core::cpu::Cpu;
 use ewm_core::two::{Two, TwoType};
 use sdl2::controller::Button;
 use sdl2::event::Event;
@@ -135,8 +134,8 @@ fn render_status_bar(
         let Some(glyph) = scr_chr.bitmap(code) else {
             continue;
         };
-        let drive1_active = two.dsk.on && i == 35 && two.dsk.active_drive() == 0;
-        let drive2_active = two.dsk.on && i == 38 && two.dsk.active_drive() == 1;
+        let drive1_active = two.dsk().on && i == 35 && two.dsk().active_drive() == 0;
+        let drive2_active = two.dsk().on && i == 38 && two.dsk().active_drive() == 1;
         let color = if drive1_active || drive2_active {
             green
         } else {
@@ -232,7 +231,6 @@ pub fn main(args: &[String]) -> i32 {
             return 1;
         }
     };
-    let mut cpu = Cpu::new(two.cpu_model());
 
     let layout = match sdl::pixel_format(&canvas) {
         Some(PixelFormatEnum::RGBA8888) => PixelLayout::Rgba8888,
@@ -289,10 +287,10 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    cpu.strict = options.strict;
+    two.cpu.strict = options.strict;
     if let Some(path) = &options.trace_path {
         match std::fs::File::create(path) {
-            Ok(file) => cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
+            Ok(file) => two.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
             Err(e) => {
                 eprintln!("Cannot open trace file {path}: {e}");
                 return 1;
@@ -302,7 +300,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Reset things to a known state
 
-    cpu.reset(&mut two);
+    two.cpu.reset();
 
     video.text_input().start();
 
@@ -326,24 +324,24 @@ pub fn main(args: &[String]) -> i32 {
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
 
-    let mut counter = cpu.counter;
+    let mut counter = two.cpu.counter;
     let mut mhz = 1.0f64;
 
     'outer: loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => break 'outer,
-                Event::Window { .. } => two.screen_dirty = true,
+                Event::Window { .. } => two.set_screen_dirty(true),
 
                 Event::ControllerButtonDown { button, .. }
                 | Event::ControllerButtonUp { button, .. } => {
                     let pressed = matches!(event, Event::ControllerButtonDown { .. });
                     let state = if pressed { 0x80 } else { 0x00 };
                     match button {
-                        Button::A | Button::LeftShoulder => two.buttons[0] = state,
-                        Button::B | Button::RightShoulder => two.buttons[1] = state,
-                        Button::X => two.buttons[2] = state,
-                        Button::Y => two.buttons[3] = state,
+                        Button::A | Button::LeftShoulder => two.set_button(0, state),
+                        Button::B | Button::RightShoulder => two.set_button(1, state),
+                        Button::X => two.set_button(2, state),
+                        Button::Y => two.set_button(3, state),
                         _ => {}
                     }
                 }
@@ -362,7 +360,7 @@ pub fn main(args: &[String]) -> i32 {
                         match keycode {
                             Keycode::Escape => {
                                 eprintln!("[SDL] Reset");
-                                cpu.reset(&mut two);
+                                two.cpu.reset();
                             }
                             Keycode::Return => {
                                 let window = canvas.window_mut();
@@ -421,10 +419,10 @@ pub fn main(args: &[String]) -> i32 {
                     // As in two.c: only alt-keyup clears the buttons.
                     if keymod.intersects(Mod::LALTMOD | Mod::RALTMOD) {
                         match keycode {
-                            Keycode::Num1 => two.buttons[0] = 0,
-                            Keycode::Num2 => two.buttons[1] = 0,
-                            Keycode::Num3 => two.buttons[2] = 0,
-                            Keycode::Num4 => two.buttons[3] = 0,
+                            Keycode::Num1 => two.set_button(0, 0),
+                            Keycode::Num2 => two.set_button(1, 0),
+                            Keycode::Num3 => two.set_button(2, 0),
+                            Keycode::Num4 => two.set_button(3, 0),
                             _ => {}
                         }
                     }
@@ -443,35 +441,34 @@ pub fn main(args: &[String]) -> i32 {
         if (timer.ticks() - ticks) >= (1000 / fps) {
             if !paused {
                 // Feed the joystick axes to the paddle logic before the burst.
-                two.joystick = controller.as_ref().map(|c| {
+                two.set_joystick(controller.as_ref().map(|c| {
                     (
                         c.axis(sdl2::controller::Axis::LeftX),
                         c.axis(sdl2::controller::Axis::LeftY),
                     )
-                });
+                }));
 
                 let mut budget = (TWO_SPEED / fps) as i64;
                 while budget > 0 {
-                    two.cycles = cpu.counter;
-                    budget -= cpu.step(&mut two) as i64;
+                    budget -= two.cpu.step() as i64;
                 }
             }
 
             let toggles = two.drain_speaker_toggles();
             if let Some(snd) = &mut snd {
-                snd.update(&toggles, cpu.counter);
+                snd.update(&toggles, two.cpu.counter);
             }
 
             // Update the screen when it is flagged dirty or if we enter
             // the second half of the frames we draw each second. The
             // latter because that is when we update flashing text.
-            two.screen_dirty = true; // (two.c renders every frame too)
-            if two.screen_dirty {
+            two.set_screen_dirty(true); // (two.c renders every frame too)
+            if two.screen_dirty() {
                 canvas.set_draw_color(Color::RGBA(0, 0, 0, 255));
                 canvas.clear();
 
                 scr.update(&two, phase, fps);
-                two.screen_dirty = false;
+                two.set_screen_dirty(false);
 
                 texture
                     .update(None, &pixels_to_bytes(&scr.pixels), SCR_WIDTH * 4)
@@ -526,8 +523,8 @@ pub fn main(args: &[String]) -> i32 {
 
                 // Calculate the number of cycles we have done in the past
                 // second. TODO This will always equal 1023000 (quirk #3).
-                mhz = (cpu.counter - counter) as f64 / 1_000_000.0;
-                counter = cpu.counter;
+                mhz = (two.cpu.counter - counter) as f64 / 1_000_000.0;
+                counter = two.cpu.counter;
             }
 
             frames += 1;

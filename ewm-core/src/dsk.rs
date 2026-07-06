@@ -6,6 +6,8 @@
 //! Most of this code is based on Beneath Apple DOS and another open source
 //! emulator at <https://github.com/whscullin/apple2js> (comment from dsk.c).
 
+use crate::mem::Device;
+
 pub const DSK_TRACKS: usize = 35;
 pub const DSK_SECTORS: usize = 16;
 pub const DSK_SECTOR_SIZE: usize = 256;
@@ -299,6 +301,19 @@ impl Dsk {
 impl Default for Dsk {
     fn default() -> Dsk {
         Dsk::new()
+    }
+}
+
+/// The controller as an IO device at `$C0E0-$C0EF`, as `dsk.c` registered
+/// itself with `cpu_add_iom`. The slot ROM at `$C600` is a plain ROM region
+/// added by the machine.
+impl Device for Dsk {
+    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
+        self.io_read(addr)
+    }
+
+    fn write(&mut self, addr: u16, b: u8, _cycles: u64) {
+        self.io_write(addr, b);
     }
 }
 

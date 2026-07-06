@@ -22,22 +22,20 @@
 
 use std::io::BufRead;
 
-use ewm_core::cpu::Cpu;
 use ewm_core::two::{Two, TwoType};
 
-fn step(cpu: &mut Cpu, two: &mut Two, cycles: u64) {
+fn step(two: &mut Two, cycles: u64) {
     let mut done = 0;
     while done < cycles {
-        two.cycles = cpu.counter;
-        done += cpu.step(two) as u64;
+        done += two.cpu.step() as u64;
     }
 }
 
 /// Step until the key strobe is consumed, so keys are not dropped.
-fn step_until_key_taken(cpu: &mut Cpu, two: &mut Two) {
+fn step_until_key_taken(two: &mut Two) {
     let mut spent = 0u64;
-    while two.key & 0x80 != 0 && spent < 4_000_000 {
-        step(cpu, two, 50_000);
+    while two.key_register() & 0x80 != 0 && spent < 4_000_000 {
+        step(two, 50_000);
         spent += 50_000;
     }
 }
@@ -62,8 +60,7 @@ fn main() {
         eprintln!("[drive 1: {path}]");
     }
 
-    let mut cpu = Cpu::new(two.cpu_model());
-    cpu.reset(&mut two);
+    two.cpu.reset();
 
     eprintln!("[Apple ][+ — type BASIC, enter sends CR]");
     // Boot until the AppleSoft prompt appears (via DOS if a disk is in),
@@ -71,22 +68,22 @@ fn main() {
     // HELLO program is still running.
     let mut spent = 0u64;
     while !two.text_screen().contains(']') && spent < 400_000_000 {
-        step(&mut cpu, &mut two, 1_000_000);
+        step(&mut two, 1_000_000);
         spent += 1_000_000;
     }
-    step(&mut cpu, &mut two, 30_000_000);
+    step(&mut two, 30_000_000);
     print_screen(&two);
 
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         for b in line.to_uppercase().into_bytes() {
             two.key(b);
-            step_until_key_taken(&mut cpu, &mut two);
+            step_until_key_taken(&mut two);
         }
         two.key(0x0d);
-        step_until_key_taken(&mut cpu, &mut two);
+        step_until_key_taken(&mut two);
         // Give programs some time to run (RUN, FOR loops, ...).
-        step(&mut cpu, &mut two, 4_000_000);
+        step(&mut two, 4_000_000);
         print_screen(&two);
     }
 }

@@ -1,12 +1,13 @@
-//! The Apple ][+ machine, port of the machine half of `two.c`: RAM, the
-//! AppleSoft/Autostart ROMs, the `$C000-$C07F` soft-switch dispatch, and the
-//! language card. The SDL loop half of `two.c` lands in the frontend crate
-//! in Phase 7; the Disk II in Phase 6.
+//! The Apple ][+ machine, port of the machine half of `two.c`. Like
+//! `ewm_two_init`, the machine owns the CPU and composes its hardware as
+//! memory regions: RAM, the `TwoIo` soft-switch device (`$C000-$C07F`), the
+//! language card, the Disk II controller and its slot ROM. Dispatch lives in
+//! the memory system, not here.
 
 use crate::alc::Alc;
-use crate::bus::Bus;
-use crate::cpu::Model;
+use crate::cpu::{Cpu, Model};
 use crate::dsk::{DSK_ROM, Dsk};
+use crate::mem::{Device, DeviceHandle, Memory};
 
 pub const TWO_FPS_DEFAULT: u32 = 40;
 pub const TWO_SPEED: u32 = 1_023_000;
@@ -73,16 +74,16 @@ pub enum ScreenPage {
     Page2,
 }
 
-pub struct Two {
+/// The `$C000-$C07F` soft switches and the machine state they own —
+/// `ewm_two_iom_read/write` with `obj = two` turned into its own device.
+pub struct TwoIo {
+    pub key: u8,
     pub screen_mode: ScreenMode,
     pub screen_graphics_mode: GraphicsMode,
     pub screen_graphics_style: GraphicsStyle,
     pub screen_page: ScreenPage,
     pub screen_dirty: bool,
-
-    pub key: u8,
     pub buttons: [u8; 4],
-
     /// Joystick axes (x, y) as raw SDL values, set by the frontend; `None`
     /// behaves like `two->joystick == NULL` (paddle trigger is a no-op).
     pub joystick: Option<(i16, i16)>,
@@ -90,147 +91,33 @@ pub struct Two {
     padl0_value: u8,
     padl1_time: u64,
     padl1_value: u8,
-
-    /// Mirror of `cpu.counter`, updated by the run loop before each step —
-    /// the C handlers read `cpu->counter` directly for speaker and paddle
-    /// timestamps; the Bus trait has no CPU access, so the loop provides it.
-    pub cycles: u64,
     speaker_toggles: Vec<u64>,
-
-    ram: Vec<u8>, // $0000-$BFFF
-    rom: Vec<u8>, // $D000-$FFFF, the six ROM files combined
-    pub alc: Alc, // language card, $C080-$C08F + $D000-$FFFF banks
-    pub dsk: Dsk, // Disk ][ controller, $C600 ROM + $C0E0-$C0EF
-    extra: Vec<Region>,
 }
 
-/// An extra memory region added with `--memory`.
-struct Region {
-    start: u16,
-    data: Vec<u8>,
-    writable: bool,
-}
-
-impl Region {
-    fn contains(&self, addr: u16) -> bool {
-        addr >= self.start && ((addr - self.start) as usize) < self.data.len()
-    }
-}
-
-impl Two {
-    /// Port of `ewm_two_init`. Like the C, `apple2` and `apple2e` return an
-    /// error (quirk #4 in REWRITE.md).
-    pub fn new(two_type: TwoType) -> Result<Two, String> {
-        if two_type != TwoType::Apple2Plus {
-            return Err(format!("unsupported machine type {two_type:?}"));
-        }
-
-        let mut rom = Vec::with_capacity(0x3000);
-        for part in [
-            ROM_341_0011,
-            ROM_341_0012,
-            ROM_341_0013,
-            ROM_341_0014,
-            ROM_341_0015,
-            ROM_341_0020,
-        ] {
-            rom.extend_from_slice(part);
-        }
-        assert_eq!(rom.len(), 0x3000, "machine ROMs must cover $D000-$FFFF");
-
-        Ok(Two {
+impl TwoIo {
+    fn new() -> TwoIo {
+        TwoIo {
+            key: 0,
             screen_mode: ScreenMode::Text,
             screen_graphics_mode: GraphicsMode::Lgr,
             screen_graphics_style: GraphicsStyle::Full,
             screen_page: ScreenPage::Page1,
             screen_dirty: false,
-            key: 0,
             buttons: [0; 4],
             joystick: None,
             padl0_time: 0,
             padl0_value: 0,
             padl1_time: 0,
             padl1_value: 0,
-            cycles: 0,
             speaker_toggles: Vec::new(),
-            ram: vec![0; 0xc000],
-            rom,
-            alc: Alc::new(),
-            dsk: Dsk::new(),
-            extra: Vec::new(),
-        })
-    }
-
-    /// Read access to machine RAM for the renderers, which scan the text
-    /// and hires pages directly (the C renderers read `cpu->ram`).
-    pub fn ram(&self) -> &[u8] {
-        &self.ram
-    }
-
-    /// Add an extra RAM region (`--memory ram:addr:path`). Like the C mem
-    /// list, extras are dispatched before ROM and I/O — but base RAM below
-    /// $C000 wins, matching the `addr < ram_size` fast path in mem.c.
-    pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
-        self.extra.insert(
-            0,
-            Region {
-                start,
-                data,
-                writable: true,
-            },
-        );
-    }
-
-    /// Add an extra ROM region (`--memory rom:addr:path`).
-    pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
-        self.extra.insert(
-            0,
-            Region {
-                start,
-                data,
-                writable: false,
-            },
-        );
-    }
-
-    /// Port of `ewm_two_load_disk`.
-    pub fn load_disk(&mut self, drive: usize, path: &str) -> Result<(), String> {
-        self.dsk.set_disk_file(drive, false, path)
-    }
-
-    /// The Apple ][+ is wired with a 6502.
-    pub fn cpu_model(&self) -> Model {
-        Model::M6502
-    }
-
-    /// Latch a key into `$C000` with the strobe bit set, as the SDL loop
-    /// does with `two->key = ch | 0x80`.
-    pub fn key(&mut self, key: u8) {
-        self.key = key | 0x80;
-    }
-
-    /// Cycle-stamped speaker toggles recorded on `$C030` access since the
-    /// last drain, for the frontend's sound path (Phase 7).
-    pub fn drain_speaker_toggles(&mut self) -> Vec<u64> {
-        std::mem::take(&mut self.speaker_toggles)
-    }
-
-    /// Decode text page 1 (`$0400`, interleaved rows) into 24 lines of 40
-    /// characters — the workhorse for the headless gates.
-    pub fn text_screen(&self) -> String {
-        let mut text = String::with_capacity(24 * 41);
-        for row in 0..24 {
-            let base = 0x400 + 0x80 * (row % 8) + 0x28 * (row / 8);
-            for column in 0..40 {
-                text.push(screen_code_to_char(self.ram[base + column]));
-            }
-            text.push('\n');
         }
-        text
     }
+}
 
-    /// Port of `ewm_two_iom_read` ($C000-$C07F).
-    fn iom_read(&mut self, addr: u16) -> u8 {
+impl Device for TwoIo {
+    /// Port of `ewm_two_iom_read` ($C000-$C07F). `cycles` is the CPU cycle
+    /// counter the C handlers read as `cpu->counter`.
+    fn read(&mut self, addr: u16, cycles: u64) -> u8 {
         match addr {
             SS_KBD => return self.key,
             SS_KBDSTRB => {
@@ -279,7 +166,7 @@ impl Two {
             }
 
             SS_SPKR => {
-                self.speaker_toggles.push(self.cycles);
+                self.speaker_toggles.push(cycles);
             }
 
             SS_PB0 => return self.buttons[0],
@@ -294,15 +181,15 @@ impl Two {
             SS_PTRIG => {
                 if let Some((axis_x, axis_y)) = self.joystick {
                     let x = 128 + (axis_x as i64 / 256);
-                    self.padl0_time = self.cycles + (x as u64 * (2820 / 255)); // TODO Remove magic values
+                    self.padl0_time = cycles + (x as u64 * (2820 / 255)); // TODO Remove magic values
                     self.padl0_value = 0xff;
                     let y = 128 + (axis_y as i64 / 256);
-                    self.padl1_time = self.cycles + (y as u64 * (2820 / 255)); // TODO Remove magic values
+                    self.padl1_time = cycles + (y as u64 * (2820 / 255)); // TODO Remove magic values
                     self.padl1_value = 0xff;
                 }
             }
             SS_PADL0 => {
-                if self.padl0_time != 0 && self.cycles >= self.padl0_time {
+                if self.padl0_time != 0 && cycles >= self.padl0_time {
                     self.padl0_time = 0;
                     self.padl0_value = 0;
                 }
@@ -310,7 +197,7 @@ impl Two {
             }
             SS_PADL1 => {
                 // As in two.c, PADL1 never clears its timer.
-                if self.padl1_time != 0 && self.cycles >= self.padl1_time {
+                if self.padl1_time != 0 && cycles >= self.padl1_time {
                     self.padl1_value = 0;
                 }
                 return self.padl1_value;
@@ -324,7 +211,7 @@ impl Two {
     }
 
     /// Port of `ewm_two_iom_write` ($C000-$C07F).
-    fn iom_write(&mut self, addr: u16, _b: u8) {
+    fn write(&mut self, addr: u16, _b: u8, cycles: u64) {
         match addr {
             SS_KBD => {
                 // Ignore - This is CLR80STORE on the IIe
@@ -375,7 +262,7 @@ impl Two {
             }
 
             SS_SPKR => {
-                self.speaker_toggles.push(self.cycles);
+                self.speaker_toggles.push(cycles);
             }
 
             SS_SETAN0..=SS_CLRAN3 => {
@@ -386,6 +273,153 @@ impl Two {
                 eprintln!("[A2P] Unexpected write at ${addr:04X}");
             }
         }
+    }
+}
+
+pub struct Two {
+    pub cpu: Cpu,
+    io: DeviceHandle<TwoIo>,
+    dsk: DeviceHandle<Dsk>,
+}
+
+impl Two {
+    /// Port of `ewm_two_init`. Like the C, `apple2` and `apple2e` return an
+    /// error (quirk #4 in REWRITE.md).
+    pub fn new(two_type: TwoType) -> Result<Two, String> {
+        if two_type != TwoType::Apple2Plus {
+            return Err(format!("unsupported machine type {two_type:?}"));
+        }
+
+        let mut rom = Vec::with_capacity(0x3000);
+        for part in [
+            ROM_341_0011,
+            ROM_341_0012,
+            ROM_341_0013,
+            ROM_341_0014,
+            ROM_341_0015,
+            ROM_341_0020,
+        ] {
+            rom.extend_from_slice(part);
+        }
+        assert_eq!(rom.len(), 0x3000, "machine ROMs must cover $D000-$FFFF");
+
+        let mut mem = Memory::new(0xc000); // $0000-$BFFF
+        let io = mem.add_device(0xc000, 0xc07f, TwoIo::new());
+        // The language card shadows the machine ROM, so it owns it and
+        // covers both its switches and the whole $D000-$FFFF bank space.
+        let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
+        mem.map_device(alc, 0xd000, 0xffff);
+        let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
+        mem.add_rom(0xc600, DSK_ROM.to_vec()); // slot 6 boot ROM
+
+        Ok(Two {
+            cpu: Cpu::new(Model::M6502, mem),
+            io,
+            dsk,
+        })
+    }
+
+    fn io(&self) -> &TwoIo {
+        self.cpu.mem.device(self.io)
+    }
+
+    fn io_mut(&mut self) -> &mut TwoIo {
+        self.cpu.mem.device_mut(self.io)
+    }
+
+    /// Read access to machine RAM for the renderers, which scan the text
+    /// and hires pages directly (the C renderers read `cpu->ram`).
+    pub fn ram(&self) -> &[u8] {
+        self.cpu.mem.ram()
+    }
+
+    pub fn dsk(&self) -> &Dsk {
+        self.cpu.mem.device(self.dsk)
+    }
+
+    pub fn dsk_mut(&mut self) -> &mut Dsk {
+        self.cpu.mem.device_mut(self.dsk)
+    }
+
+    /// Port of `ewm_two_load_disk`.
+    pub fn load_disk(&mut self, drive: usize, path: &str) -> Result<(), String> {
+        self.dsk_mut().set_disk_file(drive, false, path)
+    }
+
+    /// Add an extra RAM region (`--memory ram:addr:path`). Like the C mem
+    /// list, extras are dispatched before ROM and I/O — but base RAM below
+    /// $C000 wins, matching the `addr < ram_size` fast path in mem.c.
+    pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
+        self.cpu.mem.add_ram(start, data);
+    }
+
+    /// Add an extra ROM region (`--memory rom:addr:path`).
+    pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
+        self.cpu.mem.add_rom(start, data);
+    }
+
+    /// Latch a key into `$C000` with the strobe bit set, as the SDL loop
+    /// does with `two->key = ch | 0x80`.
+    pub fn key(&mut self, key: u8) {
+        self.io_mut().key = key | 0x80;
+    }
+
+    /// The keyboard latch, strobe bit included (the C `two->key`).
+    pub fn key_register(&self) -> u8 {
+        self.io().key
+    }
+
+    pub fn screen_mode(&self) -> ScreenMode {
+        self.io().screen_mode
+    }
+
+    pub fn screen_graphics_mode(&self) -> GraphicsMode {
+        self.io().screen_graphics_mode
+    }
+
+    pub fn screen_graphics_style(&self) -> GraphicsStyle {
+        self.io().screen_graphics_style
+    }
+
+    pub fn screen_page(&self) -> ScreenPage {
+        self.io().screen_page
+    }
+
+    pub fn screen_dirty(&self) -> bool {
+        self.io().screen_dirty
+    }
+
+    pub fn set_screen_dirty(&mut self, dirty: bool) {
+        self.io_mut().screen_dirty = dirty;
+    }
+
+    pub fn set_button(&mut self, button: usize, state: u8) {
+        self.io_mut().buttons[button] = state;
+    }
+
+    pub fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
+        self.io_mut().joystick = joystick;
+    }
+
+    /// Cycle-stamped speaker toggles recorded on `$C030` access since the
+    /// last drain, for the frontend's sound path.
+    pub fn drain_speaker_toggles(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.io_mut().speaker_toggles)
+    }
+
+    /// Decode text page 1 (`$0400`, interleaved rows) into 24 lines of 40
+    /// characters — the workhorse for the headless gates.
+    pub fn text_screen(&self) -> String {
+        let ram = self.ram();
+        let mut text = String::with_capacity(24 * 41);
+        for row in 0..24 {
+            let base = 0x400 + 0x80 * (row % 8) + 0x28 * (row / 8);
+            for column in 0..40 {
+                text.push(screen_code_to_char(ram[base + column]));
+            }
+            text.push('\n');
+        }
+        text
     }
 }
 
@@ -401,53 +435,4 @@ fn screen_code_to_char(code: u8) -> char {
         if v < 0x20 { v | 0x40 } else { v }
     };
     v as char
-}
-
-impl Bus for Two {
-    fn read(&mut self, addr: u16) -> u8 {
-        if addr >= 0xc000 {
-            for region in &self.extra {
-                if region.contains(addr) {
-                    return region.data[(addr - region.start) as usize];
-                }
-            }
-        }
-        match addr {
-            0x0000..=0xbfff => self.ram[addr as usize],
-            0xc000..=0xc07f => self.iom_read(addr),
-            0xc080..=0xc08f => self.alc.iom_read(addr),
-            0xc0e0..=0xc0ef => self.dsk.io_read(addr),
-            0xc600..=0xc6ff => DSK_ROM[(addr - 0xc600) as usize],
-            // Remaining $C090-$CFFF slot space is unmapped; unmatched reads
-            // return 0 like mem_get_byte.
-            0xc090..=0xcfff => 0,
-            0xd000..=0xffff => match self.alc.read(addr) {
-                Some(b) => b,
-                None => self.rom[(addr - 0xd000) as usize],
-            },
-        }
-    }
-
-    fn write(&mut self, addr: u16, b: u8) {
-        if addr >= 0xc000 {
-            for region in &mut self.extra {
-                if region.contains(addr) {
-                    if region.writable {
-                        region.data[(addr - region.start) as usize] = b;
-                    }
-                    return;
-                }
-            }
-        }
-        match addr {
-            0x0000..=0xbfff => self.ram[addr as usize] = b,
-            0xc000..=0xc07f => self.iom_write(addr, b),
-            0xc080..=0xc08f => self.alc.iom_write(addr),
-            0xc0e0..=0xc0ef => self.dsk.io_write(addr, b),
-            0xc090..=0xcfff => {}
-            // Language-card RAM when write-enabled; otherwise swallowed
-            // (ROM), as in the C mem walk.
-            0xd000..=0xffff => self.alc.write(addr, b),
-        }
-    }
 }

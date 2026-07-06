@@ -1,11 +1,9 @@
 //! The Phase 6 gate: boot DOS 3.3 from the System Master image, fully
 //! headless, and run CATALOG.
 
-use ewm_core::cpu::Cpu;
 use ewm_core::two::{Two, TwoType};
 
 struct Machine {
-    cpu: Cpu,
     two: Two,
 }
 
@@ -20,16 +18,14 @@ impl Machine {
             ),
         )
         .expect("cannot load DOS33-SystemMaster.dsk");
-        let mut cpu = Cpu::new(two.cpu_model());
-        cpu.reset(&mut two);
-        Machine { cpu, two }
+        two.cpu.reset();
+        Machine { two }
     }
 
     fn step(&mut self, cycles: u64) {
         let mut done = 0u64;
         while done < cycles {
-            self.two.cycles = self.cpu.counter;
-            done += self.cpu.step(&mut self.two) as u64;
+            done += self.two.cpu.step() as u64;
         }
     }
 
@@ -49,10 +45,14 @@ impl Machine {
     fn type_line(&mut self, line: &str) {
         for &b in line.as_bytes() {
             self.two.key(b);
-            self.step_until(2_000_000, "key strobe", |two| two.key & 0x80 == 0);
+            self.step_until(2_000_000, "key strobe", |two| {
+                two.key_register() & 0x80 == 0
+            });
         }
         self.two.key(0x0d);
-        self.step_until(2_000_000, "return strobe", |two| two.key & 0x80 == 0);
+        self.step_until(2_000_000, "return strobe", |two| {
+            two.key_register() & 0x80 == 0
+        });
     }
 }
 

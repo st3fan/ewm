@@ -1,9 +1,10 @@
 //! The Apple 1 / Replica 1 machine, port of the machine half of `one.c`.
-//! `One` implements `Bus` and owns RAM, ROM, and the PIA; the SDL loop half
-//! of `one.c` lands in the frontend crate in Phase 4.
+//! Like `ewm_one_init`, the machine owns the CPU and composes its hardware —
+//! RAM, ROM, and the PIA — as memory regions; it knows nothing about
+//! dispatch.
 
-use crate::bus::Bus;
-use crate::cpu::Model;
+use crate::cpu::{Cpu, Model};
+use crate::mem::{DeviceHandle, Memory};
 use crate::pia::{A1_PIA6820_ADDR, A1_PIA6820_LENGTH, Pia};
 
 static APPLE1_ROM: &[u8] = include_bytes!("../../rom/apple1.rom");
@@ -15,28 +16,10 @@ pub enum OneModel {
     Replica1,
 }
 
-/// An extra memory region added with `--memory` (the C
-/// `cpu_add_ram_file`/`cpu_add_rom_file` path).
-struct Region {
-    start: u16,
-    data: Vec<u8>,
-    writable: bool,
-}
-
-impl Region {
-    fn contains(&self, addr: u16) -> bool {
-        addr >= self.start && ((addr - self.start) as usize) < self.data.len()
-    }
-}
-
 pub struct One {
     pub model: OneModel,
-    ram: Vec<u8>,
-    rom: &'static [u8],
-    rom_start: u16,
-    pub pia: Pia,
-    display: Vec<u8>,
-    extra: Vec<Region>,
+    pub cpu: Cpu,
+    pia: DeviceHandle<Pia>,
 }
 
 impl One {
@@ -44,123 +27,61 @@ impl One {
     /// $FF00; Replica 1 = 65C02 + 32K RAM + Krusader ROM at $E000. The PIA
     /// sits at $D010 on both.
     pub fn new(model: OneModel) -> One {
-        match model {
-            OneModel::Apple1 => One {
-                model,
-                ram: vec![0; 8 * 1024],
-                rom: APPLE1_ROM,
-                rom_start: 0xff00,
-                pia: Pia::new(),
-                display: Vec::new(),
-                extra: Vec::new(),
-            },
-            OneModel::Replica1 => One {
-                model,
-                ram: vec![0; 32 * 1024],
-                rom: KRUSADER_ROM,
-                rom_start: 0xe000,
-                pia: Pia::new(),
-                display: Vec::new(),
-                extra: Vec::new(),
-            },
-        }
-    }
-
-    /// The CPU model this machine is wired with, per `ewm_one_init`.
-    pub fn cpu_model(&self) -> Model {
-        match self.model {
-            OneModel::Apple1 => Model::M6502,
-            OneModel::Replica1 => Model::M65C02,
+        let (cpu_model, ram_size, rom, rom_start) = match model {
+            OneModel::Apple1 => (Model::M6502, 8 * 1024, APPLE1_ROM, 0xff00),
+            OneModel::Replica1 => (Model::M65C02, 32 * 1024, KRUSADER_ROM, 0xe000),
+        };
+        let mut mem = Memory::new(ram_size);
+        mem.add_rom(rom_start, rom.to_vec());
+        let pia = mem.add_device(
+            A1_PIA6820_ADDR,
+            A1_PIA6820_ADDR + A1_PIA6820_LENGTH - 1,
+            Pia::new(),
+        );
+        One {
+            model,
+            cpu: Cpu::new(cpu_model, mem),
+            pia,
         }
     }
 
     /// Port of `ewm_one_keydown`: latch the key into the PIA with bit 7 set
     /// and raise IRQA1.
     pub fn key(&mut self, key: u8) {
-        self.pia.set_ina(key | 0x80);
-        self.pia.set_irqa1();
+        let pia = self.cpu.mem.device_mut(self.pia);
+        pia.set_ina(key | 0x80);
+        pia.set_irqa1();
     }
 
     /// Bytes the machine wrote to the display since the last drain — the
-    /// same stream `ewm_one_pia_callback` fed into the tty.
+    /// same stream `ewm_one_pia_callback` fed into the tty, including its
+    /// model check: the Apple 1 masks display output to 7 bits.
     pub fn drain_display(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.display)
+        let model = self.model;
+        self.cpu
+            .mem
+            .device_mut(self.pia)
+            .drain_out()
+            .into_iter()
+            .map(|(_ddr, v)| {
+                if model == OneModel::Apple1 {
+                    v & 0x7f
+                } else {
+                    v
+                }
+            })
+            .collect()
     }
 
     /// Add an extra RAM region (`--memory ram:addr:path`). Like the C
-    /// linked list, regions added later are dispatched first.
+    /// linked list, regions added later are dispatched first — but base RAM
+    /// wins, per the `addr < ram_size` fast path in mem.c.
     pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
-        self.extra.insert(
-            0,
-            Region {
-                start,
-                data,
-                writable: true,
-            },
-        );
+        self.cpu.mem.add_ram(start, data);
     }
 
     /// Add an extra ROM region (`--memory rom:addr:path`).
     pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
-        self.extra.insert(
-            0,
-            Region {
-                start,
-                data,
-                writable: false,
-            },
-        );
-    }
-}
-
-impl Bus for One {
-    fn read(&mut self, addr: u16) -> u8 {
-        for region in &self.extra {
-            if region.contains(addr) {
-                return region.data[(addr - region.start) as usize];
-            }
-        }
-        if (addr as usize) < self.ram.len() {
-            return self.ram[addr as usize];
-        }
-        if (A1_PIA6820_ADDR..A1_PIA6820_ADDR + A1_PIA6820_LENGTH).contains(&addr) {
-            return self.pia.read(addr);
-        }
-        if addr >= self.rom_start {
-            let offset = (addr - self.rom_start) as usize;
-            if offset < self.rom.len() {
-                return self.rom[offset];
-            }
-        }
-        // Unmapped reads return 0, as mem_get_byte does when no region matches.
-        0
-    }
-
-    fn write(&mut self, addr: u16, b: u8) {
-        for region in &mut self.extra {
-            if region.contains(addr) {
-                if region.writable {
-                    region.data[(addr - region.start) as usize] = b;
-                }
-                return;
-            }
-        }
-        if (addr as usize) < self.ram.len() {
-            self.ram[addr as usize] = b;
-            return;
-        }
-        if (A1_PIA6820_ADDR..A1_PIA6820_ADDR + A1_PIA6820_LENGTH).contains(&addr)
-            && let Some((_ddr, v)) = self.pia.write(addr, b)
-        {
-            // Port of ewm_one_pia_callback: the Apple 1 masks display
-            // output to 7 bits; the Replica 1 does not.
-            let v = if self.model == OneModel::Apple1 {
-                v & 0x7f
-            } else {
-                v
-            };
-            self.display.push(v);
-        }
-        // ROM and unmapped writes are ignored.
+        self.cpu.mem.add_rom(start, data);
     }
 }
