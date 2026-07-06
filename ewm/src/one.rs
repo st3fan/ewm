@@ -2,7 +2,6 @@
 //! Replica 1, port of the SDL half of `one.c`. The frame structure is the
 //! C one: event pump → burst of CPU cycles → tty render.
 
-use ewm_core::cpu::Cpu;
 use ewm_core::one::{One, OneModel};
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod};
@@ -50,13 +49,7 @@ fn usage() {
     eprintln!("  replica1  Replica 1, 65C02, 48KB RAM, KRUSADER");
 }
 
-fn keydown(
-    cpu: &mut Cpu,
-    one: &mut One,
-    tty: &mut Tty,
-    window: &mut sdl2::video::Window,
-    event: &Event,
-) {
+fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event: &Event) {
     let Event::KeyDown {
         keycode: Some(keycode),
         keymod,
@@ -76,7 +69,7 @@ fn keydown(
     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
         match *keycode {
             Keycode::Escape => {
-                cpu.reset(one);
+                one.cpu.reset();
                 tty.reset();
             }
             Keycode::Return => {
@@ -108,10 +101,10 @@ fn keydown(
 }
 
 /// Port of `ewm_one_step_cpu`: run one frame's cycle budget.
-fn step_cpu(cpu: &mut Cpu, one: &mut One, cycles: u32) {
+fn step_cpu(one: &mut One, cycles: u32) {
     let mut budget = cycles as i64;
     while budget > 0 {
-        budget -= cpu.step(one) as i64;
+        budget -= one.cpu.step() as i64;
     }
 }
 
@@ -203,7 +196,6 @@ pub fn main(args: &[String]) -> i32 {
     // Create the machine
 
     let mut one = One::new(model);
-    let mut cpu = Cpu::new(one.cpu_model());
     let mut tty = Tty::new(sdl::green(&canvas));
 
     // Add extra memory, if any
@@ -233,10 +225,10 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    cpu.strict = strict;
+    one.cpu.strict = strict;
     if let Some(path) = &trace_path {
         match std::fs::File::create(path) {
-            Ok(file) => cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
+            Ok(file) => one.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
             Err(e) => {
                 eprintln!("Cannot open trace file {path}: {e}");
                 return 1;
@@ -244,7 +236,7 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    cpu.reset(&mut one);
+    one.cpu.reset();
 
     // Main loop
 
@@ -265,9 +257,7 @@ pub fn main(args: &[String]) -> i32 {
             match &event {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => tty.screen_dirty = true,
-                Event::KeyDown { .. } => {
-                    keydown(&mut cpu, &mut one, &mut tty, canvas.window_mut(), &event)
-                }
+                Event::KeyDown { .. } => keydown(&mut one, &mut tty, canvas.window_mut(), &event),
                 Event::TextInput { text, .. } => {
                     if text.len() == 1 {
                         one.key(text.as_bytes()[0].to_ascii_uppercase());
@@ -280,7 +270,7 @@ pub fn main(args: &[String]) -> i32 {
         // This is very basic throttling that does bursts of CPU cycles.
 
         if (timer.ticks() - ticks) >= (1000 / ONE_FPS) {
-            step_cpu(&mut cpu, &mut one, ONE_CPS / ONE_FPS);
+            step_cpu(&mut one, ONE_CPS / ONE_FPS);
             for b in one.drain_display() {
                 tty.write(b);
             }

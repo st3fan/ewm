@@ -2,18 +2,16 @@
 //! reaching the hardcoded success PC; failure is a branch-to-self deadlock,
 //! whose PC localizes the failing test case.
 
-use ewm_core::bus::{Bus, TestBus};
 use ewm_core::cpu::{Cpu, Model};
+use ewm_core::mem::Memory;
 
 fn run_test(model: Model, start_addr: u16, success_addr: u16, rom_path: &str) {
     let data = std::fs::read(rom_path)
         .unwrap_or_else(|e| panic!("cannot read test binary {rom_path}: {e}"));
 
-    let mut bus = TestBus::new();
-    bus.load(0x0000, &data);
-
-    let mut cpu = Cpu::new(model);
-    cpu.reset(&mut bus);
+    let mut cpu = Cpu::new(model, Memory::new(0x10000));
+    cpu.mem.load(0x0000, &data);
+    cpu.reset();
     cpu.pc = start_addr;
 
     let mut last_pc = cpu.pc;
@@ -21,7 +19,7 @@ fn run_test(model: Model, start_addr: u16, success_addr: u16, rom_path: &str) {
     // The 6502 run needs ~30M instructions; the cap only guards CI against a
     // regression that neither finishes nor deadlocks.
     for _ in 0..200_000_000u64 {
-        cpu.step(&mut bus);
+        cpu.step();
 
         if cpu.pc == success_addr {
             println!("TEST   Success; executed {} cycles", cpu.counter);
@@ -31,9 +29,9 @@ fn run_test(model: Model, start_addr: u16, success_addr: u16, rom_path: &str) {
         // A branch-to-self deadlock means a test case failed; the PC tells
         // which one (see the Dormann listing).
         if cpu.pc == last_pc {
-            let i = bus.read(cpu.pc);
+            let i = cpu.mem.read(cpu.pc);
             let is_branch = matches!(i, 0x10 | 0x30 | 0x50 | 0x70 | 0x90 | 0xb0 | 0xd0 | 0xf0);
-            if is_branch && bus.read(cpu.pc.wrapping_add(1)) == 0xfe {
+            if is_branch && cpu.mem.read(cpu.pc.wrapping_add(1)) == 0xfe {
                 panic!("functional test failed at {:#06x}", cpu.pc);
             }
         }

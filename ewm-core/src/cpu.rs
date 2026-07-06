@@ -1,8 +1,9 @@
-//! The 6502 CPU core. Port of `cpu.c`/`cpu.h`. The CPU owns no memory: all
-//! access goes through a `Bus` passed into `step`/`reset`/`irq`/`nmi`.
+//! The 6502 CPU core. Port of `cpu.c`/`cpu.h`. As in C, the CPU owns the
+//! memory system: machines build a `Memory` (RAM, ROM, devices) and hand it
+//! to `Cpu::new`, and all access goes through `cpu.mem`.
 
-use crate::bus::Bus;
 use crate::ins::{Handler, INSTRUCTIONS_6502, Instruction, instructions_65c02};
+use crate::mem::Memory;
 
 pub const VECTOR_NMI: u16 = 0xfffa;
 pub const VECTOR_RES: u16 = 0xfffc;
@@ -22,6 +23,7 @@ pub enum CpuError {
 
 pub struct Cpu {
     pub model: Model,
+    pub mem: Memory,
     pub a: u8,
     pub x: u8,
     pub y: u8,
@@ -48,9 +50,10 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(model: Model) -> Cpu {
+    pub fn new(model: Model, mem: Memory) -> Cpu {
         Cpu {
             model,
+            mem,
             a: 0,
             x: 0,
             y: 0,
@@ -74,26 +77,26 @@ impl Cpu {
     }
 
     // Stack management. The C code pokes cpu->ram directly; page 1 is plain
-    // RAM on every machine, so going through the Bus is equivalent.
+    // RAM on every machine, so going through the memory system is equivalent.
 
-    pub fn push_byte(&mut self, bus: &mut dyn Bus, b: u8) {
-        bus.write(0x0100 + self.sp as u16, b);
+    pub fn push_byte(&mut self, b: u8) {
+        self.mem.write(0x0100 + self.sp as u16, b);
         self.sp = self.sp.wrapping_sub(1);
     }
 
-    pub fn push_word(&mut self, bus: &mut dyn Bus, w: u16) {
-        self.push_byte(bus, (w >> 8) as u8);
-        self.push_byte(bus, w as u8);
+    pub fn push_word(&mut self, w: u16) {
+        self.push_byte((w >> 8) as u8);
+        self.push_byte(w as u8);
     }
 
-    pub fn pull_byte(&mut self, bus: &mut dyn Bus) -> u8 {
+    pub fn pull_byte(&mut self) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        bus.read(0x0100 + self.sp as u16)
+        self.mem.read(0x0100 + self.sp as u16)
     }
 
-    pub fn pull_word(&mut self, bus: &mut dyn Bus) -> u16 {
-        let w = self.pull_byte(bus) as u16;
-        w | ((self.pull_byte(bus) as u16) << 8)
+    pub fn pull_word(&mut self) -> u16 {
+        let w = self.pull_byte() as u16;
+        w | ((self.pull_byte() as u16) << 8)
     }
 
     pub fn stack_free(&self) -> u8 {
@@ -126,8 +129,8 @@ impl Cpu {
         self.c = status & 1;
     }
 
-    pub fn reset(&mut self, bus: &mut dyn Bus) {
-        self.pc = bus.read_word(VECTOR_RES);
+    pub fn reset(&mut self) {
+        self.pc = self.mem.read_word(VECTOR_RES);
         self.a = 0x00;
         self.x = 0x00;
         self.y = 0x00;
@@ -141,42 +144,44 @@ impl Cpu {
         self.sp = 0xff;
     }
 
-    pub fn irq(&mut self, bus: &mut dyn Bus) -> Result<(), CpuError> {
+    pub fn irq(&mut self) -> Result<(), CpuError> {
         if self.strict && self.stack_free() < 3 {
             return Err(CpuError::StackOverflow);
         }
 
-        self.push_word(bus, self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
-        self.push_byte(bus, self.status());
+        self.push_word(self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
+        self.push_byte(self.status());
         self.i = 1;
-        self.pc = bus.read_word(VECTOR_IRQ);
+        self.pc = self.mem.read_word(VECTOR_IRQ);
 
         Ok(())
     }
 
-    pub fn nmi(&mut self, bus: &mut dyn Bus) -> Result<(), CpuError> {
+    pub fn nmi(&mut self) -> Result<(), CpuError> {
         if self.strict && self.stack_free() < 3 {
             return Err(CpuError::StackOverflow);
         }
 
-        self.push_word(bus, self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
-        self.push_byte(bus, self.status());
+        self.push_word(self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
+        self.push_byte(self.status());
         self.i = 1;
-        self.pc = bus.read_word(VECTOR_NMI);
+        self.pc = self.mem.read_word(VECTOR_NMI);
 
         Ok(())
     }
 
     /// Execute one instruction and return the cycles it took (the fixed
     /// per-opcode count from the table, as in `cpu_execute_instruction`).
-    pub fn step(&mut self, bus: &mut dyn Bus) -> u32 {
+    pub fn step(&mut self) -> u32 {
+        // Stamp the cycle counter into the memory system so device handlers
+        // can read it, the way the C handlers read cpu->counter.
+        self.mem.cycles = self.counter;
+
         if self.trace.is_some() {
-            let line = format!(
-                "{:04X}: {:<24} {}\n",
-                self.pc,
-                crate::fmt::format_instruction(self, bus),
-                crate::fmt::format_state(self)
-            );
+            let pc = self.pc;
+            let instruction = crate::fmt::format_instruction(self);
+            let state = crate::fmt::format_state(self);
+            let line = format!("{pc:04X}: {instruction:<24} {state}\n");
             if let Some(trace) = &mut self.trace {
                 let _ = trace.write_all(line.as_bytes());
             }
@@ -184,7 +189,7 @@ impl Cpu {
 
         // Fetch instruction
         let instructions = self.instructions;
-        let ins = &instructions[bus.read(self.pc) as usize];
+        let ins = &instructions[self.mem.read(self.pc) as usize];
 
         // Remember and advance the pc
         let pc = self.pc;
@@ -192,14 +197,14 @@ impl Cpu {
 
         // Execute instruction
         match ins.handler {
-            Handler::Implied(f) => f(self, bus),
+            Handler::Implied(f) => f(self),
             Handler::Byte(f) => {
-                let oper = bus.read(pc.wrapping_add(1));
-                f(self, bus, oper);
+                let oper = self.mem.read(pc.wrapping_add(1));
+                f(self, oper);
             }
             Handler::Word(f) => {
-                let oper = bus.read_word(pc.wrapping_add(1));
-                f(self, bus, oper);
+                let oper = self.mem.read_word(pc.wrapping_add(1));
+                f(self, oper);
             }
         }
 
@@ -212,11 +217,15 @@ impl Cpu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bus::TestBus;
+
+    fn test_cpu(model: Model) -> Cpu {
+        // A flat 64K of RAM, as cpu_test.c sets up.
+        Cpu::new(model, Memory::new(0x10000))
+    }
 
     #[test]
     fn status_pack_unpack_round_trip() {
-        let mut cpu = Cpu::new(Model::M6502);
+        let mut cpu = test_cpu(Model::M6502);
         for v in 0..=255u8 {
             cpu.set_status(v);
             assert_eq!(cpu.status(), v | 0x30, "status round-trip for {v:#04x}");
@@ -239,17 +248,15 @@ mod tests {
             }
         }
 
-        let mut bus = TestBus::new();
-        bus.load(0x0400, &[0xa9, 0x42, 0xea]); // LDA #$42, NOP
-
-        let mut cpu = Cpu::new(Model::M6502);
-        cpu.reset(&mut bus);
+        let mut cpu = test_cpu(Model::M6502);
+        cpu.mem.load(0x0400, &[0xa9, 0x42, 0xea]); // LDA #$42, NOP
+        cpu.reset();
         cpu.pc = 0x0400;
 
         let sink = Sink(Arc::new(Mutex::new(Vec::new())));
         cpu.trace = Some(Box::new(sink.clone()));
-        cpu.step(&mut bus);
-        cpu.step(&mut bus);
+        cpu.step();
+        cpu.step();
 
         let out = String::from_utf8(sink.0.lock().unwrap().clone()).unwrap();
         assert_eq!(
@@ -261,25 +268,24 @@ mod tests {
 
     #[test]
     fn stack_wraparound() {
-        let mut cpu = Cpu::new(Model::M6502);
-        let mut bus = TestBus::new();
+        let mut cpu = test_cpu(Model::M6502);
 
         // Pushing with sp at 0x00 writes $0100 and wraps sp to 0xff.
         cpu.sp = 0x00;
-        cpu.push_byte(&mut bus, 0x42);
+        cpu.push_byte(0x42);
         assert_eq!(cpu.sp, 0xff);
-        assert_eq!(bus.read(0x0100), 0x42);
+        assert_eq!(cpu.mem.read(0x0100), 0x42);
 
         // Pulling with sp at 0xff wraps back to 0x00.
-        let b = cpu.pull_byte(&mut bus);
+        let b = cpu.pull_byte();
         assert_eq!(b, 0x42);
         assert_eq!(cpu.sp, 0x00);
 
         // A word pushed across the wrap point round-trips.
         cpu.sp = 0x00;
-        cpu.push_word(&mut bus, 0xbeef);
+        cpu.push_word(0xbeef);
         assert_eq!(cpu.sp, 0xfe);
-        assert_eq!(cpu.pull_word(&mut bus), 0xbeef);
+        assert_eq!(cpu.pull_word(), 0xbeef);
         assert_eq!(cpu.sp, 0x00);
     }
 }

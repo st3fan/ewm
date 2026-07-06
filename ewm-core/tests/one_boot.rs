@@ -2,11 +2,9 @@
 //! Woz monitor prompt, type a memory-dump command through the PIA, and
 //! assert the hex dump of the ROM region comes back on the display.
 
-use ewm_core::cpu::Cpu;
 use ewm_core::one::{One, OneModel};
 
 struct Machine {
-    cpu: Cpu,
     one: One,
     output: Vec<u8>,
 }
@@ -14,10 +12,8 @@ struct Machine {
 impl Machine {
     fn boot(model: OneModel) -> Machine {
         let mut one = One::new(model);
-        let mut cpu = Cpu::new(one.cpu_model());
-        cpu.reset(&mut one);
+        one.cpu.reset();
         Machine {
-            cpu,
             one,
             output: Vec::new(),
         }
@@ -26,7 +22,7 @@ impl Machine {
     fn step(&mut self, cycles: u64) {
         let mut done = 0u64;
         while done < cycles {
-            done += self.cpu.step(&mut self.one) as u64;
+            done += self.one.cpu.step() as u64;
         }
         self.output.extend(self.one.drain_display());
     }

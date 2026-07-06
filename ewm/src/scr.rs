@@ -163,7 +163,7 @@ impl Scr {
     }
 
     fn text_base(two: &Two) -> usize {
-        if two.screen_page == ScreenPage::Page1 {
+        if two.screen_page() == ScreenPage::Page1 {
             0x0400
         } else {
             0x0800
@@ -215,7 +215,7 @@ impl Scr {
     }
 
     fn render_lgr_screen(&mut self, two: &Two, flash: bool) {
-        let mixed = two.screen_graphics_style == GraphicsStyle::Mixed;
+        let mixed = two.screen_graphics_style() == GraphicsStyle::Mixed;
 
         // Render graphics
         let rows = if mixed { 20 } else { 24 };
@@ -300,12 +300,12 @@ impl Scr {
     #[allow(clippy::needless_range_loop)]
     fn render_hgr_screen(&mut self, two: &Two, flash: bool) {
         // Render graphics
-        let lines = if two.screen_graphics_style == GraphicsStyle::Mixed {
+        let lines = if two.screen_graphics_style() == GraphicsStyle::Mixed {
             160
         } else {
             192
         };
-        let hgr_base = HGR_PAGE_OFFSETS[if two.screen_page == ScreenPage::Page1 {
+        let hgr_base = HGR_PAGE_OFFSETS[if two.screen_page() == ScreenPage::Page1 {
             0
         } else {
             1
@@ -320,7 +320,7 @@ impl Scr {
         }
 
         // Render bottom 4 lines of text
-        if two.screen_graphics_style == GraphicsStyle::Mixed {
+        if two.screen_graphics_style() == GraphicsStyle::Mixed {
             for row in 20..24 {
                 for column in 0..40 {
                     self.render_character(two, row, column, flash);
@@ -333,9 +333,9 @@ impl Scr {
     pub fn update(&mut self, two: &Two, phase: u32, fps: u32) {
         let flash = !(phase / (fps / 4)).is_multiple_of(2);
 
-        match two.screen_mode {
+        match two.screen_mode() {
             ScreenMode::Text => self.render_txt_screen(two, flash),
-            ScreenMode::Graphics => match two.screen_graphics_mode {
+            ScreenMode::Graphics => match two.screen_graphics_mode() {
                 GraphicsMode::Lgr => self.render_lgr_screen(two, flash),
                 GraphicsMode::Hgr => self.render_hgr_screen(two, flash),
             },
@@ -385,7 +385,6 @@ pub fn encode_bmp(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ewm_core::cpu::Cpu;
     use ewm_core::two::TwoType;
 
     /// The Phase 7 automated gate: boot the System Master for a fixed
@@ -402,13 +401,11 @@ mod tests {
             ),
         )
         .unwrap();
-        let mut cpu = Cpu::new(two.cpu_model());
-        cpu.reset(&mut two);
+        two.cpu.reset();
 
         let mut done = 0u64;
         while done < 100_000_000 {
-            two.cycles = cpu.counter;
-            done += cpu.step(&mut two) as u64;
+            done += two.cpu.step() as u64;
         }
         assert!(
             two.text_screen().contains("DOS VERSION 3.3"),

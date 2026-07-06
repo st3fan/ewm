@@ -6,9 +6,9 @@
 
 use std::io::Read;
 
-use ewm_core::bus::TestBus;
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::fmt::format_instruction;
+use ewm_core::mem::Memory;
 
 fn state_line(cpu: &Cpu) -> String {
     format!(
@@ -40,11 +40,9 @@ fn trace_compare_6502() {
     ))
     .expect("cannot read test binary");
 
-    let mut bus = TestBus::new();
-    bus.load(0x0000, &data);
-
-    let mut cpu = Cpu::new(Model::M6502);
-    cpu.reset(&mut bus);
+    let mut cpu = Cpu::new(Model::M6502, Memory::new(0x10000));
+    cpu.mem.load(0x0000, &data);
+    cpu.reset();
     cpu.pc = 0x0400;
 
     let mut prev: Option<(usize, String)> = None;
@@ -59,10 +57,10 @@ fn trace_compare_6502() {
                  \n  expected (C):       {expected}\
                  \n  actual   (Rust):    {actual}\
                  \n  at instruction:     {}{context}",
-                format_instruction(&cpu, &mut bus)
+                format_instruction(&mut cpu)
             );
         }
         prev = Some((lineno, actual));
-        cpu.step(&mut bus);
+        cpu.step();
     }
 }

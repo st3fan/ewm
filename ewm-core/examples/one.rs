@@ -15,13 +15,12 @@
 
 use std::io::{BufRead, Write};
 
-use ewm_core::cpu::Cpu;
 use ewm_core::one::{One, OneModel};
 
-fn pump(cpu: &mut Cpu, one: &mut One, cycles: u64) {
+fn pump(one: &mut One, cycles: u64) {
     let mut done = 0;
     while done < cycles {
-        done += cpu.step(one) as u64;
+        done += one.cpu.step() as u64;
     }
     let mut out = std::io::stdout().lock();
     for b in one.drain_display() {
@@ -46,11 +45,10 @@ fn main() {
     };
 
     let mut one = One::new(model);
-    let mut cpu = Cpu::new(one.cpu_model());
-    cpu.reset(&mut one);
+    one.cpu.reset();
 
     eprintln!("[{model:?} at the Woz monitor — type commands, enter sends CR]");
-    pump(&mut cpu, &mut one, 1_000_000);
+    pump(&mut one, 1_000_000);
 
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
@@ -58,9 +56,9 @@ fn main() {
         // had no lower case); do the same.
         for b in line.to_uppercase().into_bytes() {
             one.key(b);
-            pump(&mut cpu, &mut one, 50_000);
+            pump(&mut one, 50_000);
         }
         one.key(0x0d);
-        pump(&mut cpu, &mut one, 1_000_000);
+        pump(&mut one, 1_000_000);
     }
 }

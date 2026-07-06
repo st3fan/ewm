@@ -396,6 +396,30 @@ C emulator from git history (tag: the Phase 8 merge). The rewrite is complete.
 
 ---
 
+## Post-rewrite refactors
+
+### Memory/Device abstraction restored (2026-07-05)
+
+The port originally inverted the C ownership: the CPU held no memory, machines
+implemented a `Bus` trait and pattern-matched addresses themselves. This was
+refactored back to the C architecture: machines own the `Cpu`, the `Cpu` owns a
+`Memory` (`ewm-core/src/mem.rs`, the `mem.c` region table: base-RAM fast path +
+RAM/ROM/`Device` regions walked newest-first), and peripherals implement
+`Device` — `Pia`, `Alc` (which now owns the machine ROM it shadows), `Dsk`, and
+the new `TwoIo` (the `$C000-$C07F` soft switches, formerly inline in `Two`).
+Instruction handlers dropped their `bus` parameter and match the C typedefs
+(`fn(&mut Cpu)` etc.); `Cpu::step` stamps `mem.cycles` from `counter`, which
+removed the `Two.cycles` mirror the run loops used to maintain. All golden
+gates passed unchanged. Two notes:
+
+- `One` previously dispatched `--memory` extras *before* base RAM; the region
+  table aligns it with the C `addr < ram_size` fast path (base RAM wins),
+  observable only if an extra region overlaps base RAM.
+- The microbenches moved a few ms per 10M calls in places (the flat `TestBus`
+  array became the region-walking `Memory`; `TestBus` itself was replaced by a
+  64K `Memory`, as `cpu_test.c` used) — still orders of magnitude beyond the
+  1.023 MHz budget.
+
 ## Sequencing notes
 
 - Phases are strictly ordered 0→9. Phase 4 may be deferred until after 5/6 if
