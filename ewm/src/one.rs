@@ -335,7 +335,8 @@ pub fn main(args: &[String]) -> i32 {
         .expect("Failed to create texture");
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let mut ticks = timer.ticks();
+    let frame_ms = 1000 / ONE_FPS;
+    let mut next_frame = timer.ticks() + frame_ms;
     let mut phase: u32 = 1;
 
     'outer: loop {
@@ -355,7 +356,7 @@ pub fn main(args: &[String]) -> i32 {
 
         // This is very basic throttling that does bursts of CPU cycles.
 
-        if (timer.ticks() - ticks) >= (1000 / ONE_FPS) {
+        if timer.ticks() >= next_frame {
             step_cpu(&mut one, ONE_CPS / ONE_FPS);
             for b in one.drain_display() {
                 tty.write(b);
@@ -382,7 +383,14 @@ pub fn main(args: &[String]) -> i32 {
                 canvas.present();
             }
 
-            ticks = timer.ticks();
+            // Advance the deadline instead of re-reading the clock, so render
+            // time does not stretch every frame; resync only after a long
+            // stall (window drag) rather than bursting to catch up.
+            next_frame += frame_ms;
+            let now = timer.ticks();
+            if now > next_frame + 1000 {
+                next_frame = now + frame_ms;
+            }
 
             phase += 1;
             if phase == ONE_FPS {

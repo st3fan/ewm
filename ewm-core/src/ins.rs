@@ -72,6 +72,54 @@ fn ind_addr(cpu: &mut Cpu, addr: u8) -> u16 {
     ((hi as u16) << 8) | lo as u16
 }
 
+/// True when `base` and `effective` sit on different 256-byte pages — the
+/// condition for the NMOS 6502's one-cycle indexed-read penalty.
+fn crossed(base: u16, effective: u16) -> bool {
+    (base ^ effective) & 0xff00 != 0
+}
+
+/// A taken branch costs one extra cycle, and one more when the target is
+/// on a different page than the following instruction (`cpu.pc` has
+/// already advanced past the operand when handlers run).
+fn branch_taken(cpu: &mut Cpu, oper: u8) {
+    let target = cpu.pc.wrapping_add((oper as i8) as u16);
+    cpu.extra_cycles += if crossed(cpu.pc, target) { 2 } else { 1 };
+    cpu.pc = target;
+}
+
+// Page-cross-penalized getters for the *read* instructions (LDA/LDX/LDY/
+// ADC/SBC/AND/ORA/EOR/CMP/BIT in abs,X / abs,Y / (zp),Y modes). Stores and
+// read-modify-writes always pay their fixed maximum and use the plain
+// getters above.
+
+pub fn mem_get_byte_absx_pen(cpu: &mut Cpu, addr: u16) -> u8 {
+    let effective = addr.wrapping_add(cpu.x as u16);
+    if crossed(addr, effective) {
+        cpu.extra_cycles += 1;
+    }
+    cpu.mem.read(effective)
+}
+
+pub fn mem_get_byte_absy_pen(cpu: &mut Cpu, addr: u16) -> u8 {
+    let effective = addr.wrapping_add(cpu.y as u16);
+    if crossed(addr, effective) {
+        cpu.extra_cycles += 1;
+    }
+    cpu.mem.read(effective)
+}
+
+pub fn mem_get_byte_indy_pen(cpu: &mut Cpu, addr: u8) -> u8 {
+    // No zero-page wrap on addr + 1, matching mem_get_byte_indy.
+    let hi = cpu.mem.read(addr as u16 + 1);
+    let lo = cpu.mem.read(addr as u16);
+    let base = ((hi as u16) << 8) | lo as u16;
+    let effective = base.wrapping_add(cpu.y as u16);
+    if crossed(base, effective) {
+        cpu.extra_cycles += 1;
+    }
+    cpu.mem.read(effective)
+}
+
 pub fn mem_get_byte_indx(cpu: &mut Cpu, addr: u8) -> u8 {
     let a = indx_addr(cpu, addr);
     cpu.mem.read(a)
@@ -150,6 +198,8 @@ fn mem_mod_byte_abs(cpu: &mut Cpu, addr: u16, op: ModOp) {
 }
 
 fn mem_mod_byte_absx(cpu: &mut Cpu, addr: u16, op: ModOp) {
+    // Read-modify-write abs,X always pays its fixed 7 cycles — no
+    // page-cross penalty, so the plain getter.
     let b = mem_get_byte_absx(cpu, addr);
     let v = op(cpu, b);
     mem_set_byte_absx(cpu, addr, v);
@@ -219,12 +269,12 @@ fn adc_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn adc_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     adc(cpu, m);
 }
 
 fn adc_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     adc(cpu, m);
 }
 
@@ -234,7 +284,7 @@ fn adc_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn adc_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     adc(cpu, m);
 }
 
@@ -265,12 +315,12 @@ fn and_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn and_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     and(cpu, m);
 }
 
 fn and_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     and(cpu, m);
 }
 
@@ -280,7 +330,7 @@ fn and_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn and_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     and(cpu, m);
 }
 
@@ -337,49 +387,49 @@ fn bit_abs(cpu: &mut Cpu, oper: u16) {
 
 fn bcc(cpu: &mut Cpu, oper: u8) {
     if cpu.c == 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bcs(cpu: &mut Cpu, oper: u8) {
     if cpu.c != 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn beq(cpu: &mut Cpu, oper: u8) {
     if cpu.z != 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bmi(cpu: &mut Cpu, oper: u8) {
     if cpu.n != 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bne(cpu: &mut Cpu, oper: u8) {
     if cpu.z == 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bpl(cpu: &mut Cpu, oper: u8) {
     if cpu.n == 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bvc(cpu: &mut Cpu, oper: u8) {
     if cpu.v == 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
 fn bvs(cpu: &mut Cpu, oper: u8) {
     if cpu.v != 0 {
-        cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+        branch_taken(cpu, oper);
     }
 }
 
@@ -440,12 +490,12 @@ fn cmp_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn cmp_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     cmp(cpu, m);
 }
 
 fn cmp_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     cmp(cpu, m);
 }
 
@@ -455,7 +505,7 @@ fn cmp_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn cmp_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     cmp(cpu, m);
 }
 
@@ -564,12 +614,12 @@ fn eor_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn eor_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     eor(cpu, m);
 }
 
 fn eor_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     eor(cpu, m);
 }
 
@@ -579,7 +629,7 @@ fn eor_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn eor_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     eor(cpu, m);
 }
 
@@ -657,12 +707,12 @@ fn lda_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn lda_absx(cpu: &mut Cpu, oper: u16) {
-    cpu.a = mem_get_byte_absx(cpu, oper);
+    cpu.a = mem_get_byte_absx_pen(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
 fn lda_absy(cpu: &mut Cpu, oper: u16) {
-    cpu.a = mem_get_byte_absy(cpu, oper);
+    cpu.a = mem_get_byte_absy_pen(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
@@ -672,7 +722,7 @@ fn lda_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn lda_indy(cpu: &mut Cpu, oper: u8) {
-    cpu.a = mem_get_byte_indy(cpu, oper);
+    cpu.a = mem_get_byte_indy_pen(cpu, oper);
     update_zn(cpu, cpu.a);
 }
 
@@ -699,7 +749,7 @@ fn ldx_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn ldx_absy(cpu: &mut Cpu, oper: u16) {
-    cpu.x = mem_get_byte_absy(cpu, oper);
+    cpu.x = mem_get_byte_absy_pen(cpu, oper);
     update_zn(cpu, cpu.x);
 }
 
@@ -726,7 +776,7 @@ fn ldy_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn ldy_absx(cpu: &mut Cpu, oper: u16) {
-    cpu.y = mem_get_byte_absx(cpu, oper);
+    cpu.y = mem_get_byte_absx_pen(cpu, oper);
     update_zn(cpu, cpu.y);
 }
 
@@ -790,12 +840,12 @@ fn ora_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn ora_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     ora(cpu, m);
 }
 
 fn ora_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     ora(cpu, m);
 }
 
@@ -805,7 +855,7 @@ fn ora_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn ora_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     ora(cpu, m);
 }
 
@@ -962,12 +1012,12 @@ fn sbc_abs(cpu: &mut Cpu, oper: u16) {
 }
 
 fn sbc_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     sbc(cpu, m);
 }
 
 fn sbc_absy(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absy(cpu, oper);
+    let m = mem_get_byte_absy_pen(cpu, oper);
     sbc(cpu, m);
 }
 
@@ -977,7 +1027,7 @@ fn sbc_indx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn sbc_indy(cpu: &mut Cpu, oper: u8) {
-    let m = mem_get_byte_indy(cpu, oper);
+    let m = mem_get_byte_indy_pen(cpu, oper);
     sbc(cpu, m);
 }
 
@@ -1110,12 +1160,12 @@ use Handler::{Byte, Implied, Word};
 
 #[rustfmt::skip]
 pub static INSTRUCTIONS_6502: [Instruction; 256] = [
-    /* 0x00 */ ins("BRK", 0x00, 1, 2, Implied(brk)),
+    /* 0x00 */ ins("BRK", 0x00, 1, 7, Implied(brk)),
     /* 0x01 */ ins("ORA", 0x01, 2, 6, Byte(ora_indx)),
     /* 0x02 */ ins("???", 0x02, 1, 2, Implied(unimplemented)),
     /* 0x03 */ ins("???", 0x03, 1, 2, Implied(unimplemented)),
     /* 0x04 */ ins("???", 0x04, 1, 2, Implied(unimplemented)),
-    /* 0x05 */ ins("ORA", 0x05, 2, 2, Byte(ora_zpg)),
+    /* 0x05 */ ins("ORA", 0x05, 2, 3, Byte(ora_zpg)),
     /* 0x06 */ ins("ASL", 0x06, 2, 5, Byte(asl_zpg)),
     /* 0x07 */ ins("???", 0x07, 1, 2, Implied(unimplemented)),
     /* 0x08 */ ins("PHP", 0x08, 1, 3, Implied(php)),
@@ -1131,7 +1181,7 @@ pub static INSTRUCTIONS_6502: [Instruction; 256] = [
     /* 0x12 */ ins("???", 0x12, 1, 2, Implied(unimplemented)),
     /* 0x13 */ ins("???", 0x13, 1, 2, Implied(unimplemented)),
     /* 0x14 */ ins("???", 0x14, 1, 2, Implied(unimplemented)),
-    /* 0x15 */ ins("ORA", 0x15, 2, 3, Byte(ora_zpgx)),
+    /* 0x15 */ ins("ORA", 0x15, 2, 4, Byte(ora_zpgx)),
     /* 0x16 */ ins("ASL", 0x16, 2, 6, Byte(asl_zpgx)),
     /* 0x17 */ ins("???", 0x17, 1, 2, Implied(unimplemented)),
     /* 0x18 */ ins("CLC", 0x18, 1, 2, Implied(clc)),
@@ -1322,7 +1372,7 @@ pub static INSTRUCTIONS_6502: [Instruction; 256] = [
     /* 0xcb */ ins("???", 0xcb, 1, 2, Implied(unimplemented)),
     /* 0xcc */ ins("CPY", 0xcc, 3, 4, Word(cpy_abs)),
     /* 0xcd */ ins("CMP", 0xcd, 3, 4, Word(cmp_abs)),
-    /* 0xce */ ins("DEC", 0xce, 3, 3, Word(dec_abs)),
+    /* 0xce */ ins("DEC", 0xce, 3, 6, Word(dec_abs)),
     /* 0xcf */ ins("???", 0xcf, 1, 2, Implied(unimplemented)),
     /* 0xd0 */ ins("BNE", 0xd0, 2, 2, Byte(bne)),
     /* 0xd1 */ ins("CMP", 0xd1, 2, 5, Byte(cmp_indy)),
@@ -1342,11 +1392,11 @@ pub static INSTRUCTIONS_6502: [Instruction; 256] = [
     /* 0xdf */ ins("???", 0xdf, 1, 2, Implied(unimplemented)),
 
     /* 0xe0 */ ins("CPX", 0xe0, 2, 2, Byte(cpx_imm)),
-    /* 0xe1 */ ins("SBC", 0xe1, 2, 2, Byte(sbc_indx)),
+    /* 0xe1 */ ins("SBC", 0xe1, 2, 6, Byte(sbc_indx)),
     /* 0xe2 */ ins("???", 0xe2, 1, 2, Implied(unimplemented)),
     /* 0xe3 */ ins("???", 0xe3, 1, 2, Implied(unimplemented)),
     /* 0xe4 */ ins("CPX", 0xe4, 2, 3, Byte(cpx_zpg)),
-    /* 0xe5 */ ins("SBC", 0xe5, 2, 2, Byte(sbc_zpg)),
+    /* 0xe5 */ ins("SBC", 0xe5, 2, 3, Byte(sbc_zpg)),
     /* 0xe6 */ ins("INC", 0xe6, 2, 5, Byte(inc_zpg)),
     /* 0xe7 */ ins("???", 0xe7, 1, 2, Implied(unimplemented)),
     /* 0xe8 */ ins("INX", 0xe8, 1, 2, Implied(inx)),
@@ -1354,23 +1404,23 @@ pub static INSTRUCTIONS_6502: [Instruction; 256] = [
     /* 0xea */ ins("NOP", 0xea, 1, 2, Implied(nop)),
     /* 0xeb */ ins("???", 0xeb, 1, 2, Implied(unimplemented)),
     /* 0xec */ ins("CPX", 0xec, 3, 4, Word(cpx_abs)),
-    /* 0xed */ ins("SBC", 0xed, 3, 2, Word(sbc_abs)),
+    /* 0xed */ ins("SBC", 0xed, 3, 4, Word(sbc_abs)),
     /* 0xee */ ins("INC", 0xee, 3, 6, Word(inc_abs)),
     /* 0xef */ ins("???", 0xef, 1, 2, Implied(unimplemented)),
     /* 0xf0 */ ins("BEQ", 0xf0, 2, 2, Byte(beq)),
-    /* 0xf1 */ ins("SBC", 0xf1, 2, 2, Byte(sbc_indy)),
+    /* 0xf1 */ ins("SBC", 0xf1, 2, 5, Byte(sbc_indy)),
     /* 0xf2 */ ins("???", 0xf2, 1, 2, Implied(unimplemented)),
     /* 0xf3 */ ins("???", 0xf3, 1, 2, Implied(unimplemented)),
     /* 0xf4 */ ins("???", 0xf4, 1, 2, Implied(unimplemented)),
-    /* 0xf5 */ ins("SBC", 0xf5, 2, 2, Byte(sbc_zpgx)),
+    /* 0xf5 */ ins("SBC", 0xf5, 2, 4, Byte(sbc_zpgx)),
     /* 0xf6 */ ins("INC", 0xf6, 2, 6, Byte(inc_zpgx)),
     /* 0xf7 */ ins("???", 0xf7, 1, 2, Implied(unimplemented)),
     /* 0xf8 */ ins("SED", 0xf8, 1, 2, Implied(sed)),
-    /* 0xf9 */ ins("SBC", 0xf9, 3, 2, Word(sbc_absy)),
+    /* 0xf9 */ ins("SBC", 0xf9, 3, 4, Word(sbc_absy)),
     /* 0xfa */ ins("???", 0xfa, 1, 2, Implied(unimplemented)),
     /* 0xfb */ ins("???", 0xfb, 1, 2, Implied(unimplemented)),
     /* 0xfc */ ins("???", 0xfc, 1, 2, Implied(unimplemented)),
-    /* 0xfd */ ins("SBC", 0xfd, 3, 2, Word(sbc_absx)),
+    /* 0xfd */ ins("SBC", 0xfd, 3, 4, Word(sbc_absx)),
     /* 0xfe */ ins("INC", 0xfe, 3, 7, Word(inc_absx)),
     /* 0xff */ ins("???", 0xff, 1, 2, Implied(unimplemented)),
 ];
@@ -1428,7 +1478,7 @@ fn bit_zpgx(cpu: &mut Cpu, oper: u8) {
 }
 
 fn bit_absx(cpu: &mut Cpu, oper: u16) {
-    let m = mem_get_byte_absx(cpu, oper);
+    let m = mem_get_byte_absx_pen(cpu, oper);
     bit(cpu, m);
 }
 
@@ -1447,7 +1497,13 @@ fn jmp_absx(cpu: &mut Cpu, oper: u16) {
 }
 
 fn bra(cpu: &mut Cpu, oper: u8) {
-    cpu.pc = cpu.pc.wrapping_add((oper as i8) as u16);
+    // BRA's 3-cycle base already includes the taken branch; only a page
+    // crossing adds one.
+    let target = cpu.pc.wrapping_add((oper as i8) as u16);
+    if crossed(cpu.pc, target) {
+        cpu.extra_cycles += 1;
+    }
+    cpu.pc = target;
 }
 
 fn phx(cpu: &mut Cpu) {

@@ -777,7 +777,8 @@ pub fn main(args: &[String]) -> i32 {
     tty_texture.set_blend_mode(BlendMode::Blend);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let mut ticks = timer.ticks();
+    let frame_ms = 1000 / fps;
+    let mut next_frame = timer.ticks() + frame_ms;
     let mut phase: u32 = 1;
     let mut paused = false;
     let mut status_bar_visible = false;
@@ -909,7 +910,7 @@ pub fn main(args: &[String]) -> i32 {
             }
         }
 
-        if (timer.ticks() - ticks) >= (1000 / fps) {
+        if timer.ticks() >= next_frame {
             if !paused {
                 // Feed the joystick axes to the paddle logic before the burst.
                 two.set_joystick(controller.as_ref().map(|c| {
@@ -987,7 +988,14 @@ pub fn main(args: &[String]) -> i32 {
                 canvas.present();
             }
 
-            ticks = timer.ticks();
+            // Advance the deadline instead of re-reading the clock, so render
+            // time does not stretch every frame; resync only after a long
+            // stall (window drag) rather than bursting to catch up.
+            next_frame += frame_ms;
+            let now = timer.ticks();
+            if now > next_frame + 1000 {
+                next_frame = now + frame_ms;
+            }
             phase += 1;
             if phase == fps {
                 phase = 0;

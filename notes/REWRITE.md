@@ -454,6 +454,24 @@ both frontends (Cmd-letter combos are reliably delivered; Cmd-I and Cmd-P
 already depend on that). Divergence from the C key map. The `--debug` flag
 now also logs KeyDown events, which is how this was diagnosed.
 
+### Cycle accounting corrected to real hardware (2026-07-06)
+
+The C's instruction table undercounted cycles — all memory-mode SBCs at 2
+(real 3-6), BRK at 2 (real 7), DEC abs at 3 (real 6), ORA zp/zp,X off by
+one — and charged no penalties for taken branches (+1, +2 cross-page) or
+page-crossing indexed reads (+1), so the machine ran ~15-25% fast despite
+correct wall-clock frame pacing. All counts now match the 6502 datasheet,
+penalties accrue via `Cpu::extra_cycles`, and the ROM `WAIT $FCA8` routine
+measures cycle-exact against its documented (26+27A+5A²)/2 formula
+(`ewm/tests/two_timing.rs`, the permanent gate). A deliberate divergence
+from the C's counts: Dormann/golden-trace gates compare architectural
+state, not cycles, and are unaffected; the golden screenshot proved
+byte-identical (the boot settles either way). Quirk #3's "fake ≈1.023 MHz"
+display is now a true 1.023 MHz. The frontends also advance their frame
+deadline instead of re-reading the clock after render, so frame time no
+longer stretches the period. 65C02-specific timing (decimal +1, fixed
+page-cross reads) remains out of scope.
+
 ## Sequencing notes
 
 - Phases are strictly ordered 0→9. Phase 4 may be deferred until after 5/6 if
