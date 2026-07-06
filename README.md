@@ -72,7 +72,7 @@ emulator runs:
 
 | Key | Action |
 |---|---|
-| Cmd-Esc | Reset the machine |
+| Cmd-R | Reset the machine |
 | Cmd-Return | Toggle fullscreen |
 | Cmd-P | Pause (Apple ][+) |
 | Cmd-I | Toggle the status bar with drive lights (Apple ][+) |
