@@ -11,6 +11,7 @@ pub mod alc;
 pub mod boo;
 pub mod chr;
 pub mod dsk;
+pub mod hdd;
 pub mod one;
 pub mod pia;
 pub mod scr;

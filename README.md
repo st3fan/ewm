@@ -24,8 +24,10 @@ into a full emulator with Disk II support, graphics, and sound.
 * **Apple 1** — 6502, 8KB RAM, Woz Monitor
 * **Replica 1** — 65C02, 32KB RAM, KRUSADER assembler ROM
 * **Apple ][+** — 6502, 48KB RAM, Apple Language Card, Disk II with two
-  drives, 40-column text, low-resolution and high-resolution graphics
-  (color or green monochrome), speaker sound, joystick paddles and buttons
+  drives, a slot 7 hard drive for 32MB ProDOS block images (boots
+  [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
+  low-resolution and high-resolution graphics (color or green monochrome),
+  speaker sound, joystick paddles and buttons
 
 ## Requirements
 
@@ -54,6 +56,9 @@ Or start a machine directly:
 ```
 # Apple ][+ with color graphics and the DOS 3.3 sample programs disk
 cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
+
+# Apple ][+ booting Total Replay from a ProDOS hard drive image
+cargo run --release -- two --color --hdd "disks/Total Replay v6.0.1.hdv"
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
