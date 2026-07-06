@@ -1,16 +1,10 @@
-//! EWM core: CPU, memory system, machines, and devices — fully headless.
-//!
-//! This crate contains no SDL (or other frontend) dependencies. The
-//! ownership chain matches the C emulator: a machine owns its `Cpu`, and
-//! the `Cpu` owns the `Memory` its hardware is composed into.
+//! EWM core: the generic 6502 system kernel — CPU, memory system,
+//! instruction tables, and formatters. Nothing Apple-specific lives here:
+//! the machines, their devices, and the frontends are in the `ewm` crate,
+//! which composes them out of this kernel (a machine owns its `Cpu`, the
+//! `Cpu` owns the `Memory` its hardware registers into).
 
-pub mod alc;
-pub mod chr;
 pub mod cpu;
-pub mod dsk;
 pub mod fmt;
 pub mod ins;
 pub mod mem;
-pub mod one;
-pub mod pia;
-pub mod two;

@@ -1,7 +1,7 @@
 //! The Phase 6 gate: boot DOS 3.3 from the System Master image, fully
 //! headless, and run CATALOG.
 
-use ewm_core::two::{Two, TwoType};
+use ewm::two::{Two, TwoType};
 
 struct Machine {
     two: Two,

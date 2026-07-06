@@ -22,7 +22,7 @@
 
 use std::io::BufRead;
 
-use ewm_core::two::{Two, TwoType};
+use ewm::two::{Two, TwoType};
 
 fn step(two: &mut Two, cycles: u64) {
     let mut done = 0;

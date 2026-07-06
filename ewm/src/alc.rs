@@ -12,7 +12,7 @@
 //!   write alone. *Writes* to any `$C08x` reset the count, so write-enable
 //!   requires two consecutive reads.
 
-use crate::mem::Device;
+use ewm_core::mem::Device;
 
 pub struct Alc {
     /// False until the first `$C08x` access — all card RAM disabled, exactly

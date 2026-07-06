@@ -2,7 +2,7 @@
 //! rendered glyph by glyph into a 280×192 pixel buffer the SDL loop uploads
 //! as a texture each refresh.
 
-use ewm_core::chr::{CHR_HEIGHT, CHR_WIDTH, Chr};
+use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr};
 
 pub const TTY_ROWS: usize = 24;
 pub const TTY_COLUMNS: usize = 40;

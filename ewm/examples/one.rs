@@ -15,7 +15,7 @@
 
 use std::io::{BufRead, Write};
 
-use ewm_core::one::{One, OneModel};
+use ewm::one::{One, OneModel};
 
 fn pump(one: &mut One, cycles: u64) {
     let mut done = 0;

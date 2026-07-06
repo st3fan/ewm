@@ -2,7 +2,7 @@
 //! Woz monitor prompt, type a memory-dump command through the PIA, and
 //! assert the hex dump of the ROM region comes back on the display.
 
-use ewm_core::one::{One, OneModel};
+use ewm::one::{One, OneModel};
 
 struct Machine {
     one: One,
