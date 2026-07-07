@@ -368,7 +368,8 @@ pub fn main(args: &[String]) -> i32 {
     palette_texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let mut ticks = sdl3::timer::ticks();
+    let frame_ms = (1000 / ONE_FPS) as u64;
+    let mut next_frame = sdl3::timer::ticks() + frame_ms;
     let mut phase: u32 = 1;
     let mut paused = false;
 
@@ -455,7 +456,7 @@ pub fn main(args: &[String]) -> i32 {
 
         // This is very basic throttling that does bursts of CPU cycles.
 
-        if (sdl3::timer::ticks() - ticks) >= (1000 / ONE_FPS) as u64 {
+        if sdl3::timer::ticks() >= next_frame {
             if !paused && !palette_visible {
                 step_cpu(&mut one, ONE_CPS / ONE_FPS);
             }
@@ -515,7 +516,14 @@ pub fn main(args: &[String]) -> i32 {
                 canvas.present();
             }
 
-            ticks = sdl3::timer::ticks();
+            // Advance the deadline instead of re-reading the clock, so render
+            // time does not stretch every frame; resync only after a long
+            // stall (window drag) rather than bursting to catch up.
+            next_frame += frame_ms;
+            let now = sdl3::timer::ticks();
+            if now > next_frame + 1000 {
+                next_frame = now + frame_ms;
+            }
 
             phase += 1;
             if phase == ONE_FPS {

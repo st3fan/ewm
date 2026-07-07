@@ -40,6 +40,9 @@ pub struct Cpu {
     pub z: u8,
     pub c: u8,
     pub counter: u64,
+    /// Cycle penalties accrued by the currently executing instruction
+    /// (taken branches, page-cross reads); folded into the step cost.
+    pub extra_cycles: u8,
     pub strict: bool,
     /// When set, every step writes one line of disassembly + state before
     /// executing. The C only ever opened the trace file (the write path was
@@ -67,6 +70,7 @@ impl Cpu {
             z: 0,
             c: 0,
             counter: 0,
+            extra_cycles: 0,
             strict: false,
             trace: None,
             instructions: match model {
@@ -196,6 +200,7 @@ impl Cpu {
         self.pc = self.pc.wrapping_add(ins.bytes as u16);
 
         // Execute instruction
+        self.extra_cycles = 0;
         match ins.handler {
             Handler::Implied(f) => f(self),
             Handler::Byte(f) => {
@@ -208,9 +213,12 @@ impl Cpu {
             }
         }
 
-        self.counter += ins.cycles as u64;
+        // Base cost from the table plus what the handler accrued (taken
+        // branches, page-cross reads).
+        let cycles = ins.cycles as u32 + self.extra_cycles as u32;
+        self.counter += cycles as u64;
 
-        ins.cycles as u32
+        cycles
     }
 }
 
