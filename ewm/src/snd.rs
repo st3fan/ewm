@@ -9,8 +9,8 @@
 //! speaker cone relaxing to rest: silence is actually silence, and
 //! underruns during silence are inaudible.
 
-use sdl2::AudioSubsystem;
-use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use sdl3::AudioSubsystem;
+use sdl3::audio::{AudioFormat, AudioSpec, AudioStreamOwner};
 
 pub const SND_SAMPLE_RATE: u32 = 44100;
 const SND_BUFFER_SIZE: usize = 4096;
@@ -29,7 +29,7 @@ const SND_PRIME_SAMPLES: usize = (SND_SAMPLE_RATE as usize) * 64 / 1000;
 
 /// Skip queueing an all-silent frame once this many bytes (100 ms of mono
 /// i16 samples) are already buffered.
-const SND_QUEUE_CAP_BYTES: u32 = SND_SAMPLE_RATE * 2 / 10;
+const SND_QUEUE_CAP_BYTES: i32 = (SND_SAMPLE_RATE * 2 / 10) as i32;
 
 /// The pure synthesis half: toggles in, samples out. Kept free of SDL so
 /// the waveform is unit-testable.
@@ -90,23 +90,32 @@ impl Wave {
 }
 
 pub struct Snd {
-    device: AudioQueue<i16>,
+    stream: AudioStreamOwner,
     wave: Wave,
 }
 
 impl Snd {
     pub fn new(audio: &AudioSubsystem) -> Result<Snd, String> {
-        let desired = AudioSpecDesired {
+        // SDL3 has no per-device sample-buffer request (the SDL2 `samples:
+        // 512`); SDL picks the device buffer size.
+        let spec = AudioSpec {
             freq: Some(SND_SAMPLE_RATE as i32),
             channels: Some(1),
-            samples: Some(512),
+            format: Some(AudioFormat::s16_sys()),
         };
-        let device = audio.open_queue::<i16, _>(None, &desired)?;
+        let device = audio
+            .open_playback_device(&spec)
+            .map_err(|e| e.to_string())?;
+        let stream = device
+            .open_device_stream(Some(&spec))
+            .map_err(|e| e.to_string())?;
         // Prime the queue so a late frame does not immediately underrun.
-        let _ = device.queue_audio(&vec![0i16; SND_PRIME_SAMPLES]);
-        device.resume();
+        // The device starts paused in SDL3, so the silence sits buffered
+        // until resume.
+        let _ = stream.put_data_i16(&vec![0i16; SND_PRIME_SAMPLES]);
+        stream.resume().map_err(|e| e.to_string())?;
         Ok(Snd {
-            device,
+            stream,
             wave: Wave::new(),
         })
     }
@@ -120,10 +129,10 @@ impl Snd {
             return;
         }
         let silent = samples.iter().all(|&s| s == 0);
-        if silent && self.device.size() >= SND_QUEUE_CAP_BYTES {
+        if silent && self.stream.queued_bytes().unwrap_or(0) >= SND_QUEUE_CAP_BYTES {
             return;
         }
-        let _ = self.device.queue_audio(samples);
+        let _ = self.stream.put_data_i16(samples);
     }
 }
 
