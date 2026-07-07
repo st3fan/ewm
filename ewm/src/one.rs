@@ -101,9 +101,6 @@ impl One {
 const ONE_FPS: u32 = 40;
 const ONE_CPS: u32 = 1_023_000;
 
-/// Window pixels between the screen contents and the window border.
-const PAD: u32 = 4;
-
 struct MemoryOption {
     rom: bool,
     address: u16,
@@ -201,6 +198,8 @@ fn step_cpu(one: &mut One, cycles: u32) {
 }
 
 pub fn main(args: &[String]) -> i32 {
+    let pad = sdl::window_padding();
+
     // Parse Apple 1 specific options. The C default model is the Replica 1.
     let mut model = OneModel::Replica1;
     let mut memory: Vec<MemoryOption> = Vec::new();
@@ -256,7 +255,7 @@ pub fn main(args: &[String]) -> i32 {
     let video = context.video().expect("Failed to initialize SDL video");
 
     let window = video
-        .window("EWM v0.1 - Apple 1", 280 * 3 + 2 * PAD, 192 * 3 + 2 * PAD)
+        .window("EWM v0.1 - Apple 1", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position_centered()
         .build();
     let window = match window {
@@ -275,11 +274,11 @@ pub fn main(args: &[String]) -> i32 {
     }
 
     // Logical units are window pixels: the tty texture is drawn at 3x into
-    // an explicit rect, leaving PAD window pixels around it.
+    // an explicit rect, leaving pad window pixels around it.
     canvas
         .set_logical_size(
-            TTY_PIXEL_WIDTH as u32 * 3 + 2 * PAD,
-            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * PAD,
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
             SDL_RendererLogicalPresentation::LETTERBOX,
         )
         .expect("Failed to set logical size");
@@ -382,8 +381,8 @@ pub fn main(args: &[String]) -> i32 {
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
                 let dst = Rect::new(
-                    PAD as i32,
-                    PAD as i32,
+                    pad as i32,
+                    pad as i32,
                     TTY_PIXEL_WIDTH as u32 * 3,
                     TTY_PIXEL_HEIGHT as u32 * 3,
                 );

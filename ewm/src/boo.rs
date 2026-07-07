@@ -13,9 +13,6 @@ use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, TTY_ROWS, Tty};
 
 const BOO_FPS: u32 = 40;
 
-/// Window pixels between the screen contents and the window border.
-const PAD: u32 = 4;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum BooChoice {
     Quit,
@@ -52,6 +49,8 @@ static MENU: [&str; TTY_ROWS] = [
 ];
 
 pub fn main(_args: &[String]) -> BooChoice {
+    let pad = sdl::window_padding();
+
     // Setup SDL
 
     let context = match sdl3::init() {
@@ -66,8 +65,8 @@ pub fn main(_args: &[String]) -> BooChoice {
     let window = video
         .window(
             "EWM v0.1 - Bootloader",
-            280 * 3 + 2 * PAD,
-            192 * 3 + 2 * PAD,
+            280 * 3 + 2 * pad,
+            192 * 3 + 2 * pad,
         )
         .position_centered()
         .build()
@@ -81,11 +80,11 @@ pub fn main(_args: &[String]) -> BooChoice {
     }
 
     // Logical units are window pixels: the tty texture is drawn at 3x into
-    // an explicit rect, leaving PAD window pixels around it.
+    // an explicit rect, leaving pad window pixels around it.
     canvas
         .set_logical_size(
-            TTY_PIXEL_WIDTH as u32 * 3 + 2 * PAD,
-            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * PAD,
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
             SDL_RendererLogicalPresentation::LETTERBOX,
         )
         .expect("Failed to set logical size");
@@ -151,8 +150,8 @@ pub fn main(_args: &[String]) -> BooChoice {
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
                 let dst = Rect::new(
-                    PAD as i32,
-                    PAD as i32,
+                    pad as i32,
+                    pad as i32,
                     TTY_PIXEL_WIDTH as u32 * 3,
                     TTY_PIXEL_HEIGHT as u32 * 3,
                 );
