@@ -13,6 +13,7 @@ pub mod chr;
 pub mod dsk;
 pub mod hdd;
 pub mod one;
+pub mod palette;
 pub mod pia;
 pub mod scr;
 pub mod sdl;
