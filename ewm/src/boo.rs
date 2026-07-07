@@ -4,6 +4,7 @@
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
 use sdl3::pixels::{Color, PixelFormat};
+use sdl3::render::ScaleMode;
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 
 use crate::sdl;
@@ -95,6 +96,9 @@ pub fn main(_args: &[String]) -> BooChoice {
     let mut texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create texture");
+    // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
+    // which blurs the upscaled low-res screen.
+    texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let mut ticks = sdl3::timer::ticks();
