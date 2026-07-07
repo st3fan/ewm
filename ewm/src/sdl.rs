@@ -53,6 +53,15 @@ pub fn check_renderer(canvas: &WindowCanvas) -> Result<(), String> {
     Ok(())
 }
 
+/// Window pixels between the screen contents and the window border,
+/// from `EWM_WINDOW_PADDING` (default 4).
+pub fn window_padding() -> u32 {
+    std::env::var("EWM_WINDOW_PADDING")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4)
+}
+
 /// Port of `ewm_sdl_green`: full green packed for the renderer's format.
 pub fn green(canvas: &WindowCanvas) -> u32 {
     match pixel_format(canvas) {

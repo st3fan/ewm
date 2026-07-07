@@ -12,6 +12,7 @@ use ewm_core::mem::{DeviceHandle, Memory};
 use sdl3::event::Event;
 use sdl3::keyboard::{Keycode, Mod};
 use sdl3::pixels::PixelFormat;
+use sdl3::rect::Rect;
 use sdl3::render::ScaleMode;
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 use sdl3::video::FullscreenType;
@@ -197,6 +198,8 @@ fn step_cpu(one: &mut One, cycles: u32) {
 }
 
 pub fn main(args: &[String]) -> i32 {
+    let pad = sdl::window_padding();
+
     // Parse Apple 1 specific options. The C default model is the Replica 1.
     let mut model = OneModel::Replica1;
     let mut memory: Vec<MemoryOption> = Vec::new();
@@ -252,7 +255,7 @@ pub fn main(args: &[String]) -> i32 {
     let video = context.video().expect("Failed to initialize SDL video");
 
     let window = video
-        .window("EWM v0.1 - Apple 1", 280 * 3, 192 * 3)
+        .window("EWM v0.1 - Apple 1", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position_centered()
         .build();
     let window = match window {
@@ -270,10 +273,12 @@ pub fn main(args: &[String]) -> i32 {
         return 1;
     }
 
+    // Logical units are window pixels: the tty texture is drawn at 3x into
+    // an explicit rect, leaving pad window pixels around it.
     canvas
         .set_logical_size(
-            TTY_PIXEL_WIDTH as u32,
-            TTY_PIXEL_HEIGHT as u32,
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
             SDL_RendererLogicalPresentation::LETTERBOX,
         )
         .expect("Failed to set logical size");
@@ -375,8 +380,14 @@ pub fn main(args: &[String]) -> i32 {
                 texture
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
+                let dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    TTY_PIXEL_WIDTH as u32 * 3,
+                    TTY_PIXEL_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, dst)
                     .expect("Failed to copy texture");
 
                 canvas.present();

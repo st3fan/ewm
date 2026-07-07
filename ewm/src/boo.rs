@@ -4,6 +4,7 @@
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
 use sdl3::pixels::{Color, PixelFormat};
+use sdl3::rect::Rect;
 use sdl3::render::ScaleMode;
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 
@@ -48,6 +49,8 @@ static MENU: [&str; TTY_ROWS] = [
 ];
 
 pub fn main(_args: &[String]) -> BooChoice {
+    let pad = sdl::window_padding();
+
     // Setup SDL
 
     let context = match sdl3::init() {
@@ -60,7 +63,11 @@ pub fn main(_args: &[String]) -> BooChoice {
     let video = context.video().expect("Failed to initialize SDL video");
 
     let window = video
-        .window("EWM v0.1 - Bootloader", 280 * 3, 192 * 3)
+        .window(
+            "EWM v0.1 - Bootloader",
+            280 * 3 + 2 * pad,
+            192 * 3 + 2 * pad,
+        )
         .position_centered()
         .build()
         .expect("Failed create window");
@@ -72,10 +79,12 @@ pub fn main(_args: &[String]) -> BooChoice {
         return BooChoice::Quit;
     }
 
+    // Logical units are window pixels: the tty texture is drawn at 3x into
+    // an explicit rect, leaving pad window pixels around it.
     canvas
         .set_logical_size(
-            TTY_PIXEL_WIDTH as u32,
-            TTY_PIXEL_HEIGHT as u32,
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
             SDL_RendererLogicalPresentation::LETTERBOX,
         )
         .expect("Failed to set logical size");
@@ -140,8 +149,14 @@ pub fn main(_args: &[String]) -> BooChoice {
                 texture
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
+                let dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    TTY_PIXEL_WIDTH as u32 * 3,
+                    TTY_PIXEL_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, dst)
                     .expect("Failed to copy texture");
 
                 canvas.present();

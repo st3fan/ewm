@@ -620,6 +620,7 @@ pub fn main(args: &[String]) -> i32 {
         Err(code) => return code,
     };
     let fps = options.fps;
+    let pad = sdl::window_padding();
 
     // Initialize SDL
 
@@ -635,7 +636,7 @@ pub fn main(args: &[String]) -> i32 {
     let controller_subsystem = context.gamepad().ok();
 
     let window = video
-        .window("EWM v0.1 / Apple ][+", 280 * 3, 192 * 3)
+        .window("EWM v0.1 / Apple ][+", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position(400, 60)
         .build();
     let window = match window {
@@ -653,10 +654,12 @@ pub fn main(args: &[String]) -> i32 {
         return 1;
     }
 
+    // Logical units are window pixels: the screen texture is drawn at 3x
+    // into an explicit rect, leaving pad window pixels around it.
     canvas
         .set_logical_size(
-            SCR_WIDTH as u32,
-            SCR_HEIGHT as u32,
+            SCR_WIDTH as u32 * 3 + 2 * pad,
+            SCR_HEIGHT as u32 * 3 + 2 * pad,
             SDL_RendererLogicalPresentation::LETTERBOX,
         )
         .expect("Failed to set logical size");
@@ -855,21 +858,15 @@ pub fn main(args: &[String]) -> i32 {
                                 } else {
                                     0
                                 };
-                                let _ = canvas
-                                    .window_mut()
-                                    .set_size(SCR_WIDTH as u32 * 3, SCR_HEIGHT as u32 * 3 + extra);
+                                let _ = canvas.window_mut().set_size(
+                                    SCR_WIDTH as u32 * 3 + 2 * pad,
+                                    SCR_HEIGHT as u32 * 3 + 2 * pad + extra,
+                                );
                                 let _ = canvas.set_logical_size(
-                                    SCR_WIDTH as u32 * 3,
-                                    SCR_HEIGHT as u32 * 3 + extra,
+                                    SCR_WIDTH as u32 * 3 + 2 * pad,
+                                    SCR_HEIGHT as u32 * 3 + 2 * pad + extra,
                                     SDL_RendererLogicalPresentation::LETTERBOX,
                                 );
-                                if !status_bar_visible {
-                                    let _ = canvas.set_logical_size(
-                                        SCR_WIDTH as u32,
-                                        SCR_HEIGHT as u32,
-                                        SDL_RendererLogicalPresentation::LETTERBOX,
-                                    );
-                                }
                             }
                             Keycode::P => paused = !paused,
                             _ => {}
@@ -952,8 +949,14 @@ pub fn main(args: &[String]) -> i32 {
                 texture
                     .update(None, &pixels_to_bytes(&scr.pixels), SCR_WIDTH * 4)
                     .expect("Failed to update texture");
+                let screen_dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    SCR_WIDTH as u32 * 3,
+                    SCR_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, screen_dst)
                     .expect("Failed to copy texture");
 
                 if status_bar_visible {
@@ -962,8 +965,8 @@ pub fn main(args: &[String]) -> i32 {
                         .update(None, &pixels_to_bytes(&bar), TTY_PIXEL_WIDTH * 4)
                         .expect("Failed to update bar texture");
                     let dst = Rect::new(
-                        0,
-                        SCR_HEIGHT as i32 * 3,
+                        pad as i32,
+                        pad as i32 + SCR_HEIGHT as i32 * 3,
                         SCR_WIDTH as u32 * 3,
                         STATUS_BAR_HEIGHT * 3,
                     );
@@ -989,7 +992,7 @@ pub fn main(args: &[String]) -> i32 {
                             TTY_PIXEL_WIDTH * 4,
                         )
                         .expect("Failed to update tty texture");
-                    let _ = canvas.copy(&tty_texture, None, None);
+                    let _ = canvas.copy(&tty_texture, None, screen_dst);
                 }
 
                 canvas.present();
