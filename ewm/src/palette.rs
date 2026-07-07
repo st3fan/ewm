@@ -1,22 +1,28 @@
 //! A VS Code-style command palette, drawn with a real UI font (vendored
 //! Inter, rasterized by fontdue) at window-pixel resolution so it reads as
-//! native chrome, not emulated screen. Kept free of SDL so the filtering,
-//! selection, and rendering logic is unit-testable; the frontend owns the
-//! texture and the keymod handling (Cmd-P) and feeds events in as
-//! [`PaletteKey`]s and text.
+//! native chrome, not emulated screen.
+//!
+//! The palette itself knows nothing about the machines or SDL: a frontend
+//! registers commands each time it opens the palette — so labels can
+//! reflect the current state ("Pause" vs "Unpause") — pairing a label with
+//! an opaque action value, typically a callback into the frontend
+//! (`fn(&mut Ctx)`). When the user picks a command the action is handed
+//! back in [`PaletteAction::Execute`] for the frontend to invoke; the
+//! palette never calls it. This keeps the module free of SDL and lifetimes,
+//! and the filtering, selection, and rendering logic unit-testable.
 
 use crate::scr::PixelLayout;
 use fontdue::{Font, FontSettings};
 
 static FONT: &[u8] = include_bytes!("../fonts/Inter-Regular.ttf");
 
-const COMMANDS: [&str; 5] = [
-    "Screenshot",
-    "Reset",
-    "Full Screen Toggle",
-    "Pause",
-    "Debugger",
-];
+/// Texture dimensions: allocate for the widest panel we ever draw. The
+/// visible height shrinks with the command list — see [`Palette::height`].
+pub const WIDTH: usize = 480;
+pub const MAX_HEIGHT: usize =
+    1 + MARGIN + INPUT_HEIGHT + ROW_GAP + MAX_ROWS * ROW_HEIGHT + MARGIN + 1;
+
+const MAX_ROWS: usize = 8;
 
 // VS Code dark theme colors.
 const PANEL_BG: (u8, u8, u8) = (0x25, 0x25, 0x26);
@@ -43,68 +49,84 @@ pub enum PaletteKey {
 }
 
 /// What the frontend should do after an event was handled.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum PaletteAction {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum PaletteAction<A> {
     None,
     /// Close the palette and resume the machine.
     Dismiss,
-    /// Close the palette and run the named command.
-    Execute(&'static str),
+    /// Close the palette and invoke the selected command's action.
+    Execute(A),
 }
 
-pub struct Palette {
+pub struct Palette<A> {
     font: Font,
+    commands: Vec<(String, A)>,
     filter: String,
     selected: usize,
     pub pixels: Vec<u32>,
     layout: PixelLayout,
 }
 
-impl Palette {
-    pub const WIDTH: usize = 480;
-    pub const HEIGHT: usize =
-        1 + MARGIN + INPUT_HEIGHT + ROW_GAP + COMMANDS.len() * ROW_HEIGHT + MARGIN + 1;
-
-    pub fn new(layout: PixelLayout) -> Palette {
+impl<A: Copy> Palette<A> {
+    pub fn new(layout: PixelLayout) -> Palette<A> {
         let font = Font::from_bytes(FONT, FontSettings::default()).expect("Failed to parse font");
         Palette {
             font,
+            commands: Vec::new(),
             filter: String::new(),
             selected: 0,
-            pixels: vec![0; Self::WIDTH * Self::HEIGHT],
+            pixels: vec![0; WIDTH * MAX_HEIGHT],
             layout,
         }
     }
 
-    /// Reset to the just-opened state.
+    /// Reset to the just-opened state. The frontend follows up with
+    /// `add_command` calls reflecting the machine's current state.
     pub fn open(&mut self) {
+        self.commands.clear();
         self.filter.clear();
         self.selected = 0;
     }
 
-    /// The commands matching the filter, in declaration order.
-    fn filtered(&self) -> Vec<&'static str> {
+    pub fn add_command(&mut self, label: impl Into<String>, action: A) {
+        self.commands.push((label.into(), action));
+    }
+
+    /// Indices into `commands` matching the filter, in registration order.
+    fn filtered(&self) -> Vec<usize> {
         let needle = self.filter.to_lowercase();
-        COMMANDS
+        self.commands
             .iter()
-            .copied()
-            .filter(|command| command.to_lowercase().contains(&needle))
+            .enumerate()
+            .filter(|(_, (label, _))| label.to_lowercase().contains(&needle))
+            .map(|(i, _)| i)
             .collect()
     }
 
-    pub fn handle_key(&mut self, key: PaletteKey) -> PaletteAction {
+    /// The visible panel height for the current filter result; the panel
+    /// shrinks as the list narrows.
+    pub fn height(&self) -> usize {
+        let rows = self.filtered().len().min(MAX_ROWS);
+        let rows_height = if rows > 0 {
+            ROW_GAP + rows * ROW_HEIGHT
+        } else {
+            0
+        };
+        1 + MARGIN + INPUT_HEIGHT + rows_height + MARGIN + 1
+    }
+
+    pub fn handle_key(&mut self, key: PaletteKey) -> PaletteAction<A> {
         match key {
             PaletteKey::Escape => return PaletteAction::Dismiss,
             PaletteKey::Up => self.selected = self.selected.saturating_sub(1),
             PaletteKey::Down => {
-                let count = self.filtered().len();
-                if self.selected + 1 < count {
+                if self.selected + 1 < self.filtered().len() {
                     self.selected += 1;
                 }
             }
             PaletteKey::Enter => {
-                if let Some(command) = self.filtered().get(self.selected) {
-                    return PaletteAction::Execute(command);
+                if let Some(&index) = self.filtered().get(self.selected) {
+                    return PaletteAction::Execute(self.commands[index].1);
                 }
             }
             PaletteKey::Backspace => {
@@ -115,16 +137,17 @@ impl Palette {
         PaletteAction::None
     }
 
-    pub fn handle_text(&mut self, text: &str) -> PaletteAction {
+    pub fn handle_text(&mut self, text: &str) -> PaletteAction<A> {
         self.filter.push_str(text);
         self.selected = 0;
         PaletteAction::None
     }
 
-    /// Render the panel into `pixels`. The panel is fully opaque; glyph
-    /// antialiasing is blended in software against the known backgrounds.
+    /// Render the panel into the top `height()` rows of `pixels`. The panel
+    /// is fully opaque; glyph antialiasing is blended in software against
+    /// the known backgrounds.
     pub fn render(&mut self) {
-        let (w, h) = (Self::WIDTH, Self::HEIGHT);
+        let (w, h) = (WIDTH, self.height());
 
         self.fill_rect(0, 0, w, h, PANEL_BORDER);
         self.fill_rect(1, 1, w - 2, h - 2, PANEL_BG);
@@ -153,25 +176,26 @@ impl Palette {
 
         // The command rows.
         let rows_y = input_y + INPUT_HEIGHT + ROW_GAP;
-        for (i, command) in self.filtered().into_iter().enumerate() {
-            let row_y = rows_y + i * ROW_HEIGHT;
-            let bg = if i == self.selected {
+        for (row, index) in self.filtered().into_iter().take(MAX_ROWS).enumerate() {
+            let row_y = rows_y + row * ROW_HEIGHT;
+            let bg = if row == self.selected {
                 SELECTION_BG
             } else {
                 PANEL_BG
             };
-            if i == self.selected {
+            if row == self.selected {
                 self.fill_rect(1, row_y, w - 2, ROW_HEIGHT, bg);
             }
-            self.draw_text(text_x, row_y, ROW_HEIGHT, command, TEXT, bg);
+            let label = self.commands[index].0.clone();
+            self.draw_text(text_x, row_y, ROW_HEIGHT, &label, TEXT, bg);
         }
     }
 
     fn fill_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: (u8, u8, u8)) {
         let packed = self.layout.pack(color.0, color.1, color.2, 255);
-        for row in y..(y + h).min(Self::HEIGHT) {
-            for column in x..(x + w).min(Self::WIDTH) {
-                self.pixels[row * Self::WIDTH + column] = packed;
+        for row in y..(y + h).min(MAX_HEIGHT) {
+            for column in x..(x + w).min(WIDTH) {
+                self.pixels[row * WIDTH + column] = packed;
             }
         }
     }
@@ -205,15 +229,14 @@ impl Palette {
                 for gx in 0..metrics.width {
                     let px = glyph_x + gx as i32;
                     let py = glyph_y + gy as i32;
-                    if px < 0 || py < 0 || px as usize >= Self::WIDTH || py as usize >= Self::HEIGHT
-                    {
+                    if px < 0 || py < 0 || px as usize >= WIDTH || py as usize >= MAX_HEIGHT {
                         continue;
                     }
                     let coverage = bitmap[gy * metrics.width + gx] as u32;
                     let blend = |f: u8, b: u8| {
                         ((f as u32 * coverage + b as u32 * (255 - coverage)) / 255) as u8
                     };
-                    self.pixels[py as usize * Self::WIDTH + px as usize] = self.layout.pack(
+                    self.pixels[py as usize * WIDTH + px as usize] = self.layout.pack(
                         blend(fg.0, bg.0),
                         blend(fg.1, bg.1),
                         blend(fg.2, bg.2),
@@ -231,27 +254,33 @@ impl Palette {
 mod tests {
     use super::*;
 
-    fn palette() -> Palette {
-        Palette::new(PixelLayout::Argb8888)
+    /// A palette whose actions are plain markers; frontends use fn pointers.
+    fn palette() -> Palette<u32> {
+        let mut p = Palette::new(PixelLayout::Argb8888);
+        p.open();
+        p.add_command("Reset", 1);
+        p.add_command("Pause", 2);
+        p.add_command("Enter Full Screen", 3);
+        p
     }
 
     #[test]
-    fn all_commands_visible_when_filter_empty() {
-        let p = palette();
-        assert_eq!(p.filtered().len(), COMMANDS.len());
+    fn commands_are_registered_per_open() {
+        let mut p = palette();
+        assert_eq!(p.filtered().len(), 3);
+        p.open();
+        assert_eq!(p.filtered().len(), 0, "open() clears the registrations");
+        p.add_command("Unpause", 2);
+        assert_eq!(p.filtered().len(), 1, "labels can differ per activation");
     }
 
     #[test]
     fn filter_is_case_insensitive_substring() {
         let mut p = palette();
-        p.handle_text("DEBUG");
-        assert_eq!(p.filtered(), vec!["Debugger"]);
-        p.open();
-        p.handle_text("re"); // "sc*re*enshot", "*re*set", "full sc*re*en toggle"
-        assert_eq!(
-            p.filtered(),
-            vec!["Screenshot", "Reset", "Full Screen Toggle"]
-        );
+        p.handle_text("SCREEN");
+        assert_eq!(p.filtered(), vec![2]); // Enter Full Screen
+        p.handle_key(PaletteKey::Backspace);
+        assert_eq!(p.filter, "SCREE");
     }
 
     #[test]
@@ -262,19 +291,17 @@ mod tests {
         for _ in 0..10 {
             p.handle_key(PaletteKey::Down);
         }
-        assert_eq!(p.selected, COMMANDS.len() - 1, "down clamps at the end");
+        assert_eq!(p.selected, 2, "down clamps at the end");
     }
 
     #[test]
-    fn typing_resets_selection() {
+    fn enter_executes_the_selected_action() {
         let mut p = palette();
         p.handle_key(PaletteKey::Down);
-        p.handle_text("pause");
-        assert_eq!(p.selected, 0);
-        assert_eq!(
-            p.handle_key(PaletteKey::Enter),
-            PaletteAction::Execute("Pause")
-        );
+        assert_eq!(p.handle_key(PaletteKey::Enter), PaletteAction::Execute(2));
+        // Filtering re-anchors the selection to the narrowed list.
+        p.handle_text("reset");
+        assert_eq!(p.handle_key(PaletteKey::Enter), PaletteAction::Execute(1));
     }
 
     #[test]
@@ -286,32 +313,42 @@ mod tests {
     }
 
     #[test]
-    fn escape_dismisses_and_backspace_edits() {
+    fn escape_dismisses() {
         let mut p = palette();
         assert_eq!(p.handle_key(PaletteKey::Escape), PaletteAction::Dismiss);
-        p.handle_text("res");
-        p.handle_key(PaletteKey::Backspace);
-        assert_eq!(p.filter, "re");
     }
 
     #[test]
-    fn open_resets_state() {
-        let mut p = palette();
-        p.handle_text("debug");
-        p.handle_key(PaletteKey::Down);
+    fn fn_pointer_actions_round_trip() {
+        struct Ctx {
+            resets: u32,
+        }
+        let mut p: Palette<fn(&mut Ctx)> = Palette::new(PixelLayout::Argb8888);
         p.open();
-        assert_eq!(p.filter, "");
-        assert_eq!(p.selected, 0);
-        assert_eq!(p.filtered().len(), COMMANDS.len());
+        p.add_command("Reset", |ctx| ctx.resets += 1);
+        let mut ctx = Ctx { resets: 0 };
+        if let PaletteAction::Execute(run) = p.handle_key(PaletteKey::Enter) {
+            run(&mut ctx);
+        }
+        assert_eq!(ctx.resets, 1);
+    }
+
+    #[test]
+    fn panel_shrinks_with_the_filter() {
+        let mut p = palette();
+        let full = p.height();
+        p.handle_text("pause");
+        assert!(p.height() < full, "fewer rows, shorter panel");
+        p.handle_text("zzz");
+        assert!(p.height() < full, "no rows at all is shortest");
+        assert!(p.height() <= MAX_HEIGHT);
     }
 
     #[test]
     fn render_produces_a_panel() {
         let mut p = palette();
         p.render();
-        assert_eq!(p.pixels.len(), Palette::WIDTH * Palette::HEIGHT);
-        // The panel is opaque and non-uniform: border, background, and text
-        // must all be present.
+        assert_eq!(p.pixels.len(), WIDTH * MAX_HEIGHT);
         let border = PixelLayout::Argb8888.pack(0x45, 0x45, 0x45, 255);
         let panel = PixelLayout::Argb8888.pack(0x25, 0x25, 0x26, 255);
         assert_eq!(p.pixels[0], border);

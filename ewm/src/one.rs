@@ -4,7 +4,9 @@
 //! the CPU; the frame structure of the loop is the C one: event pump →
 //! burst of CPU cycles → tty render.
 
+use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::pia::{A1_PIA6820_ADDR, A1_PIA6820_LENGTH, Pia};
+use crate::scr::PixelLayout;
 use crate::sdl;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
 use ewm_core::cpu::{Cpu, Model};
@@ -100,6 +102,17 @@ impl One {
 
 const ONE_FPS: u32 = 40;
 const ONE_CPS: u32 = 1_023_000;
+
+/// What palette command callbacks get to work with: the machine plus the
+/// frontend state the commands mutate.
+struct OneCtx<'a> {
+    one: &'a mut One,
+    tty: &'a mut Tty,
+    paused: &'a mut bool,
+    window: &'a mut sdl3::video::Window,
+}
+
+type OneAction = fn(&mut OneCtx);
 
 struct MemoryOption {
     rom: bool,
@@ -341,18 +354,100 @@ pub fn main(args: &[String]) -> i32 {
     // which blurs the upscaled low-res screen.
     texture.set_scale_mode(ScaleMode::Nearest);
 
+    // The command palette renders at window resolution, not the emulated 3x.
+    let layout = match sdl::pixel_format(&canvas) {
+        Some(format) if format == PixelFormat::RGBA8888 => PixelLayout::Rgba8888,
+        Some(format) if format == PixelFormat::XRGB8888 => PixelLayout::Rgb888,
+        _ => PixelLayout::Argb8888,
+    };
+    let mut palette: Palette<OneAction> = Palette::new(layout);
+    let mut palette_visible = false;
+    let mut palette_texture = texture_creator
+        .create_texture_streaming(format, palette::WIDTH as u32, palette::MAX_HEIGHT as u32)
+        .expect("Failed to create palette texture");
+    palette_texture.set_scale_mode(ScaleMode::Nearest);
+
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let mut ticks = sdl3::timer::ticks();
     let mut phase: u32 = 1;
+    let mut paused = false;
 
     'outer: loop {
         for event in event_pump.poll_iter() {
             match &event {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => tty.screen_dirty = true,
-                Event::KeyDown { .. } => keydown(&mut one, &mut tty, canvas.window_mut(), &event),
-                Event::TextInput { text, .. } if text.len() == 1 => {
-                    one.key(text.as_bytes()[0].to_ascii_uppercase());
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    keymod,
+                    ..
+                } => {
+                    let command = keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD);
+                    // While the palette is open it owns the keyboard.
+                    if palette_visible {
+                        let action = if command && *keycode == Keycode::K {
+                            PaletteAction::Dismiss
+                        } else {
+                            match keycode {
+                                Keycode::Escape => palette.handle_key(PaletteKey::Escape),
+                                Keycode::Up => palette.handle_key(PaletteKey::Up),
+                                Keycode::Down => palette.handle_key(PaletteKey::Down),
+                                Keycode::Return => palette.handle_key(PaletteKey::Enter),
+                                Keycode::Backspace => palette.handle_key(PaletteKey::Backspace),
+                                _ => PaletteAction::None,
+                            }
+                        };
+                        match action {
+                            PaletteAction::Dismiss => palette_visible = false,
+                            PaletteAction::Execute(run) => {
+                                palette_visible = false;
+                                let mut ctx = OneCtx {
+                                    one: &mut one,
+                                    tty: &mut tty,
+                                    paused: &mut paused,
+                                    window: canvas.window_mut(),
+                                };
+                                run(&mut ctx);
+                            }
+                            PaletteAction::None => {}
+                        }
+                    } else if command && *keycode == Keycode::K {
+                        // Commands are registered per activation so the
+                        // labels reflect the current state.
+                        palette.open();
+                        palette.add_command(
+                            "Reset",
+                            (|ctx| {
+                                ctx.one.cpu.reset();
+                                ctx.tty.reset();
+                            }) as OneAction,
+                        );
+                        palette.add_command(if paused { "Unpause" } else { "Pause" }, |ctx| {
+                            *ctx.paused = !*ctx.paused
+                        });
+                        let fullscreen = canvas.window().fullscreen_state() == FullscreenType::True;
+                        palette.add_command(
+                            if fullscreen {
+                                "Leave Full Screen"
+                            } else {
+                                "Enter Full Screen"
+                            },
+                            |ctx| {
+                                let on = ctx.window.fullscreen_state() == FullscreenType::True;
+                                let _ = ctx.window.set_fullscreen(!on);
+                            },
+                        );
+                        palette_visible = true;
+                    } else {
+                        keydown(&mut one, &mut tty, canvas.window_mut(), &event);
+                    }
+                }
+                Event::TextInput { text, .. } => {
+                    if palette_visible {
+                        let _ = palette.handle_text(text);
+                    } else if text.len() == 1 {
+                        one.key(text.as_bytes()[0].to_ascii_uppercase());
+                    }
                 }
                 _ => {}
             }
@@ -361,12 +456,18 @@ pub fn main(args: &[String]) -> i32 {
         // This is very basic throttling that does bursts of CPU cycles.
 
         if (sdl3::timer::ticks() - ticks) >= (1000 / ONE_FPS) as u64 {
-            step_cpu(&mut one, ONE_CPS / ONE_FPS);
+            if !paused && !palette_visible {
+                step_cpu(&mut one, ONE_CPS / ONE_FPS);
+            }
             for b in one.drain_display() {
                 tty.write(b);
             }
 
-            if tty.screen_dirty || phase == 0 || phase.is_multiple_of(ONE_FPS / 4) {
+            if palette_visible
+                || tty.screen_dirty
+                || phase == 0
+                || phase.is_multiple_of(ONE_FPS / 4)
+            {
                 canvas.set_draw_color(sdl3::pixels::Color::RGBA(0, 0, 0, 255));
                 canvas.clear();
 
@@ -389,6 +490,27 @@ pub fn main(args: &[String]) -> i32 {
                 canvas
                     .copy(&texture, None, dst)
                     .expect("Failed to copy texture");
+
+                if palette_visible {
+                    palette.render();
+                    let mut bytes = Vec::with_capacity(palette.pixels.len() * 4);
+                    for p in &palette.pixels {
+                        bytes.extend_from_slice(&p.to_ne_bytes());
+                    }
+                    palette_texture
+                        .update(None, &bytes, palette::WIDTH * 4)
+                        .expect("Failed to update palette texture");
+                    let height = palette.height();
+                    let src = Rect::new(0, 0, palette::WIDTH as u32, height as u32);
+                    let window_width = TTY_PIXEL_WIDTH as i32 * 3 + 2 * pad as i32;
+                    let palette_dst = Rect::new(
+                        (window_width - palette::WIDTH as i32) / 2,
+                        40,
+                        palette::WIDTH as u32,
+                        height as u32,
+                    );
+                    let _ = canvas.copy(&palette_texture, src, palette_dst);
+                }
 
                 canvas.present();
             }

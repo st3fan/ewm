@@ -8,7 +8,7 @@
 use crate::alc::Alc;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
-use crate::palette::{Palette, PaletteAction, PaletteKey};
+use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp};
 use crate::sdl;
 use crate::snd::Snd;
@@ -473,6 +473,16 @@ fn screen_code_to_char(code: u8) -> char {
 
 const STATUS_BAR_HEIGHT: u32 = 9; // logical pixels, scaled 3x like the C
 
+/// What palette command callbacks get to work with: the machine plus the
+/// frontend state the commands mutate.
+struct TwoCtx<'a> {
+    two: &'a mut Two,
+    paused: &'a mut bool,
+    window: &'a mut sdl3::video::Window,
+}
+
+type TwoAction = fn(&mut TwoCtx);
+
 // Frames to run before dumping the hidden --screenshot and exiting.
 const SCREENSHOT_FRAMES: u32 = 120;
 
@@ -787,17 +797,17 @@ pub fn main(args: &[String]) -> i32 {
     tty_texture.set_scale_mode(ScaleMode::Nearest);
 
     // The command palette renders at window resolution, not the emulated 3x.
-    let mut palette = Palette::new(layout);
+    let mut palette: Palette<TwoAction> = Palette::new(layout);
     let mut palette_visible = false;
     let mut palette_texture = texture_creator
-        .create_texture_streaming(format, Palette::WIDTH as u32, Palette::HEIGHT as u32)
+        .create_texture_streaming(format, palette::WIDTH as u32, palette::MAX_HEIGHT as u32)
         .expect("Failed to create palette texture");
     palette_texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let mut ticks = sdl3::timer::ticks();
     let mut phase: u32 = 1;
-    let paused = false;
+    let mut paused = false;
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
 
@@ -842,7 +852,7 @@ pub fn main(args: &[String]) -> i32 {
                     // While the palette is open it owns the keyboard.
                     if palette_visible {
                         let action = if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD)
-                            && keycode == Keycode::P
+                            && keycode == Keycode::K
                         {
                             PaletteAction::Dismiss
                         } else {
@@ -857,9 +867,14 @@ pub fn main(args: &[String]) -> i32 {
                         };
                         match action {
                             PaletteAction::Dismiss => palette_visible = false,
-                            PaletteAction::Execute(name) => {
-                                eprintln!("[PALETTE] Command not implemented: {name}");
+                            PaletteAction::Execute(run) => {
                                 palette_visible = false;
+                                let mut ctx = TwoCtx {
+                                    two: &mut two,
+                                    paused: &mut paused,
+                                    window: canvas.window_mut(),
+                                };
+                                run(&mut ctx);
                             }
                             PaletteAction::None => {}
                         }
@@ -905,8 +920,34 @@ pub fn main(args: &[String]) -> i32 {
                                     SDL_RendererLogicalPresentation::LETTERBOX,
                                 );
                             }
-                            Keycode::P => {
+                            Keycode::K => {
+                                // Commands are registered per activation so
+                                // the labels reflect the current state.
                                 palette.open();
+                                palette.add_command(
+                                    "Reset",
+                                    (|ctx| {
+                                        ctx.two.cpu.reset();
+                                    }) as TwoAction,
+                                );
+                                palette
+                                    .add_command(if paused { "Unpause" } else { "Pause" }, |ctx| {
+                                        *ctx.paused = !*ctx.paused
+                                    });
+                                let fullscreen =
+                                    canvas.window().fullscreen_state() == FullscreenType::True;
+                                palette.add_command(
+                                    if fullscreen {
+                                        "Leave Full Screen"
+                                    } else {
+                                        "Enter Full Screen"
+                                    },
+                                    |ctx| {
+                                        let on =
+                                            ctx.window.fullscreen_state() == FullscreenType::True;
+                                        let _ = ctx.window.set_fullscreen(!on);
+                                    },
+                                );
                                 palette_visible = true;
                             }
                             _ => {}
@@ -1042,16 +1083,18 @@ pub fn main(args: &[String]) -> i32 {
                 if palette_visible {
                     palette.render();
                     palette_texture
-                        .update(None, &pixels_to_bytes(&palette.pixels), Palette::WIDTH * 4)
+                        .update(None, &pixels_to_bytes(&palette.pixels), palette::WIDTH * 4)
                         .expect("Failed to update palette texture");
+                    let height = palette.height();
+                    let src = Rect::new(0, 0, palette::WIDTH as u32, height as u32);
                     let window_width = SCR_WIDTH as i32 * 3 + 2 * pad as i32;
                     let dst = Rect::new(
-                        (window_width - Palette::WIDTH as i32) / 2,
+                        (window_width - palette::WIDTH as i32) / 2,
                         40,
-                        Palette::WIDTH as u32,
-                        Palette::HEIGHT as u32,
+                        palette::WIDTH as u32,
+                        height as u32,
                     );
-                    let _ = canvas.copy(&palette_texture, None, dst);
+                    let _ = canvas.copy(&palette_texture, src, dst);
                 }
 
                 canvas.present();
