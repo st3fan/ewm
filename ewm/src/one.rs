@@ -4,15 +4,20 @@
 //! the CPU; the frame structure of the loop is the C one: event pump →
 //! burst of CPU cycles → tty render.
 
+use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::pia::{A1_PIA6820_ADDR, A1_PIA6820_LENGTH, Pia};
+use crate::scr::PixelLayout;
 use crate::sdl;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::mem::{DeviceHandle, Memory};
-use sdl2::event::Event;
-use sdl2::keyboard::{Keycode, Mod};
-use sdl2::pixels::PixelFormatEnum;
-use sdl2::video::FullscreenType;
+use sdl3::event::Event;
+use sdl3::keyboard::{Keycode, Mod};
+use sdl3::pixels::PixelFormat;
+use sdl3::rect::Rect;
+use sdl3::render::ScaleMode;
+use sdl3::sys::render::SDL_RendererLogicalPresentation;
+use sdl3::video::FullscreenType;
 
 static APPLE1_ROM: &[u8] = include_bytes!("../../rom/apple1.rom");
 static KRUSADER_ROM: &[u8] = include_bytes!("../../rom/krusader.rom");
@@ -98,6 +103,17 @@ impl One {
 const ONE_FPS: u32 = 40;
 const ONE_CPS: u32 = 1_023_000;
 
+/// What palette command callbacks get to work with: the machine plus the
+/// frontend state the commands mutate.
+struct OneCtx<'a> {
+    one: &'a mut One,
+    tty: &'a mut Tty,
+    paused: &'a mut bool,
+    window: &'a mut sdl3::video::Window,
+}
+
+type OneAction = fn(&mut OneCtx);
+
 struct MemoryOption {
     rom: bool,
     address: u16,
@@ -133,7 +149,7 @@ fn usage() {
     eprintln!("  replica1  Replica 1, 65C02, 48KB RAM, KRUSADER");
 }
 
-fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event: &Event) {
+fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl3::video::Window, event: &Event) {
     let Event::KeyDown {
         keycode: Some(keycode),
         keymod,
@@ -142,12 +158,12 @@ fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event
     else {
         return;
     };
-    let sym = keycode.into_i32();
+    let sym = *keycode as i32;
 
     if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
-        if (Keycode::A.into_i32()..=Keycode::Z.into_i32()).contains(&sym) {
+        if (Keycode::A as i32..=Keycode::Z as i32).contains(&sym) {
             // As in one.c: ctrl-a maps to 0x00 (sym - SDLK_a).
-            one.key((sym - Keycode::A.into_i32()) as u8);
+            one.key((sym - Keycode::A as i32) as u8);
         }
         // TODO Implement control codes 1b - 1f (comment from one.c)
     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
@@ -160,9 +176,9 @@ fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl2::video::Window, event
             }
             Keycode::Return => {
                 if window.fullscreen_state() == FullscreenType::True {
-                    let _ = window.set_fullscreen(FullscreenType::Off);
+                    let _ = window.set_fullscreen(false);
                 } else {
-                    let _ = window.set_fullscreen(FullscreenType::True);
+                    let _ = window.set_fullscreen(true);
                 }
             }
             _ => {}
@@ -195,6 +211,8 @@ fn step_cpu(one: &mut One, cycles: u32) {
 }
 
 pub fn main(args: &[String]) -> i32 {
+    let pad = sdl::window_padding();
+
     // Parse Apple 1 specific options. The C default model is the Replica 1.
     let mut model = OneModel::Replica1;
     let mut memory: Vec<MemoryOption> = Vec::new();
@@ -240,7 +258,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Setup SDL
 
-    let context = match sdl2::init() {
+    let context = match sdl3::init() {
         Ok(context) => context,
         Err(e) => {
             eprintln!("Failed to initialize SDL: {e}");
@@ -248,10 +266,9 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
     let video = context.video().expect("Failed to initialize SDL video");
-    let timer = context.timer().expect("Failed to initialize SDL timer");
 
     let window = video
-        .window("EWM v0.1 - Apple 1", 280 * 3, 192 * 3)
+        .window("EWM v0.1 - Apple 1", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position_centered()
         .build();
     let window = match window {
@@ -262,21 +279,21 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
 
-    let mut canvas = match window.into_canvas().accelerated().build() {
-        Ok(canvas) => canvas,
-        Err(e) => {
-            eprintln!("Failed to create renderer: {e}");
-            return 1;
-        }
-    };
+    let mut canvas = window.into_canvas();
 
     if let Err(e) = sdl::check_renderer(&canvas) {
         eprintln!("{e}");
         return 1;
     }
 
+    // Logical units are window pixels: the tty texture is drawn at 3x into
+    // an explicit rect, leaving pad window pixels around it.
     canvas
-        .set_logical_size(TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
+        .set_logical_size(
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
+            SDL_RendererLogicalPresentation::LETTERBOX,
+        )
         .expect("Failed to set logical size");
 
     // Create the machine
@@ -326,27 +343,110 @@ pub fn main(args: &[String]) -> i32 {
 
     // Main loop
 
-    video.text_input().start();
+    video.text_input().start(canvas.window());
 
     let texture_creator = canvas.texture_creator();
-    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormatEnum::ARGB8888);
+    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormat::ARGB8888);
     let mut texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create texture");
+    // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
+    // which blurs the upscaled low-res screen.
+    texture.set_scale_mode(ScaleMode::Nearest);
+
+    // The command palette renders at window resolution, not the emulated 3x.
+    let layout = match sdl::pixel_format(&canvas) {
+        Some(format) if format == PixelFormat::RGBA8888 => PixelLayout::Rgba8888,
+        Some(format) if format == PixelFormat::XRGB8888 => PixelLayout::Rgb888,
+        _ => PixelLayout::Argb8888,
+    };
+    let mut palette: Palette<OneAction> = Palette::new(layout);
+    let mut palette_visible = false;
+    let mut palette_texture = texture_creator
+        .create_texture_streaming(format, palette::WIDTH as u32, palette::MAX_HEIGHT as u32)
+        .expect("Failed to create palette texture");
+    palette_texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let frame_ms = 1000 / ONE_FPS;
-    let mut next_frame = timer.ticks() + frame_ms;
+    let frame_ms = (1000 / ONE_FPS) as u64;
+    let mut next_frame = sdl3::timer::ticks() + frame_ms;
     let mut phase: u32 = 1;
+    let mut paused = false;
 
     'outer: loop {
         for event in event_pump.poll_iter() {
             match &event {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => tty.screen_dirty = true,
-                Event::KeyDown { .. } => keydown(&mut one, &mut tty, canvas.window_mut(), &event),
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    keymod,
+                    ..
+                } => {
+                    let command = keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD);
+                    // While the palette is open it owns the keyboard.
+                    if palette_visible {
+                        let action = if command && *keycode == Keycode::K {
+                            PaletteAction::Dismiss
+                        } else {
+                            match keycode {
+                                Keycode::Escape => palette.handle_key(PaletteKey::Escape),
+                                Keycode::Up => palette.handle_key(PaletteKey::Up),
+                                Keycode::Down => palette.handle_key(PaletteKey::Down),
+                                Keycode::Return => palette.handle_key(PaletteKey::Enter),
+                                Keycode::Backspace => palette.handle_key(PaletteKey::Backspace),
+                                _ => PaletteAction::None,
+                            }
+                        };
+                        match action {
+                            PaletteAction::Dismiss => palette_visible = false,
+                            PaletteAction::Execute(run) => {
+                                palette_visible = false;
+                                let mut ctx = OneCtx {
+                                    one: &mut one,
+                                    tty: &mut tty,
+                                    paused: &mut paused,
+                                    window: canvas.window_mut(),
+                                };
+                                run(&mut ctx);
+                            }
+                            PaletteAction::None => {}
+                        }
+                    } else if command && *keycode == Keycode::K {
+                        // Commands are registered per activation so the
+                        // labels reflect the current state.
+                        palette.open();
+                        palette.add_command(
+                            "Reset",
+                            (|ctx| {
+                                ctx.one.cpu.reset();
+                                ctx.tty.reset();
+                            }) as OneAction,
+                        );
+                        palette.add_command(if paused { "Unpause" } else { "Pause" }, |ctx| {
+                            *ctx.paused = !*ctx.paused
+                        });
+                        let fullscreen = canvas.window().fullscreen_state() == FullscreenType::True;
+                        palette.add_command(
+                            if fullscreen {
+                                "Leave Full Screen"
+                            } else {
+                                "Enter Full Screen"
+                            },
+                            |ctx| {
+                                let on = ctx.window.fullscreen_state() == FullscreenType::True;
+                                let _ = ctx.window.set_fullscreen(!on);
+                            },
+                        );
+                        palette_visible = true;
+                    } else {
+                        keydown(&mut one, &mut tty, canvas.window_mut(), &event);
+                    }
+                }
                 Event::TextInput { text, .. } => {
-                    if text.len() == 1 {
+                    if palette_visible {
+                        let _ = palette.handle_text(text);
+                    } else if text.len() == 1 {
                         one.key(text.as_bytes()[0].to_ascii_uppercase());
                     }
                 }
@@ -356,14 +456,20 @@ pub fn main(args: &[String]) -> i32 {
 
         // This is very basic throttling that does bursts of CPU cycles.
 
-        if timer.ticks() >= next_frame {
-            step_cpu(&mut one, ONE_CPS / ONE_FPS);
+        if sdl3::timer::ticks() >= next_frame {
+            if !paused && !palette_visible {
+                step_cpu(&mut one, ONE_CPS / ONE_FPS);
+            }
             for b in one.drain_display() {
                 tty.write(b);
             }
 
-            if tty.screen_dirty || phase == 0 || phase.is_multiple_of(ONE_FPS / 4) {
-                canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 255));
+            if palette_visible
+                || tty.screen_dirty
+                || phase == 0
+                || phase.is_multiple_of(ONE_FPS / 4)
+            {
+                canvas.set_draw_color(sdl3::pixels::Color::RGBA(0, 0, 0, 255));
                 canvas.clear();
 
                 tty.refresh(phase, ONE_FPS);
@@ -376,9 +482,36 @@ pub fn main(args: &[String]) -> i32 {
                 texture
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
+                let dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    TTY_PIXEL_WIDTH as u32 * 3,
+                    TTY_PIXEL_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, dst)
                     .expect("Failed to copy texture");
+
+                if palette_visible {
+                    palette.render();
+                    let mut bytes = Vec::with_capacity(palette.pixels.len() * 4);
+                    for p in &palette.pixels {
+                        bytes.extend_from_slice(&p.to_ne_bytes());
+                    }
+                    palette_texture
+                        .update(None, &bytes, palette::WIDTH * 4)
+                        .expect("Failed to update palette texture");
+                    let height = palette.height();
+                    let src = Rect::new(0, 0, palette::WIDTH as u32, height as u32);
+                    let window_width = TTY_PIXEL_WIDTH as i32 * 3 + 2 * pad as i32;
+                    let palette_dst = Rect::new(
+                        (window_width - palette::WIDTH as i32) / 2,
+                        40,
+                        palette::WIDTH as u32,
+                        height as u32,
+                    );
+                    let _ = canvas.copy(&palette_texture, src, palette_dst);
+                }
 
                 canvas.present();
             }
@@ -387,7 +520,7 @@ pub fn main(args: &[String]) -> i32 {
             // time does not stretch every frame; resync only after a long
             // stall (window drag) rather than bursting to catch up.
             next_frame += frame_ms;
-            let now = timer.ticks();
+            let now = sdl3::timer::ticks();
             if now > next_frame + 1000 {
                 next_frame = now + frame_ms;
             }

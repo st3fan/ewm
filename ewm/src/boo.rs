@@ -1,9 +1,12 @@
 //! The bootloader menu, port of `boo.c`: a tty-rendered menu that picks
 //! which machine to start.
 
-use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl3::event::Event;
+use sdl3::keyboard::Keycode;
+use sdl3::pixels::{Color, PixelFormat};
+use sdl3::rect::Rect;
+use sdl3::render::ScaleMode;
+use sdl3::sys::render::SDL_RendererLogicalPresentation;
 
 use crate::sdl;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, TTY_ROWS, Tty};
@@ -46,9 +49,11 @@ static MENU: [&str; TTY_ROWS] = [
 ];
 
 pub fn main(_args: &[String]) -> BooChoice {
+    let pad = sdl::window_padding();
+
     // Setup SDL
 
-    let context = match sdl2::init() {
+    let context = match sdl3::init() {
         Ok(context) => context,
         Err(e) => {
             eprintln!("Failed to initialize SDL: {e}");
@@ -56,36 +61,43 @@ pub fn main(_args: &[String]) -> BooChoice {
         }
     };
     let video = context.video().expect("Failed to initialize SDL video");
-    let timer = context.timer().expect("Failed to initialize SDL timer");
 
     let window = video
-        .window("EWM v0.1 - Bootloader", 280 * 3, 192 * 3)
+        .window(
+            "EWM v0.1 - Bootloader",
+            280 * 3 + 2 * pad,
+            192 * 3 + 2 * pad,
+        )
         .position_centered()
         .build()
         .expect("Failed create window");
 
-    let mut canvas = window
-        .into_canvas()
-        .accelerated()
-        .build()
-        .expect("Failed to create renderer");
+    let mut canvas = window.into_canvas();
 
     if let Err(e) = sdl::check_renderer(&canvas) {
         eprintln!("{e}");
         return BooChoice::Quit;
     }
 
+    // Logical units are window pixels: the tty texture is drawn at 3x into
+    // an explicit rect, leaving pad window pixels around it.
     canvas
-        .set_logical_size(TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
+        .set_logical_size(
+            TTY_PIXEL_WIDTH as u32 * 3 + 2 * pad,
+            TTY_PIXEL_HEIGHT as u32 * 3 + 2 * pad,
+            SDL_RendererLogicalPresentation::LETTERBOX,
+        )
         .expect("Failed to set logical size");
 
     // We only need a tty to display the menu. (The C passes {255,255,0} —
     // yellow — in a variable called green.)
-    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormatEnum::ARGB8888);
-    let yellow = match format {
-        PixelFormatEnum::RGBA8888 => 0xffff00ffu32,
-        PixelFormatEnum::RGB888 => 0x00ffff00u32,
-        _ => 0xffffff00u32, // ARGB8888
+    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormat::ARGB8888);
+    let yellow = if format == PixelFormat::RGBA8888 {
+        0xffff00ffu32
+    } else if format == PixelFormat::XRGB8888 {
+        0x00ffff00u32
+    } else {
+        0xffffff00u32 // ARGB8888
     };
     let mut tty = Tty::new(yellow);
 
@@ -93,9 +105,12 @@ pub fn main(_args: &[String]) -> BooChoice {
     let mut texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create texture");
+    // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
+    // which blurs the upscaled low-res screen.
+    texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let mut ticks = timer.ticks();
+    let mut ticks = sdl3::timer::ticks();
     let mut phase: u32 = 1;
 
     loop {
@@ -106,16 +121,16 @@ pub fn main(_args: &[String]) -> BooChoice {
                     keycode: Some(keycode),
                     ..
                 } => match keycode {
-                    Keycode::Num1 => return BooChoice::BootApple1,
-                    Keycode::Num2 => return BooChoice::BootReplica1,
-                    Keycode::Num3 => return BooChoice::BootApple2Plus,
+                    Keycode::_1 => return BooChoice::BootApple1,
+                    Keycode::_2 => return BooChoice::BootReplica1,
+                    Keycode::_3 => return BooChoice::BootApple2Plus,
                     _ => {}
                 },
                 _ => {}
             }
         }
 
-        if (timer.ticks() - ticks) >= (1000 / BOO_FPS) {
+        if (sdl3::timer::ticks() - ticks) >= (1000 / BOO_FPS) as u64 {
             if tty.screen_dirty || phase == 0 || phase.is_multiple_of(BOO_FPS / 4) {
                 canvas.set_draw_color(Color::RGBA(0, 0, 0, 255));
                 canvas.clear();
@@ -134,14 +149,20 @@ pub fn main(_args: &[String]) -> BooChoice {
                 texture
                     .update(None, &bytes, TTY_PIXEL_WIDTH * 4)
                     .expect("Failed to update texture");
+                let dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    TTY_PIXEL_WIDTH as u32 * 3,
+                    TTY_PIXEL_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, dst)
                     .expect("Failed to copy texture");
 
                 canvas.present();
             }
 
-            ticks = timer.ticks();
+            ticks = sdl3::timer::ticks();
             phase += 1;
             if phase == BOO_FPS {
                 phase = 0;

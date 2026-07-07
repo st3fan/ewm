@@ -8,19 +8,21 @@
 use crate::alc::Alc;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
+use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp};
 use crate::sdl;
 use crate::snd::Snd;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::mem::{Device, DeviceHandle, Memory};
-use sdl2::controller::Button;
-use sdl2::event::Event;
-use sdl2::keyboard::{Keycode, Mod};
-use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::rect::Rect;
-use sdl2::render::BlendMode;
-use sdl2::video::FullscreenType;
+use sdl3::event::Event;
+use sdl3::gamepad::{Axis, Button};
+use sdl3::keyboard::{Keycode, Mod};
+use sdl3::pixels::{Color, PixelFormat};
+use sdl3::rect::Rect;
+use sdl3::render::{BlendMode, ScaleMode};
+use sdl3::sys::render::SDL_RendererLogicalPresentation;
+use sdl3::video::FullscreenType;
 
 pub const TWO_FPS_DEFAULT: u32 = 40;
 pub const TWO_SPEED: u32 = 1_023_000;
@@ -471,6 +473,16 @@ fn screen_code_to_char(code: u8) -> char {
 
 const STATUS_BAR_HEIGHT: u32 = 9; // logical pixels, scaled 3x like the C
 
+/// What palette command callbacks get to work with: the machine plus the
+/// frontend state the commands mutate.
+struct TwoCtx<'a> {
+    two: &'a mut Two,
+    paused: &'a mut bool,
+    window: &'a mut sdl3::video::Window,
+}
+
+type TwoAction = fn(&mut TwoCtx);
+
 // Frames to run before dumping the hidden --screenshot and exiting.
 const SCREENSHOT_FRAMES: u32 = 120;
 
@@ -619,10 +631,11 @@ pub fn main(args: &[String]) -> i32 {
         Err(code) => return code,
     };
     let fps = options.fps;
+    let pad = sdl::window_padding();
 
     // Initialize SDL
 
-    let context = match sdl2::init() {
+    let context = match sdl3::init() {
         Ok(context) => context,
         Err(e) => {
             eprintln!("Failed to initialize SDL: {e}");
@@ -630,12 +643,11 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
     let video = context.video().expect("Failed to initialize SDL video");
-    let timer = context.timer().expect("Failed to initialize SDL timer");
     let audio = context.audio().ok();
-    let controller_subsystem = context.game_controller().ok();
+    let controller_subsystem = context.gamepad().ok();
 
     let window = video
-        .window("EWM v0.1 / Apple ][+", 280 * 3, 192 * 3)
+        .window("EWM v0.1 / Apple ][+", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position(400, 60)
         .build();
     let window = match window {
@@ -646,33 +658,36 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
 
-    let mut canvas = match window.into_canvas().accelerated().build() {
-        Ok(canvas) => canvas,
-        Err(e) => {
-            eprintln!("Failed to create renderer: {e}");
-            return 1;
-        }
-    };
+    let mut canvas = window.into_canvas();
 
     if let Err(e) = sdl::check_renderer(&canvas) {
         eprintln!("{e}");
         return 1;
     }
 
+    // Logical units are window pixels: the screen texture is drawn at 3x
+    // into an explicit rect, leaving pad window pixels around it.
     canvas
-        .set_logical_size(SCR_WIDTH as u32, SCR_HEIGHT as u32)
+        .set_logical_size(
+            SCR_WIDTH as u32 * 3 + 2 * pad,
+            SCR_HEIGHT as u32 * 3 + 2 * pad,
+            SDL_RendererLogicalPresentation::LETTERBOX,
+        )
         .expect("Failed to set logical size");
 
     if options.debug {
-        let info = canvas.info();
-        eprintln!("[TWO] Renderer name={} flags={:#x}", info.name, info.flags);
+        // SDL3 has no renderer flags anymore; the name is what's left.
+        eprintln!("[TWO] Renderer name={}", canvas.renderer_name);
     }
 
-    // If we have a game controller, open it
+    // If we have a gamepad, open it
 
     let controller = controller_subsystem.as_ref().and_then(|subsystem| {
-        let count = subsystem.num_joysticks().unwrap_or(0);
-        (count > 0).then(|| subsystem.open(0).ok()).flatten()
+        subsystem
+            .gamepads()
+            .ok()
+            .and_then(|ids| ids.first().copied())
+            .and_then(|id| subsystem.open(id).ok())
     });
 
     // Create and configure the Apple II
@@ -686,8 +701,8 @@ pub fn main(args: &[String]) -> i32 {
     };
 
     let layout = match sdl::pixel_format(&canvas) {
-        Some(PixelFormatEnum::RGBA8888) => PixelLayout::Rgba8888,
-        Some(PixelFormatEnum::RGB888) => PixelLayout::Rgb888,
+        Some(format) if format == PixelFormat::RGBA8888 => PixelLayout::Rgba8888,
+        Some(format) if format == PixelFormat::XRGB8888 => PixelLayout::Rgb888,
         _ => PixelLayout::Argb8888,
     };
     let mut scr = Scr::new(layout);
@@ -761,24 +776,37 @@ pub fn main(args: &[String]) -> i32 {
 
     two.cpu.reset();
 
-    video.text_input().start();
+    video.text_input().start(canvas.window());
 
     let texture_creator = canvas.texture_creator();
-    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormatEnum::ARGB8888);
+    let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormat::ARGB8888);
     let mut texture = texture_creator
         .create_texture_streaming(format, SCR_WIDTH as u32, SCR_HEIGHT as u32)
         .expect("Failed to create screen texture");
+    // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
+    // which blurs the upscaled low-res screen.
+    texture.set_scale_mode(ScaleMode::Nearest);
     let mut bar_texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, STATUS_BAR_HEIGHT)
         .expect("Failed to create status bar texture");
+    bar_texture.set_scale_mode(ScaleMode::Nearest);
     let mut tty_texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create tty texture");
     tty_texture.set_blend_mode(BlendMode::Blend);
+    tty_texture.set_scale_mode(ScaleMode::Nearest);
+
+    // The command palette renders at window resolution, not the emulated 3x.
+    let mut palette: Palette<TwoAction> = Palette::new(layout);
+    let mut palette_visible = false;
+    let mut palette_texture = texture_creator
+        .create_texture_streaming(format, palette::WIDTH as u32, palette::MAX_HEIGHT as u32)
+        .expect("Failed to create palette texture");
+    palette_texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
-    let frame_ms = 1000 / fps;
-    let mut next_frame = timer.ticks() + frame_ms;
+    let frame_ms = (1000 / fps) as u64;
+    let mut next_frame = sdl3::timer::ticks() + frame_ms;
     let mut phase: u32 = 1;
     let mut paused = false;
     let mut status_bar_visible = false;
@@ -798,10 +826,11 @@ pub fn main(args: &[String]) -> i32 {
                     let pressed = matches!(event, Event::ControllerButtonDown { .. });
                     let state = if pressed { 0x80 } else { 0x00 };
                     match button {
-                        Button::A | Button::LeftShoulder => two.set_button(0, state),
-                        Button::B | Button::RightShoulder => two.set_button(1, state),
-                        Button::X => two.set_button(2, state),
-                        Button::Y => two.set_button(3, state),
+                        // SDL3 renamed A/B/X/Y to their positions.
+                        Button::South | Button::LeftShoulder => two.set_button(0, state),
+                        Button::East | Button::RightShoulder => two.set_button(1, state),
+                        Button::West => two.set_button(2, state),
+                        Button::North => two.set_button(3, state),
                         _ => {}
                     }
                 }
@@ -820,10 +849,43 @@ pub fn main(args: &[String]) -> i32 {
                     let Some(keycode) = keycode else {
                         continue;
                     };
-                    let sym = keycode.into_i32();
+
+                    // While the palette is open it owns the keyboard.
+                    if palette_visible {
+                        let action = if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD)
+                            && keycode == Keycode::K
+                        {
+                            PaletteAction::Dismiss
+                        } else {
+                            match keycode {
+                                Keycode::Escape => palette.handle_key(PaletteKey::Escape),
+                                Keycode::Up => palette.handle_key(PaletteKey::Up),
+                                Keycode::Down => palette.handle_key(PaletteKey::Down),
+                                Keycode::Return => palette.handle_key(PaletteKey::Enter),
+                                Keycode::Backspace => palette.handle_key(PaletteKey::Backspace),
+                                _ => PaletteAction::None,
+                            }
+                        };
+                        match action {
+                            PaletteAction::Dismiss => palette_visible = false,
+                            PaletteAction::Execute(run) => {
+                                palette_visible = false;
+                                let mut ctx = TwoCtx {
+                                    two: &mut two,
+                                    paused: &mut paused,
+                                    window: canvas.window_mut(),
+                                };
+                                run(&mut ctx);
+                            }
+                            PaletteAction::None => {}
+                        }
+                        continue;
+                    }
+
+                    let sym = keycode as i32;
                     if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
-                        if (Keycode::A.into_i32()..=Keycode::Z.into_i32()).contains(&sym) {
-                            two.key(((sym - Keycode::A.into_i32()) + 1) as u8);
+                        if (Keycode::A as i32..=Keycode::Z as i32).contains(&sym) {
+                            two.key(((sym - Keycode::A as i32) + 1) as u8);
                         }
                     } else if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD) {
                         match keycode {
@@ -837,9 +899,9 @@ pub fn main(args: &[String]) -> i32 {
                             Keycode::Return => {
                                 let window = canvas.window_mut();
                                 if window.fullscreen_state() == FullscreenType::True {
-                                    let _ = window.set_fullscreen(FullscreenType::Off);
+                                    let _ = window.set_fullscreen(false);
                                 } else {
-                                    let _ = window.set_fullscreen(FullscreenType::True);
+                                    let _ = window.set_fullscreen(true);
                                 }
                             }
                             Keycode::I => {
@@ -849,19 +911,46 @@ pub fn main(args: &[String]) -> i32 {
                                 } else {
                                     0
                                 };
-                                let _ = canvas
-                                    .window_mut()
-                                    .set_size(SCR_WIDTH as u32 * 3, SCR_HEIGHT as u32 * 3 + extra);
-                                let _ = canvas.set_logical_size(
-                                    SCR_WIDTH as u32 * 3,
-                                    SCR_HEIGHT as u32 * 3 + extra,
+                                let _ = canvas.window_mut().set_size(
+                                    SCR_WIDTH as u32 * 3 + 2 * pad,
+                                    SCR_HEIGHT as u32 * 3 + 2 * pad + extra,
                                 );
-                                if !status_bar_visible {
-                                    let _ = canvas
-                                        .set_logical_size(SCR_WIDTH as u32, SCR_HEIGHT as u32);
-                                }
+                                let _ = canvas.set_logical_size(
+                                    SCR_WIDTH as u32 * 3 + 2 * pad,
+                                    SCR_HEIGHT as u32 * 3 + 2 * pad + extra,
+                                    SDL_RendererLogicalPresentation::LETTERBOX,
+                                );
                             }
-                            Keycode::P => paused = !paused,
+                            Keycode::K => {
+                                // Commands are registered per activation so
+                                // the labels reflect the current state.
+                                palette.open();
+                                palette.add_command(
+                                    "Reset",
+                                    (|ctx| {
+                                        ctx.two.cpu.reset();
+                                    }) as TwoAction,
+                                );
+                                palette
+                                    .add_command(if paused { "Unpause" } else { "Pause" }, |ctx| {
+                                        *ctx.paused = !*ctx.paused
+                                    });
+                                let fullscreen =
+                                    canvas.window().fullscreen_state() == FullscreenType::True;
+                                palette.add_command(
+                                    if fullscreen {
+                                        "Leave Full Screen"
+                                    } else {
+                                        "Enter Full Screen"
+                                    },
+                                    |ctx| {
+                                        let on =
+                                            ctx.window.fullscreen_state() == FullscreenType::True;
+                                        let _ = ctx.window.set_fullscreen(!on);
+                                    },
+                                );
+                                palette_visible = true;
+                            }
                             _ => {}
                         }
                     } else if keymod.is_empty() {
@@ -891,17 +980,19 @@ pub fn main(args: &[String]) -> i32 {
                     // As in two.c: only alt-keyup clears the buttons.
                     if keymod.intersects(Mod::LALTMOD | Mod::RALTMOD) {
                         match keycode {
-                            Keycode::Num1 => two.set_button(0, 0),
-                            Keycode::Num2 => two.set_button(1, 0),
-                            Keycode::Num3 => two.set_button(2, 0),
-                            Keycode::Num4 => two.set_button(3, 0),
+                            Keycode::_1 => two.set_button(0, 0),
+                            Keycode::_2 => two.set_button(1, 0),
+                            Keycode::_3 => two.set_button(2, 0),
+                            Keycode::_4 => two.set_button(3, 0),
                             _ => {}
                         }
                     }
                 }
 
                 Event::TextInput { ref text, .. } => {
-                    if text.len() == 1 {
+                    if palette_visible {
+                        let _ = palette.handle_text(text);
+                    } else if text.len() == 1 {
                         two.key(text.as_bytes()[0].to_ascii_uppercase());
                     }
                 }
@@ -910,15 +1001,14 @@ pub fn main(args: &[String]) -> i32 {
             }
         }
 
-        if timer.ticks() >= next_frame {
-            if !paused {
+        if sdl3::timer::ticks() >= next_frame {
+            if !paused && !palette_visible {
                 // Feed the joystick axes to the paddle logic before the burst.
-                two.set_joystick(controller.as_ref().map(|c| {
-                    (
-                        c.axis(sdl2::controller::Axis::LeftX),
-                        c.axis(sdl2::controller::Axis::LeftY),
-                    )
-                }));
+                two.set_joystick(
+                    controller
+                        .as_ref()
+                        .map(|c| (c.axis(Axis::LeftX), c.axis(Axis::LeftY))),
+                );
 
                 let mut budget = (TWO_SPEED / fps) as i64;
                 while budget > 0 {
@@ -945,8 +1035,14 @@ pub fn main(args: &[String]) -> i32 {
                 texture
                     .update(None, &pixels_to_bytes(&scr.pixels), SCR_WIDTH * 4)
                     .expect("Failed to update texture");
+                let screen_dst = Rect::new(
+                    pad as i32,
+                    pad as i32,
+                    SCR_WIDTH as u32 * 3,
+                    SCR_HEIGHT as u32 * 3,
+                );
                 canvas
-                    .copy(&texture, None, None)
+                    .copy(&texture, None, screen_dst)
                     .expect("Failed to copy texture");
 
                 if status_bar_visible {
@@ -955,8 +1051,8 @@ pub fn main(args: &[String]) -> i32 {
                         .update(None, &pixels_to_bytes(&bar), TTY_PIXEL_WIDTH * 4)
                         .expect("Failed to update bar texture");
                     let dst = Rect::new(
-                        0,
-                        SCR_HEIGHT as i32 * 3,
+                        pad as i32,
+                        pad as i32 + SCR_HEIGHT as i32 * 3,
                         SCR_WIDTH as u32 * 3,
                         STATUS_BAR_HEIGHT * 3,
                     );
@@ -982,7 +1078,24 @@ pub fn main(args: &[String]) -> i32 {
                             TTY_PIXEL_WIDTH * 4,
                         )
                         .expect("Failed to update tty texture");
-                    let _ = canvas.copy(&tty_texture, None, None);
+                    let _ = canvas.copy(&tty_texture, None, screen_dst);
+                }
+
+                if palette_visible {
+                    palette.render();
+                    palette_texture
+                        .update(None, &pixels_to_bytes(&palette.pixels), palette::WIDTH * 4)
+                        .expect("Failed to update palette texture");
+                    let height = palette.height();
+                    let src = Rect::new(0, 0, palette::WIDTH as u32, height as u32);
+                    let window_width = SCR_WIDTH as i32 * 3 + 2 * pad as i32;
+                    let dst = Rect::new(
+                        (window_width - palette::WIDTH as i32) / 2,
+                        40,
+                        palette::WIDTH as u32,
+                        height as u32,
+                    );
+                    let _ = canvas.copy(&palette_texture, src, dst);
                 }
 
                 canvas.present();
@@ -992,7 +1105,7 @@ pub fn main(args: &[String]) -> i32 {
             // time does not stretch every frame; resync only after a long
             // stall (window drag) rather than bursting to catch up.
             next_frame += frame_ms;
-            let now = timer.ticks();
+            let now = sdl3::timer::ticks();
             if now > next_frame + 1000 {
                 next_frame = now + frame_ms;
             }
