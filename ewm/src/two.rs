@@ -905,10 +905,8 @@ pub fn main(args: &[String]) -> i32 {
                     }
                 }
 
-                Event::TextInput { ref text, .. } => {
-                    if text.len() == 1 {
-                        two.key(text.as_bytes()[0].to_ascii_uppercase());
-                    }
+                Event::TextInput { ref text, .. } if text.len() == 1 => {
+                    two.key(text.as_bytes()[0].to_ascii_uppercase());
                 }
 
                 _ => {}

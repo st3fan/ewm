@@ -342,10 +342,8 @@ pub fn main(args: &[String]) -> i32 {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => tty.screen_dirty = true,
                 Event::KeyDown { .. } => keydown(&mut one, &mut tty, canvas.window_mut(), &event),
-                Event::TextInput { text, .. } => {
-                    if text.len() == 1 {
-                        one.key(text.as_bytes()[0].to_ascii_uppercase());
-                    }
+                Event::TextInput { text, .. } if text.len() == 1 => {
+                    one.key(text.as_bytes()[0].to_ascii_uppercase());
                 }
                 _ => {}
             }
