@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 ewm-core = { path = "../ewm-core" }
+fontdue = "0.9.3"
 sdl3 = { version = "0.18.4", features = ["use-pkg-config"] }

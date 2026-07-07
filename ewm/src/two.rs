@@ -8,6 +8,7 @@
 use crate::alc::Alc;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
+use crate::palette::{Palette, PaletteAction, PaletteKey};
 use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp};
 use crate::sdl;
 use crate::snd::Snd;
@@ -785,10 +786,18 @@ pub fn main(args: &[String]) -> i32 {
     tty_texture.set_blend_mode(BlendMode::Blend);
     tty_texture.set_scale_mode(ScaleMode::Nearest);
 
+    // The command palette renders at window resolution, not the emulated 3x.
+    let mut palette = Palette::new(layout);
+    let mut palette_visible = false;
+    let mut palette_texture = texture_creator
+        .create_texture_streaming(format, Palette::WIDTH as u32, Palette::HEIGHT as u32)
+        .expect("Failed to create palette texture");
+    palette_texture.set_scale_mode(ScaleMode::Nearest);
+
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let mut ticks = sdl3::timer::ticks();
     let mut phase: u32 = 1;
-    let mut paused = false;
+    let paused = false;
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
 
@@ -829,6 +838,34 @@ pub fn main(args: &[String]) -> i32 {
                     let Some(keycode) = keycode else {
                         continue;
                     };
+
+                    // While the palette is open it owns the keyboard.
+                    if palette_visible {
+                        let action = if keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD)
+                            && keycode == Keycode::P
+                        {
+                            PaletteAction::Dismiss
+                        } else {
+                            match keycode {
+                                Keycode::Escape => palette.handle_key(PaletteKey::Escape),
+                                Keycode::Up => palette.handle_key(PaletteKey::Up),
+                                Keycode::Down => palette.handle_key(PaletteKey::Down),
+                                Keycode::Return => palette.handle_key(PaletteKey::Enter),
+                                Keycode::Backspace => palette.handle_key(PaletteKey::Backspace),
+                                _ => PaletteAction::None,
+                            }
+                        };
+                        match action {
+                            PaletteAction::Dismiss => palette_visible = false,
+                            PaletteAction::Execute(name) => {
+                                eprintln!("[PALETTE] Command not implemented: {name}");
+                                palette_visible = false;
+                            }
+                            PaletteAction::None => {}
+                        }
+                        continue;
+                    }
+
                     let sym = keycode as i32;
                     if keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD) {
                         if (Keycode::A as i32..=Keycode::Z as i32).contains(&sym) {
@@ -868,7 +905,10 @@ pub fn main(args: &[String]) -> i32 {
                                     SDL_RendererLogicalPresentation::LETTERBOX,
                                 );
                             }
-                            Keycode::P => paused = !paused,
+                            Keycode::P => {
+                                palette.open();
+                                palette_visible = true;
+                            }
                             _ => {}
                         }
                     } else if keymod.is_empty() {
@@ -907,8 +947,12 @@ pub fn main(args: &[String]) -> i32 {
                     }
                 }
 
-                Event::TextInput { ref text, .. } if text.len() == 1 => {
-                    two.key(text.as_bytes()[0].to_ascii_uppercase());
+                Event::TextInput { ref text, .. } => {
+                    if palette_visible {
+                        let _ = palette.handle_text(text);
+                    } else if text.len() == 1 {
+                        two.key(text.as_bytes()[0].to_ascii_uppercase());
+                    }
                 }
 
                 _ => {}
@@ -916,7 +960,7 @@ pub fn main(args: &[String]) -> i32 {
         }
 
         if (sdl3::timer::ticks() - ticks) >= (1000 / fps) as u64 {
-            if !paused {
+            if !paused && !palette_visible {
                 // Feed the joystick axes to the paddle logic before the burst.
                 two.set_joystick(
                     controller
@@ -993,6 +1037,21 @@ pub fn main(args: &[String]) -> i32 {
                         )
                         .expect("Failed to update tty texture");
                     let _ = canvas.copy(&tty_texture, None, screen_dst);
+                }
+
+                if palette_visible {
+                    palette.render();
+                    palette_texture
+                        .update(None, &pixels_to_bytes(&palette.pixels), Palette::WIDTH * 4)
+                        .expect("Failed to update palette texture");
+                    let window_width = SCR_WIDTH as i32 * 3 + 2 * pad as i32;
+                    let dst = Rect::new(
+                        (window_width - Palette::WIDTH as i32) / 2,
+                        40,
+                        Palette::WIDTH as u32,
+                        Palette::HEIGHT as u32,
+                    );
+                    let _ = canvas.copy(&palette_texture, None, dst);
                 }
 
                 canvas.present();
