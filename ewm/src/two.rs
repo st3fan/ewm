@@ -19,7 +19,7 @@ use sdl3::gamepad::{Axis, Button};
 use sdl3::keyboard::{Keycode, Mod};
 use sdl3::pixels::{Color, PixelFormat};
 use sdl3::rect::Rect;
-use sdl3::render::BlendMode;
+use sdl3::render::{BlendMode, ScaleMode};
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 use sdl3::video::FullscreenType;
 
@@ -769,13 +769,18 @@ pub fn main(args: &[String]) -> i32 {
     let mut texture = texture_creator
         .create_texture_streaming(format, SCR_WIDTH as u32, SCR_HEIGHT as u32)
         .expect("Failed to create screen texture");
+    // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
+    // which blurs the upscaled low-res screen.
+    texture.set_scale_mode(ScaleMode::Nearest);
     let mut bar_texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, STATUS_BAR_HEIGHT)
         .expect("Failed to create status bar texture");
+    bar_texture.set_scale_mode(ScaleMode::Nearest);
     let mut tty_texture = texture_creator
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
         .expect("Failed to create tty texture");
     tty_texture.set_blend_mode(BlendMode::Blend);
+    tty_texture.set_scale_mode(ScaleMode::Nearest);
 
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let mut ticks = sdl3::timer::ticks();
