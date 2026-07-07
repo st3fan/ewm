@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 ewm-core = { path = "../ewm-core" }
 fontdue = "0.9.3"
 sdl3 = { version = "0.18.4", features = ["use-pkg-config"] }

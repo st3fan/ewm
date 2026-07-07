@@ -6,6 +6,7 @@
 //! (quirk #3).
 
 use crate::alc::Alc;
+use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
@@ -296,6 +297,7 @@ pub struct Two {
     io: DeviceHandle<TwoIo>,
     dsk: DeviceHandle<Dsk>,
     hdd: Option<DeviceHandle<Hdd>>,
+    clk: DeviceHandle<Clk>,
 }
 
 impl Two {
@@ -328,11 +330,17 @@ impl Two {
         let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
         mem.add_rom(0xc600, DSK_ROM.to_vec()); // slot 6 boot ROM
 
+        // Slot 1 Thunderclock Plus: I/O ports plus its firmware ROM at $C100.
+        // ProDOS finds it by the ID bytes and shows the host's date and time.
+        let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
+        mem.add_rom(0xc100, CLK_ROM.to_vec());
+
         Ok(Two {
             cpu: Cpu::new(Model::M6502, mem),
             io,
             dsk,
             hdd: None,
+            clk,
         })
     }
 
@@ -371,6 +379,14 @@ impl Two {
 
     pub fn dsk_mut(&mut self) -> &mut Dsk {
         self.cpu.mem.device_mut(self.dsk)
+    }
+
+    pub fn clk(&self) -> &Clk {
+        self.cpu.mem.device(self.clk)
+    }
+
+    pub fn clk_mut(&mut self) -> &mut Clk {
+        self.cpu.mem.device_mut(self.clk)
     }
 
     /// Port of `ewm_two_load_disk`.

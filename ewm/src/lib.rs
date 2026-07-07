@@ -10,6 +10,7 @@
 pub mod alc;
 pub mod boo;
 pub mod chr;
+pub mod clk;
 pub mod dsk;
 pub mod hdd;
 pub mod one;
