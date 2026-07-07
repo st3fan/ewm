@@ -8,13 +8,14 @@ on:
 jobs:
   rust:
     name: Rust checks
-    runs-on: ubuntu-latest
+    # 26.04 because it is the first LTS whose libsdl3-dev is new enough.
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install SDL2
+      - name: Install SDL3
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsdl2-dev
+          sudo apt-get install -y libsdl3-dev
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --check
