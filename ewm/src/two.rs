@@ -489,15 +489,36 @@ fn screen_code_to_char(code: u8) -> char {
 
 const STATUS_BAR_HEIGHT: u32 = 9; // logical pixels, scaled 3x like the C
 
+// Emulation speeds offered by the command palette, in emulated CPU cycles
+// per second: the Apple II's 1.023 MHz and the classic accelerator-card
+// multiples (3.5x and 7x). The values are exact enough that the status bar's
+// MHz readout matches the labels.
+const SPEED_NORMAL: u32 = TWO_SPEED; // 1.023 MHz
+const SPEED_FAST: u32 = 3_580_000; // 3.58 MHz
+const SPEED_FASTER: u32 = 7_160_000; // 7.16 MHz
+
 /// What palette command callbacks get to work with: the machine plus the
 /// frontend state the commands mutate.
 struct TwoCtx<'a> {
     two: &'a mut Two,
     paused: &'a mut bool,
     window: &'a mut sdl3::video::Window,
+    /// Emulated CPU cycles per second driving the per-frame burst.
+    speed: &'a mut u32,
+    /// The audio path, so a speed change can rescale its cycle→sample
+    /// mapping and keep the sound real-time (pitched up when accelerated).
+    snd: &'a mut Option<Snd>,
 }
 
 type TwoAction = fn(&mut TwoCtx);
+
+/// Palette action: switch the emulation speed, keeping the sound in step.
+fn set_speed(ctx: &mut TwoCtx, hz: u32) {
+    *ctx.speed = hz;
+    if let Some(snd) = ctx.snd.as_mut() {
+        snd.set_cpu_frequency(hz as u64);
+    }
+}
 
 // Frames to run before dumping the hidden --screenshot and exiting.
 const SCREENSHOT_FRAMES: u32 = 120;
@@ -827,6 +848,8 @@ pub fn main(args: &[String]) -> i32 {
     let mut paused = false;
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
+    // Emulated CPU speed, switchable from the command palette.
+    let mut speed: u32 = SPEED_NORMAL;
 
     let mut counter = two.cpu.counter;
     let mut mhz = 1.0f64;
@@ -890,6 +913,8 @@ pub fn main(args: &[String]) -> i32 {
                                     two: &mut two,
                                     paused: &mut paused,
                                     window: canvas.window_mut(),
+                                    speed: &mut speed,
+                                    snd: &mut snd,
                                 };
                                 run(&mut ctx);
                             }
@@ -965,6 +990,26 @@ pub fn main(args: &[String]) -> i32 {
                                         let _ = ctx.window.set_fullscreen(!on);
                                     },
                                 );
+                                // Speed choices; the active one carries a check.
+                                let speed_label = |hz: u32, text: &str| {
+                                    if speed == hz {
+                                        format!("{text}  \u{2713}")
+                                    } else {
+                                        text.to_string()
+                                    }
+                                };
+                                palette.add_command(
+                                    speed_label(SPEED_NORMAL, "Speed: 1.023 MHz (normal)"),
+                                    (|ctx| set_speed(ctx, SPEED_NORMAL)) as TwoAction,
+                                );
+                                palette.add_command(
+                                    speed_label(SPEED_FAST, "Speed: 3.58 MHz"),
+                                    (|ctx| set_speed(ctx, SPEED_FAST)) as TwoAction,
+                                );
+                                palette.add_command(
+                                    speed_label(SPEED_FASTER, "Speed: 7.16 MHz"),
+                                    (|ctx| set_speed(ctx, SPEED_FASTER)) as TwoAction,
+                                );
                                 palette_visible = true;
                             }
                             _ => {}
@@ -1026,7 +1071,7 @@ pub fn main(args: &[String]) -> i32 {
                         .map(|c| (c.axis(Axis::LeftX), c.axis(Axis::LeftY))),
                 );
 
-                let mut budget = (TWO_SPEED / fps) as i64;
+                let mut budget = (speed / fps) as i64;
                 while budget > 0 {
                     budget -= two.cpu.step() as i64;
                 }
@@ -1129,8 +1174,9 @@ pub fn main(args: &[String]) -> i32 {
             if phase == fps {
                 phase = 0;
 
-                // Calculate the number of cycles we have done in the past
-                // second. TODO This will always equal 1023000 (quirk #3).
+                // Cycles executed over the past second — the true rate, which
+                // the palette's acceleration options make meaningful (at 1x it
+                // is the fake ≈1.023 MHz of quirk #3).
                 mhz = (two.cpu.counter - counter) as f64 / 1_000_000.0;
                 counter = two.cpu.counter;
             }

@@ -40,6 +40,12 @@ struct Wave {
     /// Which rail the next toggle jumps to.
     polarity: bool,
     frame_start_cycle: u64,
+    /// Emulated CPU cycles per second, used to map cycle timestamps to
+    /// sample positions. Scales with the accelerator speed so a frame's
+    /// worth of samples stays real-time even when the machine runs faster —
+    /// the sound then pitches up, as a real accelerator card does, instead
+    /// of overflowing the audio queue.
+    cpu_frequency: u64,
     buffer: Vec<i16>,
 }
 
@@ -49,13 +55,14 @@ impl Wave {
             level: 0.0,
             polarity: false,
             frame_start_cycle: 0,
+            cpu_frequency: SND_CPU_FREQUENCY,
             buffer: Vec::with_capacity(SND_BUFFER_SIZE),
         }
     }
 
     fn sample_index(&self, cpu_counter: u64) -> usize {
         let cycles = cpu_counter.saturating_sub(self.frame_start_cycle);
-        ((cycles * SND_SAMPLE_RATE as u64 / SND_CPU_FREQUENCY) as usize).min(SND_BUFFER_SIZE)
+        ((cycles * SND_SAMPLE_RATE as u64 / self.cpu_frequency) as usize).min(SND_BUFFER_SIZE)
     }
 
     fn emit_until(&mut self, sample_index: usize) {
@@ -120,6 +127,14 @@ impl Snd {
         })
     }
 
+    /// Track the emulated CPU speed (Hz). At an accelerator speed the same
+    /// wall-clock frame spans more emulated cycles, so scaling the mapping
+    /// keeps each frame's sample count real-time and pitches the sound up
+    /// instead of flooding the queue.
+    pub fn set_cpu_frequency(&mut self, hz: u64) {
+        self.wave.cpu_frequency = hz.max(1);
+    }
+
     /// Queue one frame of samples. When the queue is comfortably full an
     /// all-silent frame is skipped (inaudible); a frame carrying signal is
     /// always queued — dropping samples mid-tone is what clicks.
@@ -151,6 +166,27 @@ mod tests {
         let samples = wave.render(&[], cycles_for_samples(1000));
         assert_eq!(samples.len(), 1000);
         assert!(samples.iter().all(|&s| s == 0), "idle output must be zero");
+    }
+
+    #[test]
+    fn higher_cpu_frequency_keeps_the_frame_real_time() {
+        // Accelerator pacing: one real frame is a fixed slice of wall time,
+        // so it must yield the same number of samples no matter how many
+        // emulated cycles pass in it. At 7x the frequency the frame spans 7x
+        // the cycles but still renders ~one frame of samples (the sound then
+        // pitches up), which is what stops the audio queue from overflowing.
+        let normal_cycles = 1_023_000 / 40; // one 40fps frame at 1x
+        let mut base = Wave::new();
+        let base_len = base.render(&[], normal_cycles).len();
+
+        let mut fast = Wave::new();
+        fast.cpu_frequency = 7 * SND_CPU_FREQUENCY;
+        let fast_len = fast.render(&[], 7 * normal_cycles).len();
+
+        assert_eq!(
+            fast_len, base_len,
+            "a real frame renders the same sample count at any speed"
+        );
     }
 
     #[test]
