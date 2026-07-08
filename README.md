@@ -1,9 +1,10 @@
 # Emulated Woz Machine
 
 EWM is an emulator for the machines Steve Wozniak built: the *Apple 1*, the
-*Replica 1* and the *Apple ][+*. It started life many years ago as a tiny
-6502 emulator written between christmas and new year, and has since grown
-into a full emulator with Disk II support, graphics, and sound.
+*Replica 1* and the *Apple ][+* — plus the Enhanced *Apple //e*. It started
+life many years ago as a tiny 6502 emulator written between christmas and new
+year, and has since grown into a full emulator with Disk II support, graphics,
+and sound.
 
 > **Note:** EWM is a hobby project and still under development. Things may
 > be incomplete, quirky, or broken — bug reports and pull requests are
@@ -28,6 +29,11 @@ into a full emulator with Disk II support, graphics, and sound.
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
   low-resolution and high-resolution graphics (color or green monochrome),
   speaker sound, joystick paddles and buttons
+* **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
+  language card and MMU/IOU soft switches, 40- and 80-column text with lower
+  case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
+  graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
+  hard drive, clock and sound. Start it with `two --model 2e`.
 
 ## Requirements
 
@@ -60,6 +66,9 @@ cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
 cargo run --release -- two --color --hdd "disks/Total Replay v6.0.1.hdv"
 
+# Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
+cargo run --release -- two --model 2e --color --drive1 disks/DOS33-SystemMaster.dsk
+
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
 
@@ -74,8 +83,8 @@ emulator runs:
 |---|---|
 | Cmd-R | Reset the machine |
 | Cmd-Return | Toggle fullscreen |
-| Cmd-P | Pause (Apple ][+) |
-| Cmd-I | Toggle the status bar with drive lights (Apple ][+) |
+| Cmd-P | Pause (Apple ][+ / //e) |
+| Cmd-I | Toggle the status bar with drive lights (Apple ][+ / //e) |
 
 There are also headless terminal consoles, handy for quick experiments
 without a window:
