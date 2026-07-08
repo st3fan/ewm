@@ -58,8 +58,8 @@ PR sequence.
 | 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Done |
 | 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Done |
 | 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Done |
-| 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Not started |
-| 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Not started |
+| 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Done |
+| 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Done |
 | 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Not started |
 | 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Not started |
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Not started |
@@ -416,6 +416,18 @@ usable in 40 columns.
 **Goal:** 40-column //e text renders lower case and, with ALTCHARSET on,
 MouseText.
 
+> **Landed (with 3b) — as the decode layer, not a throwaway pixel draw.** The
+> 3a gate is headless (glyph selection + text scrape) and the real 560-wide
+> pixel render is Phase 5a, so a 280 draw here would be discarded. Instead 3a
+> delivers the reusable pieces the 5a renderer consumes: `ChrE::glyph(altcharset,
+> code)` selects alternate vs primary; `Two::alt_charset()` and a model-aware
+> `Two::screen_page()` expose the //e display state; and `text_screen()` is now
+> //e-aware via `screen_code_to_char_e` (lower case preserved; ALTCHARSET drives
+> the `$60-$7F` inverse-lower-case vs flashing-symbol range). Safe for the 2c
+> boot gate — DOS 3.3 runs ALTCHARSET off (primary set), so the scrape is
+> unchanged there. Gate: `ewm/tests/two_e_text.rs` (3 tests: MouseText glyph
+> selection, lower-case scrape, the ALTCHARSET `$61` distinction).
+
 **Scope:**
 - A //e 40-column text render path that selects the primary vs alternate
   glyph set (Phase 1a/1b) from ALTCHARSET (`$C01E`). Still 280-equivalent
@@ -429,6 +441,18 @@ lower case for a poked lower-case string.
 ### Phase 3b — //e keyboard: lower case + Apple keys (S)
 
 **Goal:** Lower-case input and the Open/Solid-Apple keys.
+
+> **Landed (with 3a).** The SDL `TextInput` handler no longer upper-cases for
+> the //e (`two.model() == Apple2E` → pass the byte through; the ][+ still
+> upper-cases, as its ROM has no lower case). `IouE` gained the game-I/O
+> `buttons` array read at `$C061`/`$C062`/`$C063` (Open-Apple / Solid-Apple /
+> shift-mod, bit 7 = pressed), and `set_button()` became model-aware — the
+> existing Alt-1/Alt-2 and gamepad mappings now drive the //e buttons too.
+> Gate: `ewm/tests/two_e_keyboard.rs` (2 tests: Open/Solid-Apple read at
+> `$C061`/`$C062`; and an end-to-end lower-case echo — boot DOS 3.3, type
+> `PRINT "hello"`, get lower-case `hello`, proving the latch takes lower case
+> verbatim). The SDL upper-casing removal itself is a frontend change (manual);
+> the lower-case echo test covers the machine + scrape path headlessly.
 
 **Scope:**
 - Stop force-upper-casing input for the //e (the ][+ path upper-cases in

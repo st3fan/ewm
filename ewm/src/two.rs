@@ -380,6 +380,11 @@ struct IouE {
     col80: bool,
     /// ALTCHARSET (`$C00E` primary / `$C00F` alternate).
     altcharset: bool,
+
+    // --- Phase 3b: game-I/O buttons ---
+    /// Push-button / paddle inputs, read at `$C061-$C063` (bit 7 = pressed).
+    /// On the //e button 0 is Open-Apple and button 1 is Solid-Apple.
+    buttons: [u8; 4],
 }
 
 impl IouE {
@@ -403,6 +408,7 @@ impl IouE {
             hires: false,
             col80: false,
             altcharset: false,
+            buttons: [0; 4],
         }
     }
 
@@ -462,9 +468,15 @@ impl IouE {
             SS_RDALTCHAR => (self.altcharset as u8) << 7,
             SS_RD80COL => (self.col80 as u8) << 7,
 
+            // Game-I/O buttons: Open-Apple ($C061), Solid-Apple ($C062), and
+            // the shift-key mod ($C063). Bit 7 = pressed.
+            SS_PB0 => self.buttons[0],
+            SS_PB1 => self.buttons[1],
+            SS_PB2 => self.buttons[2],
+
             _ => {
-                // Speaker ($C030) is Phase 7; buttons ($C061/$C062) are 3b;
-                // annunciators / DHIRES ($C058-$C05F) are 6a.
+                // Speaker ($C030) is Phase 7; annunciators / DHIRES
+                // ($C058-$C05F) are 6a; paddles ($C064-$C07F) are later.
                 if self.debug {
                     eprintln!("[A2E] Unhandled read at ${addr:04X}");
                 }
@@ -806,7 +818,25 @@ impl Two {
     }
 
     pub fn screen_page(&self) -> ScreenPage {
-        self.io().screen_page
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_page,
+            MachineIo::E(h) => {
+                if self.cpu.mem.device(h).page2 {
+                    ScreenPage::Page2
+                } else {
+                    ScreenPage::Page1
+                }
+            }
+        }
+    }
+
+    /// ALTCHARSET state (`$C01E`): the //e alternate character set (lower case +
+    /// MouseText). The ][+ has no alternate set, so this is always false there.
+    pub fn alt_charset(&self) -> bool {
+        match self.io {
+            MachineIo::Plus(_) => false,
+            MachineIo::E(h) => self.cpu.mem.device(h).altcharset,
+        }
     }
 
     pub fn screen_dirty(&self) -> bool {
@@ -817,8 +847,12 @@ impl Two {
         self.io_mut().screen_dirty = dirty;
     }
 
+    /// Set a game-I/O button (Open-Apple = 0, Solid-Apple = 1 on the //e).
     pub fn set_button(&mut self, button: usize, state: u8) {
-        self.io_mut().buttons[button] = state;
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).buttons[button] = state,
+            MachineIo::E(h) => self.cpu.mem.device_mut(h).buttons[button] = state,
+        }
     }
 
     pub fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
@@ -832,14 +866,24 @@ impl Two {
     }
 
     /// Decode text page 1 (`$0400`, interleaved rows) into 24 lines of 40
-    /// characters — the workhorse for the headless gates.
+    /// characters — the workhorse for the headless gates. On the //e the
+    /// alternate character set (ALTCHARSET) is honored, so lower case is
+    /// preserved instead of being folded to upper case.
     pub fn text_screen(&self) -> String {
         let ram = self.ram();
+        let alt = self.alt_charset();
+        let iie = matches!(self.io, MachineIo::E(_));
         let mut text = String::with_capacity(24 * 41);
         for row in 0..24 {
             let base = 0x400 + 0x80 * (row % 8) + 0x28 * (row / 8);
             for column in 0..40 {
-                text.push(screen_code_to_char(ram[base + column]));
+                let code = ram[base + column];
+                let ch = if iie {
+                    screen_code_to_char_e(code, alt)
+                } else {
+                    screen_code_to_char(code)
+                };
+                text.push(ch);
             }
             text.push('\n');
         }
@@ -859,6 +903,24 @@ fn screen_code_to_char(code: u8) -> char {
         if v < 0x20 { v | 0x40 } else { v }
     };
     v as char
+}
+
+/// //e screen-code decoding. With ALTCHARSET on, the alternate set carries
+/// lower case (`$60-$7F` inverse, `$E0-$FF` normal), so the low seven bits map
+/// straight to ASCII (control-range codes fold to `$40-$5F`); MouseText
+/// (`$40-$5F`) has no text form and shows as its underlying `$40-$5F` glyph
+/// letter. With ALTCHARSET off the primary set is upper case + symbols only,
+/// identical to the ][+ decode.
+fn screen_code_to_char_e(code: u8, altcharset: bool) -> char {
+    if !altcharset {
+        return screen_code_to_char(code);
+    }
+    let v = code & 0x7f;
+    if v < 0x20 {
+        (v | 0x40) as char
+    } else {
+        v as char
+    }
 }
 
 // --- SDL frontend, the loop half of two.c ---
@@ -1431,7 +1493,15 @@ pub fn main(args: &[String]) -> i32 {
                     if palette_visible {
                         let _ = palette.handle_text(text);
                     } else if text.len() == 1 {
-                        two.key(text.as_bytes()[0].to_ascii_uppercase());
+                        // The ][+ has no lower case, so its ROM expects
+                        // upper-cased input; the //e passes lower case through.
+                        let b = text.as_bytes()[0];
+                        let b = if two.model() == TwoType::Apple2E {
+                            b
+                        } else {
+                            b.to_ascii_uppercase()
+                        };
+                        two.key(b);
                     }
                 }
 
