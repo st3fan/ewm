@@ -10,7 +10,7 @@ use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
-use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp};
+use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp, frame_width};
 use crate::sdl;
 use crate::snd::Snd;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
@@ -1603,8 +1603,12 @@ pub fn main(args: &[String]) -> i32 {
 
     let texture_creator = canvas.texture_creator();
     let format = sdl::pixel_format(&canvas).unwrap_or(PixelFormat::ARGB8888);
+    // The //e presents a 560-wide frame (Phase 5a); the ][+ 280. The screen
+    // texture is that wide and is nearest-stretched into the same on-screen
+    // rect, so the window size is model-independent (//e pixels are half-width).
+    let render_width = frame_width(two.model());
     let mut texture = texture_creator
-        .create_texture_streaming(format, SCR_WIDTH as u32, SCR_HEIGHT as u32)
+        .create_texture_streaming(format, render_width as u32, SCR_HEIGHT as u32)
         .expect("Failed to create screen texture");
     // SDL3 defaults textures to linear filtering (SDL2 defaulted to nearest),
     // which blurs the upscaled low-res screen.
@@ -1888,7 +1892,11 @@ pub fn main(args: &[String]) -> i32 {
                 two.set_screen_dirty(false);
 
                 texture
-                    .update(None, &pixels_to_bytes(&scr.pixels), SCR_WIDTH * 4)
+                    .update(
+                        None,
+                        &pixels_to_bytes(scr.frame(two.model())),
+                        render_width * 4,
+                    )
                     .expect("Failed to update texture");
                 let screen_dst = Rect::new(
                     pad as i32,
@@ -1979,7 +1987,7 @@ pub fn main(args: &[String]) -> i32 {
             if let Some(path) = &options.screenshot
                 && frames >= SCREENSHOT_FRAMES
             {
-                let bmp = encode_bmp(&scr.pixels, SCR_WIDTH, SCR_HEIGHT);
+                let bmp = encode_bmp(scr.frame(two.model()), render_width, SCR_HEIGHT);
                 if let Err(e) = std::fs::write(path, &bmp) {
                     eprintln!("Cannot write screenshot {path}: {e}");
                     return 1;
