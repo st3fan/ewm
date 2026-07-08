@@ -38,7 +38,7 @@ of scope (see "Future work").
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 0 | Plan, ROM assets, and the //e memory/soft-switch map | S | Not started |
+| 0 | Plan, ROM assets, and the //e memory/soft-switch map | S | ROMs in (PR #217); map documented |
 | 1 | Enhanced character ROM → glyph tables (pure, unit-tested) | M | Not started |
 | 2 | 64K //e machine: 65C02 + //e ROMs, boots headless to `]` in 40 cols | L | Not started |
 | 3 | //e 40-column display + keyboard (lower case, MouseText, Apple keys) | M | Not started |
@@ -77,7 +77,7 @@ of scope (see "Future work").
 | Where banking lives | Auxiliary memory + the MMU/IOU soft switches live in the **`ewm` crate as a `Device`** (working name `Mmu`/`IouE`), the same pattern as `Alc`. The //e's `Memory` is built with **no base-RAM fast path** (`Memory::new(0)`) so *all* RAM (incl. zero page and stack) flows through the aux-aware device. | Zero changes to `ewm-core`. Reuses a proven seam. Per-access `dyn Device` dispatch is far inside the 1 MHz (even 7.16 MHz accelerated) budget — the rewrite benches already proved `ind*`-style dispatch is ~200 ms / 100M ops. |
 | Aux/switch state sharing | A **single //e memory-management device owns everything the MMU/IOU arbitrate**: main RAM, aux RAM, and the `$C000-$C01F` soft switches. It is mapped over `$0000-$BFFF`, `$C000-$C01F`, and (ALTZP-aware) shares the language-card region. The Disk II / clock / HDD keep their own `$C0Ex/$C09x/$C0Fx` sub-ranges and shadow it via the newest-first region walk (as `Dsk` already shadows `TwoIo` today). | The real MMU/IOU are the central arbiters; centralizing their state avoids `Rc<RefCell>` (which the project deliberately avoids) and matches the hardware. |
 | Renderer resolution | The //e renders into a **560×192** internal buffer: 80-column text and double-hi-res are native 560; 40-column / LGR / HGR pixels are drawn 2× horizontally. The ][+ keeps its **280×192** `Scr` path and golden test untouched. | 80-col and DHGR are inherently double-horizontal-res. A separate //e render path avoids disturbing the ][+ golden BMP. Unifying the two renderers is optional later cleanup. |
-| ROM assets | Check the Enhanced //e ROMs into `rom/`, same stance as the existing `341-00xx` ][+ ROMs: **342-0304-A** (CD, `$C100-$DFFF` region) + **342-0303-A** (EF, `$E000-$FFFF`) system ROM, and **342-0265-A** enhanced US video/character ROM (primary + alternate/MouseText sets). Load via `include_bytes!`. | Consistent with how EWM already ships machine + character ROMs. Part numbers are guidance; the actual dumps must be sourced and their sizes/hashes verified in Phase 0. |
+| ROM assets | **Present in `rom/` as of PR #217**, same stance as the existing `341-00xx` ][+ ROMs. System ROM is two 8K halves: `Apple IIe CD Enhanced - 342-0304-A - 2764.bin` (`$C000-$DFFF`) + `Apple IIe EF Enhanced - 342-0303-A - 2764.bin` (`$E000-$FFFF`); character generator is `Apple IIe Video - Enhanced - 342-0265-A - 2732.bin` (4K, primary + alternate/MouseText sets). Load via `include_bytes!`. | Consistent with how EWM already ships machine + character ROMs. Filenames/sizes/hashes recorded in Phase 0. |
 | Memory size | Default the //e to **128K** (64K main + 64K aux, i.e. the Extended 80-Column Text Card fitted). The 64K "no aux card" config is a real intermediate milestone (Phase 2) but the shipped machine is 128K. | 80-col, DHGR, and virtually all //e software assume the extended card. |
 | 65C02 timing | Reuse the current 65C02 instruction timings. The //e-specific cycle deltas (decimal-mode +1, fixed page-cross reads) stay **out of scope**, consistent with the rewrite's existing note that "65C02-specific timing remains out of scope." | Keeps parity with the decision already recorded in `REWRITE.md`; the display/boot gates compare architectural state, not cycles. |
 
@@ -147,26 +147,37 @@ This table is the contract Phases 4–6 implement. Addresses are the standard
 
 ## Phase 0 — Plan, ROM assets, and the memory/soft-switch map (S)
 
-**Goal:** This document exists (done), the Enhanced //e ROMs are sourced and
-checked in, and the machine map above is verified. No behavior change.
+**Goal:** This document exists, the Enhanced //e ROMs are checked in, and the
+machine map above is verified. No behavior change.
 
-**Scope:**
-- Source and add to `rom/`: the Enhanced //e system ROM (CD `342-0304-A` +
-  EF `342-0303-A`, or an equivalent 16K `apple2e_enhanced.rom`) and the
-  enhanced video ROM `342-0265-A`. Record exact byte sizes and SHA-256 hashes
-  in this file so future contributors can verify their dumps.
+**Status:** ROMs landed in `rom/` via **PR #217** ("Adding Apple IIe Enhanced
+ROMs"). The human dependency below is resolved. Recorded assets (SHA-256
+prefixes for verification):
+
+| File | Size | Maps to | sha256 (first 16) |
+|---|---|---|---|
+| `Apple IIe CD Enhanced - 342-0304-A - 2764.bin` | 8192 | `$C000-$DFFF` | `f5255e59b335e738` |
+| `Apple IIe EF Enhanced - 342-0303-A - 2764.bin` | 8192 | `$E000-$FFFF` | `3ccfd0bf9f2c87b4` |
+| `Apple IIe Video - Enhanced - 342-0265-A - 2732.bin` | 4096 | char gen (2 sets) | `52c3b87900ac939f` |
+| `Apple IIe Keyboard - 341-0150-A - 2716.bin` | 2048 | keyboard encoder | `dabc2f4a2804e92e` |
+| `Apple IIe Keyboard - 342-0132-B - 2716.bin` | 2048 | keyboard encoder | `68198ae95923926b` |
+| `Apple IIe Keyboard - 342-0132-C - 2716.bin` | 2048 | keyboard encoder | `fbb9620e01f4f728` |
+| `Apple IIe Keyboard - 342-0132-D - 2716.bin` | 2048 | keyboard encoder | `a1989da84ea4381d` |
+
+The two 8K system halves concatenate to the 16K `$C000-$FFFF` image (the
+`$C000-$CFFF` quarter is the internal I/O firmware / peripheral-slot ROM;
+`$D000-$FFFF` is Monitor + AppleSoft, banked by the language card). The 4K
+video ROM holds the primary and alternate (MouseText) glyph sets, 8
+bytes/glyph. The keyboard-encoder ROMs are informational — EWM synthesizes
+keystrokes directly (see the keyboard decision in Phase 3), so they are not
+`include_bytes!`-loaded unless we later choose to model the encoder.
+
+**Scope (remaining):**
 - Confirm `TwoType::Apple2E` is the intended Enhanced-//e handle; leave
   `Two::new(TwoType::Apple2E)` returning its current error until Phase 2.
-- Add a `.gitignore`/asset note if any ROM cannot be redistributed (fallback:
-  document the expected filename and let the build `include_bytes!` fail with
-  a clear message).
 
 **Gate:** Tree builds, all existing tests green, ROMs present with recorded
 hashes. `git grep -n Apple2E` shows the plumbing points a human will touch.
-
-**Human dependency:** ROM dumps are copyrighted Apple firmware. The agent
-cannot fetch them; a maintainer drops the verified files into `rom/`. Every
-later phase that `include_bytes!`-loads them depends on this.
 
 ## Phase 1 — Enhanced character ROM → glyph tables (M)
 
@@ -418,9 +429,9 @@ Seed list; append during implementation, mirroring `REWRITE.md`'s
 
 ## Risks & open questions
 
-- **ROM redistribution.** The Enhanced //e ROMs are the gating dependency for
-  every code phase. Confirm the project is comfortable checking them in (it
-  already ships `341-00xx` + the char ROM) and record hashes.
+- **ROM redistribution.** ~~The gating dependency for every code phase.~~
+  **Resolved:** the Enhanced //e system, video, and keyboard ROMs are in
+  `rom/` (PR #217), hashes recorded in Phase 0.
 - **Internal-vs-slot ROM arbitration** (`$C100-$CFFF`, `$C300`, `$C800`
   expansion) is the subtlest boot-critical piece — the 80-col firmware lives
   in the internal `$C800` space and must appear/disappear per
