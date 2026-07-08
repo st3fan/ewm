@@ -61,7 +61,7 @@ PR sequence.
 | 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Done |
 | 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Done |
 | 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Done |
-| 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Not started |
+| 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Done |
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Not started |
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Not started |
 | 5b | 80-column text (main/aux interleave) + golden | M | Not started |
@@ -155,8 +155,8 @@ Addresses are the standard //e I/O locations. "R" = read triggers/reports,
 `$C050-$C057` TEXT/MIXED/PAGE2/HIRES (already handled), `$C05E`/`$C05F`
 **DHIRES** on/off (double-res enable, interacts with AN3), `$C07E`/`$C07F`
 **IOUDIS**/RDIOUDIS, `$C061-$C063` Open-Apple / Solid-Apple / Shift buttons
-(already read as buttons), `$C080-$C08F` language card (already handled by
-`Alc`, extend for ALTZP).
+(already read as buttons), `$C080-$C08F` language card (folded into `IouE`
+with ALTZP-selected aux banks — 4b).
 
 ## Current architecture — what each phase touches
 
@@ -165,7 +165,9 @@ Addresses are the standard //e I/O locations. "R" = read triggers/reports,
   the renderer see aux RAM) it must remain Apple-agnostic.
 - `ewm/src/two.rs` — the machine + SDL loop. Gains a `model` field, //e ROM
   loading, the `Mmu` device wiring, and //e branches in the frame loop.
-- `ewm/src/alc.rs` — language card. Gains ALTZP awareness (aux bank of LC RAM).
+- `ewm/src/alc.rs` — the ][+ language card. **Left untouched** (a pure ][+
+  device); the //e language card is folded into `IouE` in `two.rs`, where it
+  can share the ALTZP state (4b).
 - `ewm/src/chr.rs` — character generator. Gains the enhanced 4K char ROM
   decode (primary + alternate sets, lower case, MouseText).
 - `ewm/src/scr.rs` — renderer. Gains a 560-wide //e path: 80-col text, DLGR,
@@ -531,6 +533,19 @@ the single `Mmu` device and the `Memory::new(0)` construction.
 **Gate:** ALTZP truth table (ZP + stack writes land in the selected bank;
 `RDALTZP` reflects state); an LC-aux test extending the existing
 language-card tests.
+
+> **Landed.** ALTZP (`$C008`/`$C009`) now routes both the zero page + stack
+> (`$0000-$01FF`) and the language-card RAM. The `Alc` peripheral card is left
+> **byte-for-byte a ][+ device** — no //e logic — and the //e language card
+> was **folded into `IouE`** instead, co-locating it with the ALTZP state it
+> depends on. `IouE` owns `lc_d1`/`lc_d2`/`lc_e` as `[main, aux]` bank pairs
+> plus the shadowed ROM, and reproduces the card's two-reads-to-write-enable
+> handshake; `read_ram`/`write_ram` pick main vs aux by ALTZP below `$0200`
+> and by RAMRD/RAMWRT above it. `new_2e` drops the `Alc` device and maps
+> `IouE` over `$C080-$C08F` and `$D000-$FFFF` (mapped last, so the region walk
+> reaches it first). `RDLCBNK2`/`RDLCRAM` (`$C011`/`$C012`) are now answered by
+> `IouE`. Gate: `ewm/tests/two_e_altzp.rs`. The ][+ `language_card_*` tests
+> stay green and the //e still boots DOS 3.3.
 
 ### Phase 4c — 80STORE display-page routing + AUXMOVE (M)
 
