@@ -47,6 +47,13 @@ static ROM_IIE_EF: &[u8] =
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
 const SS_KBDSTRB: u16 = 0xc010;
+// //e $C100-$CFFF ROM-arbitration switches (Phase 2b). Written to set state.
+const SS_SLOTCXROM: u16 = 0xc006; // W: peripheral-slot ROM at $C100-$CFFF
+const SS_INTCXROM: u16 = 0xc007; // W: internal ROM at $C100-$CFFF
+const SS_INTC3ROM: u16 = 0xc00a; // W: internal $C300 (80-column firmware)
+const SS_SLOTC3ROM: u16 = 0xc00b; // W: slot-3 card ROM at $C300
+const SS_RDCXROM: u16 = 0xc015; // R: bit 7 = INTCXROM
+const SS_RDC3ROM: u16 = 0xc017; // R: bit 7 = SLOTC3ROM
 const SS_TAPEOUT: u16 = 0xc020;
 const SS_SPKR: u16 = 0xc030;
 const SS_SCREEN_MODE_GRAPHICS: u16 = 0xc050;
@@ -318,6 +325,24 @@ struct IouE {
     key: u8,
     /// Gate the unhandled-access logging behind `--debug`.
     debug: bool,
+
+    // --- Phase 2b: $C100-$CFFF ROM arbitration ---
+    /// INTCXROM: `$C100-$CFFF` reads internal ROM (on) vs slot ROM (off).
+    intcxrom: bool,
+    /// SLOTC3ROM: `$C300` reads slot-3 card ROM (on) vs internal 80-column
+    /// firmware (off). Only consulted when INTCXROM is off.
+    slotc3rom: bool,
+    /// Whether the internal `$C800-$CFFF` expansion ROM is currently exposed.
+    /// Set when internal `$C3xx` firmware is accessed, cleared by a `$CFFF`
+    /// access — the standard //e expansion-ROM latch. Only the internal slot-3
+    /// firmware has a `$C800` image in EWM (no peripheral card here does), so a
+    /// single flag suffices; per-slot expansion is out of scope.
+    c800_internal: bool,
+    /// Internal `$C100-$CFFF` firmware (the CD ROM half, offset `$100`).
+    internal_rom: &'static [u8],
+    /// Peripheral card ROM at `$Cn00-$CnFF`, indexed by slot `1..=7`
+    /// (slot 0 unused); `None` when no card occupies the slot.
+    slot_rom: [Option<&'static [u8]>; 8],
 }
 
 impl IouE {
@@ -325,12 +350,20 @@ impl IouE {
         IouE {
             key: 0,
             debug: false,
+            intcxrom: false,
+            slotc3rom: false,
+            c800_internal: false,
+            internal_rom: &ROM_IIE_CD[0x100..0x1000],
+            slot_rom: [None; 8],
         }
     }
-}
 
-impl Device for IouE {
-    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
+    /// Install a peripheral card's `$Cn00-$CnFF` ROM image for slot `slot`.
+    fn set_slot_rom(&mut self, slot: usize, rom: &'static [u8]) {
+        self.slot_rom[slot] = Some(rom);
+    }
+
+    fn read_io(&mut self, addr: u16) -> u8 {
         match addr {
             SS_KBD => self.key, // $C000 KBD: bit 7 = key-down
             SS_KBDSTRB => {
@@ -339,7 +372,10 @@ impl Device for IouE {
                 self.key &= 0x7f;
                 down
             }
+            SS_RDCXROM => (self.intcxrom as u8) << 7,
+            SS_RDC3ROM => (self.slotc3rom as u8) << 7,
             _ => {
+                // The remaining $C000-$C01F switches are Phase 2c.
                 if self.debug {
                     eprintln!("[A2E] Unhandled read at ${addr:04X}");
                 }
@@ -348,10 +384,74 @@ impl Device for IouE {
         }
     }
 
+    /// Read `$C100-$CFFF`, arbitrating internal firmware vs slot-card ROM and
+    /// maintaining the `$C800` expansion-ROM latch.
+    fn read_cxrom(&mut self, addr: u16) -> u8 {
+        let internal = |a: u16| self.internal_rom[(a - 0xc100) as usize];
+
+        if self.intcxrom {
+            return internal(addr); // internal everywhere, incl. $C800-$CFFF
+        }
+
+        match addr {
+            // $CFFF also resets the expansion-ROM latch as a side effect.
+            0xcfff => {
+                let v = if self.c800_internal {
+                    internal(addr)
+                } else {
+                    0
+                };
+                self.c800_internal = false;
+                v
+            }
+            0xc800..=0xcffe => {
+                if self.c800_internal {
+                    internal(addr)
+                } else {
+                    0 // no peripheral card in EWM has a $C800 expansion ROM
+                }
+            }
+            0xc300..=0xc3ff => {
+                if self.slotc3rom {
+                    0 // slot-3 card ROM — no slot-3 card in EWM
+                } else {
+                    // Internal 80-column firmware; touching it exposes the
+                    // internal $C800 expansion ROM.
+                    self.c800_internal = true;
+                    internal(addr)
+                }
+            }
+            0xc100..=0xc7ff => {
+                let slot = ((addr >> 8) & 0x0f) as usize; // $Cn -> n
+                self.slot_rom[slot].map_or(0, |rom| rom[(addr & 0xff) as usize])
+            }
+            _ => 0,
+        }
+    }
+}
+
+impl Device for IouE {
+    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
+        match addr {
+            0xc000..=0xc07f => self.read_io(addr),
+            0xc100..=0xcfff => self.read_cxrom(addr),
+            _ => 0,
+        }
+    }
+
     fn write(&mut self, addr: u16, _b: u8, _cycles: u64) {
-        // 2a stub: switch state is not modelled yet (Phase 2c). Ignore writes.
-        if self.debug {
-            eprintln!("[A2E] Unhandled write at ${addr:04X}");
+        match addr {
+            SS_SLOTCXROM => self.intcxrom = false,
+            SS_INTCXROM => self.intcxrom = true,
+            SS_INTC3ROM => self.slotc3rom = false,
+            SS_SLOTC3ROM => self.slotc3rom = true,
+            // The remaining $C000-$C00F switches are Phase 2c; $C100-$CFFF is
+            // ROM (writes swallowed).
+            _ => {
+                if self.debug && (0xc000..=0xc07f).contains(&addr) {
+                    eprintln!("[A2E] Unhandled write at ${addr:04X}");
+                }
+            }
         }
     }
 }
@@ -426,12 +526,11 @@ impl Two {
         }
     }
 
-    /// Phase 2a: the Enhanced //e skeleton — a 65C02 with the //e system ROM
-    /// that executes cold-start ROM headlessly. It cannot finish booting yet:
-    /// the internal `$CX` ROM arbitration is Phase 2b, the soft switches are
-    /// Phase 2c, and auxiliary memory is Phase 4. The device layout is the
-    /// ][+'s (slots, no internal `$CX` ROM), with a stub `IouE` in place of
-    /// `TwoIo` and 64K of base RAM (Phase 4 switches to aux-routed RAM).
+    /// Phase 2a/2b: the Enhanced //e — a 65C02 with the //e system ROM and the
+    /// `$C100-$CFFF` internal-vs-slot ROM arbitration. It executes the monitor
+    /// cold start and the internal 80-column firmware; it cannot finish booting
+    /// until the remaining soft switches (Phase 2c) and auxiliary memory (Phase
+    /// 4) land. 64K base RAM for now (Phase 4 switches to aux-routed RAM).
     fn new_2e() -> Two {
         assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
@@ -444,13 +543,21 @@ impl Two {
         assert_eq!(rom.len(), 0x3000, "//e banked ROM must cover $D000-$FFFF");
 
         let mut mem = Memory::new(0xc000); // $0000-$BFFF (64K; aux is Phase 4)
-        let io = mem.add_device(0xc000, 0xc07f, IouE::new());
+
+        // The IouE owns both the $C000-$C07F soft switches and the $C100-$CFFF
+        // ROM space, arbitrating internal firmware vs the peripheral-slot ROMs
+        // it holds. The slot ROMs therefore live here, not as `add_rom`
+        // regions; the Disk II / clock I/O devices stay separate below.
+        let mut iou = IouE::new();
+        iou.set_slot_rom(1, &CLK_ROM); // slot 1 Thunderclock Plus
+        iou.set_slot_rom(6, &DSK_ROM); // slot 6 Disk II boot ROM
+        let io = mem.add_device(0xc000, 0xc07f, iou);
+        mem.map_device(io, 0xc100, 0xcfff);
+
         let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
         mem.map_device(alc, 0xd000, 0xffff);
         let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
-        mem.add_rom(0xc600, DSK_ROM.to_vec()); // slot 6 boot ROM
         let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
-        mem.add_rom(0xc100, CLK_ROM.to_vec()); // slot 1 clock ROM
 
         Two {
             cpu: Cpu::new(Model::M65C02, mem),
@@ -474,7 +581,12 @@ impl Two {
     pub fn attach_hdd(&mut self, path: &str) -> Result<(), String> {
         let hdd = Hdd::new(path)?;
         self.hdd = Some(self.cpu.mem.add_device(0xc0f0, 0xc0ff, hdd));
-        self.cpu.mem.add_rom(0xc700, HDD_ROM.to_vec());
+        // The slot 7 boot/driver ROM at $C700 is a plain region on the ][+, but
+        // the //e routes $C100-$CFFF through the IouE's ROM arbitration.
+        match self.io {
+            MachineIo::Plus(_) => self.cpu.mem.add_rom(0xc700, HDD_ROM.to_vec()),
+            MachineIo::E(h) => self.cpu.mem.device_mut(h).set_slot_rom(7, &HDD_ROM),
+        }
         Ok(())
     }
 
