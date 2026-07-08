@@ -352,11 +352,22 @@ impl Scr {
     pub fn update(&mut self, two: &Two, phase: u32, fps: u32) {
         let flash = !(phase / (fps / 4)).is_multiple_of(2);
 
-        // //e 80-column text renders natively into the 560-wide buffer; every
-        // other mode renders 280-wide and (on the //e) is pixel-doubled.
-        if two.model() == TwoType::Apple2E && two.col80() && two.screen_mode() == ScreenMode::Text {
-            self.render_txt_screen_80(two, flash);
-            return;
+        // Some //e modes render natively into the 560-wide buffer; every other
+        // mode renders 280-wide and (on the //e) is pixel-doubled.
+        if two.model() == TwoType::Apple2E {
+            if two.col80() && two.screen_mode() == ScreenMode::Text {
+                self.render_txt_screen_80(two, flash);
+                return;
+            }
+            // Double lo-res: 80-column lo-res, enabled by DHIRES + 80COL.
+            if two.dhires()
+                && two.col80()
+                && two.screen_mode() == ScreenMode::Graphics
+                && two.screen_graphics_mode() == GraphicsMode::Lgr
+            {
+                self.render_dlgr_screen(two, flash);
+                return;
+            }
         }
 
         match two.screen_mode() {
@@ -384,24 +395,68 @@ impl Scr {
         let aux = two.aux_ram();
         let alt = two.alt_charset();
         for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate() {
+            self.render_txt_row_80(main, aux, alt, row, line_offset, flash);
+        }
+    }
+
+    /// Render one 80-column text row into `wide`: aux supplies the even display
+    /// columns, main the odd, each byte `base + column/2` of the row.
+    fn render_txt_row_80(
+        &mut self,
+        main: &[u8],
+        aux: &[u8],
+        alt: bool,
+        row: usize,
+        line_offset: usize,
+        flash: bool,
+    ) {
+        let base = 0x400 + line_offset;
+        for column in 0..80 {
+            let bank = if column % 2 == 0 { aux } else { main };
+            let c = bank[base + column / 2];
+            let glyph = self.chre.glyph(alt, c);
+            let pos = (SCR_WIDTH_E * CHR_HEIGHT * row) + (CHR_WIDTH * column);
+            for y in 0..CHR_HEIGHT {
+                for x in 0..CHR_WIDTH {
+                    let dst = &mut self.wide[pos + y * SCR_WIDTH_E + x];
+                    *dst = if (0x40..0x80).contains(&c) && flash {
+                        0
+                    } else if glyph[y * CHR_WIDTH + x] {
+                        self.text_color
+                    } else {
+                        0
+                    };
+                }
+            }
+        }
+    }
+
+    /// Render //e double lo-res into `wide` (560): 80 lo-res columns, aux even /
+    /// main odd, each a 7px-wide LGR block (reusing the LGR color table). Mixed
+    /// mode renders 80-column text in the bottom four rows.
+    fn render_dlgr_screen(&mut self, two: &Two, flash: bool) {
+        let main = two.ram();
+        let aux = two.aux_ram();
+        let mixed = two.screen_graphics_style() == GraphicsStyle::Mixed;
+        let gfx_rows = if mixed { 20 } else { 24 };
+        for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().take(gfx_rows) {
             let base = 0x400 + line_offset;
             for column in 0..80 {
                 let bank = if column % 2 == 0 { aux } else { main };
                 let c = bank[base + column / 2];
-                let glyph = self.chre.glyph(alt, c);
+                let block = &self.lgr_bitmaps[c as usize];
                 let pos = (SCR_WIDTH_E * CHR_HEIGHT * row) + (CHR_WIDTH * column);
                 for y in 0..CHR_HEIGHT {
                     for x in 0..CHR_WIDTH {
-                        let dst = &mut self.wide[pos + y * SCR_WIDTH_E + x];
-                        *dst = if (0x40..0x80).contains(&c) && flash {
-                            0
-                        } else if glyph[y * CHR_WIDTH + x] {
-                            self.text_color
-                        } else {
-                            0
-                        };
+                        self.wide[pos + y * SCR_WIDTH_E + x] = block[y * CHR_WIDTH + x];
                     }
                 }
+            }
+        }
+        if mixed {
+            let alt = two.alt_charset();
+            for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
+                self.render_txt_row_80(main, aux, alt, row, line_offset, flash);
             }
         }
     }
