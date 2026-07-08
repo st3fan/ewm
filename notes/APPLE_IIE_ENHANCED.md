@@ -62,7 +62,7 @@ PR sequence.
 | 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Done |
 | 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Done |
 | 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Done |
-| 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Not started |
+| 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Done |
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Not started |
 | 5b | 80-column text (main/aux interleave) + golden | M | Not started |
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
@@ -561,6 +561,21 @@ end-to-end.
 **Gate:** 80STORE truth table; a 65C02 program using the ROM `AUXMOVE`
 (`$C311`) / `XFER` primitives round-trips a buffer main↔aux; `RD80STORE`
 reflects state.
+
+> **Landed.** The override is one helper, `IouE::store80_aux`, applied in both
+> `read_ram` and `write_ram`: when 80STORE is on it returns `Some(page2)` for
+> text page 1 (`$0400-$07FF`) and — only when HIRES is on — hi-res page 1
+> (`$2000-$3FFF`), else `None` to fall through to RAMRD/RAMWRT. It sits *above*
+> RAMRD/RAMWRT and, unlike them, uses the same PAGE2 selector for reads and
+> writes; ZP/stack still follow ALTZP. `RD80STORE` (`$C018`) was already wired
+> in 2c. Gates: `ewm/tests/two_e_80store.rs` (the truth table: page-1 text and
+> HIRES-gated hi-res follow PAGE2, page 2 / `$4000` / ordinary RAM keep
+> following RAMRD/RAMWRT, and PAGE2 does not route memory when 80STORE is off)
+> and `ewm/tests/two_e_auxmove.rs` (a hand-assembled driver round-trips a buffer
+> main↔aux through the real Monitor `AUXMOVE` at `$C311`, INTCXROM on). This
+> completes the **4a→4b→4c** aux linchpin that 5b and Phase 6 depend on. The
+> ][+ path and both goldens are unchanged (80STORE stays off during DOS boot,
+> so the override is inert).
 
 ---
 
