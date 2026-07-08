@@ -57,7 +57,7 @@ PR sequence.
 | 1b | Enhanced char ROM → **alternate** set + MouseText | S | Done (with 1a) |
 | 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Done |
 | 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Done |
-| 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Not started |
+| 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Done |
 | 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Not started |
 | 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Not started |
 | 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Not started |
@@ -364,6 +364,33 @@ reads at `$C300` / `$C800` / `$CFFF` come from the expected ROM.
 
 **Goal:** The //e boots DOS 3.3 to the AppleSoft `]` prompt in 40 columns,
 fully headless.
+
+> **Landed — boots DOS 3.3 and evaluates `PRINT 2+2` → `4`.** `IouE` now tracks
+> the `$C000-$C00F` memory switches (80STORE/RAMRD/RAMWRT/ALTZP — **state only**,
+> the aux routing is Phase 4) and the display switches (`$C050-$C057`
+> TEXT/MIXED/PAGE2/HIRES, `$C00C-$C00F` 80COL/ALTCHARSET), and answers all
+> `$C010-$C01F` status reads in bit 7. RDVBL (`$C019`) is derived from the cycle
+> counter (not cycle-modelled — quirk #3). RDLCBNK2/RDLCRAM (`$C011`/`$C012`)
+> are answered by the language card, which now shadows those two addresses so
+> it reports its own state (matched before `Alc::bank_read`, whose `$D000`
+> offset would otherwise underflow). `key()`/`key_register()` became
+> model-aware (both `TwoIo` and `IouE` own a keyboard latch) — the `SoftSwitches`
+> trait stays deferred; keyboard was the only shared host API 2c needed.
+>
+> **The one real bug this surfaced:** the //e enhanced firmware clears the
+> keyboard strobe with a **write** (`STA $C010`), not a read like the ][+
+> monitor. `IouE` cleared KBDSTRB only on read, so every typed key re-latched
+> forever (the screen filled with one character). Clearing on *any* `$C010`
+> access fixed it — and it was the whole blocker: the //e already reached a live
+> keyboard-wait loop (in the internal `$C27D` firmware, not the monitor
+> `$FD1D`) but couldn't consume input. The "hang loading Integer BASIC" was a
+> red herring — DOS boots fully; it was the strobe.
+>
+> Gate: `ewm/tests/two_e_boot.rs` (4 tests) — the DOS 3.3 boot + `PRINT 2+2`,
+> plus memory/display switch round-trips and the strobe clear-on-read/write.
+> Deferred as planned: speaker (`$C030`) → 7; Open/Solid-Apple buttons
+> (`$C061`/`$C062`) → 3b; DHIRES (`$C05E`/`$C05F`) → 6a; aux routing → 4. The
+> 80-column display (`PR#3`) still misrenders until 5b — 2c only tracks 80COL.
 
 **Scope:**
 - Flesh out the `$C000-$C00F` write-to-set switches (state only; aux still

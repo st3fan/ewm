@@ -160,6 +160,12 @@ impl Alc {
 impl Device for Alc {
     fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
         match addr {
+            // //e RDLCBNK2 / RDLCRAM status reads, reported in bit 7. The //e
+            // maps these onto the language card so it reports its own state;
+            // the ][+ never routes them here. Matched before `bank_read`, whose
+            // `$D000` offset would otherwise underflow on these addresses.
+            0xc011 => ((!self.bank1) as u8) << 7, // bank 2 selected
+            0xc012 => (self.read as u8) << 7,     // card RAM read-enabled
             0xc080..=0xc08f => self.iom_read(addr),
             _ => self.bank_read(addr),
         }
