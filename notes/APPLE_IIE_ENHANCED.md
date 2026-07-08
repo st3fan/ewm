@@ -68,7 +68,7 @@ PR sequence.
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Done |
 | 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
 | 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
-| 7b | boo menu entry + CLI dispatch | S | Not started |
+| 7b | CLI discoverability (usage + README); boo menu intentionally omitted | S | Done |
 | 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
 | 8b | ProDOS 80-col boot gate + README + parity checklist | M | Not started |
 
@@ -726,17 +726,24 @@ churn than a new subcommand.
 **Gate:** Automated — `ewm two --model 2e --screenshot=…` boots and dumps a
 BMP matching the Phase 5b golden.
 
-### Phase 7b — boo menu entry + CLI dispatch (S)
+### Phase 7b — CLI discoverability (S)
 
-**Goal:** The bootloader and top-level CLI expose the //e.
+**Goal:** The top-level CLI and docs expose the //e.
 
-**Scope:**
-- boo menu option **4** "APPLE //e — 65C02 / 128K / ENHANCED" returning
-  `BooChoice::BootApple2E`; `main.rs` dispatch + updated `usage()`.
-- Optional command-palette "40/80 column" toggle if convenient.
-
-**Gate:** `ewm` (no args) → menu → boots the //e. Manual checklist recorded
-in-file: 80-column BASIC works; a DHGR demo runs; Apple keys and sound work.
+> **Landed (scope trimmed by the owner).** The functional CLI was **already
+> done** — `ewm two --model 2e` (also `//e`, `iie`) boots the Enhanced //e
+> windowed at 560 (parsing in `two::main` since the "run it" PR #223, the 560
+> window since 5a), and `ewm two --help` lists `--model <2plus|2e>`. So 7b
+> reduced to discoverability: the top-level `main.rs usage()` now names the //e
+> under `two`, and the **README** gains an "Apple //e (Enhanced)" entry under
+> *What's emulated* plus a `two --model 2e` run example (the fuller parity
+> checklist stays in 8b).
+>
+> **The boo menu entry was intentionally omitted** at the owner's request:
+> `boo.rs` keeps keys 1/2/3 (Apple 1 / Replica 1 / Apple ][+), no
+> `BooChoice::BootApple2E`, and no `main.rs` menu-dispatch arm. The optional
+> command-palette 40/80 toggle was **dropped** — on the //e, 40/80 columns are
+> software-controlled (`PR#3`), so a host toggle would be misleading.
 
 ---
 
