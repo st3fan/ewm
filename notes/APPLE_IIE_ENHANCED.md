@@ -1,0 +1,617 @@
+# Apple //e Enhanced Support — Implementation Plan
+
+A working document for adding the **Enhanced Apple //e** to EWM as a third
+machine alongside the Apple 1 / Replica 1 (`one`) and the Apple ][+ (`two`).
+Like `REWRITE.md`, this is meant to be re-read at the start of every session
+and updated as phases land. **The tree must build and pass all verification
+gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo test`) after every phase.**
+
+> **Branch:** All Apple //e Enhanced work happens on the long-lived
+> **`claude/apple-iie-enhanced`** integration branch — it stays separate from
+> `master` until every phase (and any follow-up polish) is done. Each
+> sub-phase is developed on its own branch cut *from* `claude/apple-iie-enhanced`
+> and opened as a PR *into* `claude/apple-iie-enhanced` (never into `master`).
+> Only when the whole feature is complete does one final PR promote
+> `claude/apple-iie-enhanced` → `master`. Do **not** target `master` with any
+> individual phase PR.
+
+The work is deliberately sliced into many small, PR-sized phases. The eight
+themes below (0–8) are the narrative; each is split into **2–3 lettered
+sub-phases** (`2a`, `2b`, `2c`, …). **One sub-phase = one PR.** Every
+sub-phase is independently completable, leaves the existing Apple ][+ path
+byte-for-byte unchanged, and adds one observable capability to the //e.
+
+## Why the Enhanced //e specifically
+
+The "Enhanced" //e is the sweet spot for EWM because most of its hardest
+parts already exist:
+
+- **65C02 CPU** — the Enhanced //e swapped the NMOS 6502 for the 65C02.
+  `ewm-core` already ships a fully-tested 65C02 (`Model::M65C02`,
+  `instructions_65c02()`, gated by the Dormann extended-opcodes test). No CPU
+  work is required.
+- **Language card built in** — the //e has the ][+ language card soldered
+  onto the board. `ewm/src/alc.rs` already implements it; the only change is
+  making its `$D000-$FFFF` banking aware of the new **ALTZP** aux switch.
+- **Disk II / hard drive / clock / sound / tty** — all reused unchanged
+  (`dsk.rs`, `hdd.rs`, `clk.rs`, `snd.rs`, `tty.rs`).
+
+What is genuinely new: **auxiliary memory + the MMU/IOU soft switches**,
+**80-column text**, **double-lo-res / double-hi-res graphics**, the
+**enhanced character ROM** (lower case + MouseText + alternate character
+set), and the **//e keyboard** (lower case, Open/Solid-Apple keys).
+
+We target the *Enhanced* //e only. The original NMOS //e and the //c are out
+of scope (see "Future work").
+
+## Status
+
+Each row is one PR. Sub-phases within a theme are ordered; the letter is the
+PR sequence.
+
+| Phase | Description | Size | Status |
+|---|---|---|---|
+| 0 | Plan, ROM assets, and the //e memory/soft-switch map | S | ROMs in (PR #217); map documented |
+| 1a | Enhanced char ROM → **primary** glyph set (pure, unit-tested) | S | Not started |
+| 1b | Enhanced char ROM → **alternate** set + MouseText | S | Not started |
+| 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Not started |
+| 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Not started |
+| 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Not started |
+| 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Not started |
+| 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Not started |
+| 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Not started |
+| 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Not started |
+| 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Not started |
+| 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Not started |
+| 5b | 80-column text (main/aux interleave) + golden | M | Not started |
+| 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
+| 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
+| 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Not started |
+| 7b | boo menu entry + CLI dispatch | S | Not started |
+| 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
+| 8b | ProDOS 80-col boot gate + README + parity checklist | M | Not started |
+
+## Ground rules (apply to every phase)
+
+- **All work lands on `claude/apple-iie-enhanced`.** Every sub-phase branches
+  from, and PRs back into, the `claude/apple-iie-enhanced` integration branch
+  — never `master`. The branch is promoted to `master` in a single final PR
+  once the whole feature is done. (See the Branch callout at the top.)
+- **The Apple ][+ is frozen.** Every existing gate — `two_boot`, `two_dos`,
+  `two_hdd`, `two_clk`, `two_timing`, and the `boot_screen_matches_golden_bmp`
+  golden screenshot — must stay green and unchanged. The //e is additive.
+- Each sub-phase is one PR-sized unit with the gate commands listed in its
+  section. If a gate fails at session end, revert to the last green commit
+  rather than leaving a broken tree.
+- Prefer headless, deterministic gates (`text_screen()`-style RAM scrapes and
+  golden BMPs) over manual checks, exactly as the rewrite did. Manual
+  checklists are recorded in-file per phase for the windowed pieces.
+- `ewm-core` stays a **generic** 6502 kernel. No Apple //e concept (aux
+  memory, soft switches, MMU state) may leak into `cpu.rs` / `mem.rs` /
+  `ins.rs` / `fmt.rs`. All //e-specific banking lives in the `ewm` crate,
+  following the existing `Alc`-as-`Device` precedent.
+- Port *observable behavior*. Where real //e hardware has murky/undocumented
+  behavior (open-bus reads on status switches, RMW double-writes to soft
+  switches), pick the simple faithful choice and record it under "Quirks &
+  divergences" rather than chasing bug-for-bug fidelity with silicon.
+
+## Top-level decisions (decided up front; do not relitigate per phase)
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Target model | **Enhanced //e** only (65C02 + enhanced ROM set + MouseText char ROM). Reuse the existing `TwoType::Apple2E` enum variant to mean "Enhanced //e"; leave `TwoType::Apple2` erroring (out of scope). | The 65C02 is already done and tested; the enhanced ROM is what most //e software assumes. One target keeps the matrix small. |
+| Machine structure | **Extend the existing `Two` / `two.rs`** with a `model: TwoType` field rather than forking a new `TwoE`. The ][+ construction path is untouched; //e-specific devices, ROMs, char set, and renderer paths are selected on `model`. | Disk II, HDD, clock, sound, tty, palette, and the frame loop are all shared verbatim. One evolving machine file keeps PRs focused. Split into `two_e.rs` later only if the file grows unwieldy. |
+| Where banking lives | Auxiliary memory + the MMU/IOU soft switches live in the **`ewm` crate as a `Device`** (working name `Mmu`/`IouE`), the same pattern as `Alc`. The //e's `Memory` is built with **no base-RAM fast path** (`Memory::new(0)`) so *all* RAM (incl. zero page and stack) flows through the aux-aware device. | Zero changes to `ewm-core`. Reuses a proven seam. Per-access `dyn Device` dispatch is far inside the 1 MHz (even 7.16 MHz accelerated) budget — the rewrite benches already proved `ind*`-style dispatch is ~200 ms / 100M ops. |
+| Aux/switch state sharing | A **single //e memory-management device owns everything the MMU/IOU arbitrate**: main RAM, aux RAM, and the `$C000-$C01F` soft switches. It is mapped over `$0000-$BFFF`, `$C000-$C01F`, and (ALTZP-aware) shares the language-card region. The Disk II / clock / HDD keep their own `$C0Ex/$C09x/$C0Fx` sub-ranges and shadow it via the newest-first region walk (as `Dsk` already shadows `TwoIo` today). | The real MMU/IOU are the central arbiters; centralizing their state avoids `Rc<RefCell>` (which the project deliberately avoids) and matches the hardware. |
+| Renderer resolution | The //e renders into a **560×192** internal buffer: 80-column text and double-hi-res are native 560; 40-column / LGR / HGR pixels are drawn 2× horizontally. The ][+ keeps its **280×192** `Scr` path and golden test untouched. | 80-col and DHGR are inherently double-horizontal-res. A separate //e render path avoids disturbing the ][+ golden BMP. Unifying the two renderers is optional later cleanup. |
+| ROM assets | **Present in `rom/` as of PR #217**, same stance as the existing `341-00xx` ][+ ROMs. System ROM is two 8K halves: `Apple IIe CD Enhanced - 342-0304-A - 2764.bin` (`$C000-$DFFF`) + `Apple IIe EF Enhanced - 342-0303-A - 2764.bin` (`$E000-$FFFF`); character generator is `Apple IIe Video - Enhanced - 342-0265-A - 2732.bin` (4K, primary + alternate/MouseText sets). Load via `include_bytes!`. | Consistent with how EWM already ships machine + character ROMs. Filenames/sizes/hashes recorded in Phase 0. |
+| Memory size | Default the //e to **128K** (64K main + 64K aux, i.e. the Extended 80-Column Text Card fitted). The 64K "no aux card" config is a real intermediate milestone (the Phase 2 bring-up) but the shipped machine is 128K. | 80-col, DHGR, and virtually all //e software assume the extended card. |
+| 65C02 timing | Reuse the current 65C02 instruction timings. The //e-specific cycle deltas (decimal-mode +1, fixed page-cross reads) stay **out of scope**, consistent with the rewrite's existing note that "65C02-specific timing remains out of scope." | Keeps parity with the decision already recorded in `REWRITE.md`; the display/boot gates compare architectural state, not cycles. |
+
+## The //e memory map & soft switches (reference)
+
+This table is the contract the aux/display phases (4a–6b) implement.
+Addresses are the standard //e I/O locations. "R" = read triggers/reports,
+"W" = write triggers.
+
+### Memory-management soft switches (`$C000-$C00F`, write to set)
+
+| Off | On | Name | Effect | First implemented |
+|---|---|---|---|---|
+| `$C000` W | `$C001` W | 80STORE | When on, PAGE2 routes text page 1 (`$0400-$07FF`) — and, with HIRES on, hi-res page 1 (`$2000-$3FFF`) — to aux, overriding RAMRD/RAMWRT | 4c |
+| `$C002` W | `$C003` W | RAMRD | Reads of `$0200-$BFFF` come from aux (on) or main (off) | 4a |
+| `$C004` W | `$C005` W | RAMWRT | Writes to `$0200-$BFFF` go to aux (on) or main (off) | 4a |
+| `$C006` W | `$C007` W | SLOTCXROM/INTCXROM | Select peripheral-slot ROM vs internal ROM at `$C100-$CFFF` | 2b |
+| `$C008` W | `$C009` W | ALTZP | Zero page, stack (`$0000-$01FF`) and language-card RAM come from aux (on) or main (off) | 4b |
+| `$C00A` W | `$C00B` W | SLOTC3ROM | Slot-3 ROM (`$C300`) vs internal 80-col firmware | 2b |
+| `$C00C` W | `$C00D` W | 80COL | 80-column video (on) vs 40 (off) | 5b |
+| `$C00E` W | `$C00F` W | ALTCHARSET | Alternate character set (MouseText/lower-inverse) vs primary | 3a |
+
+### Status reads (`$C010-$C01F`, read returns switch state in bit 7)
+
+| Addr | Name | Reports | First implemented |
+|---|---|---|---|
+| `$C010` R | KBDSTRB / AKD | Clears the keyboard strobe; bit 7 = any-key-down | 2c |
+| `$C011` R | RDLCBNK2 | Language-card bank 2 selected | 2c |
+| `$C012` R | RDLCRAM | Language-card RAM read-enabled | 2c |
+| `$C013` R | RDRAMRD | RAMRD state | 4a |
+| `$C014` R | RDRAMWRT | RAMWRT state | 4a |
+| `$C015` R | RDCXROM | INTCXROM state | 2b |
+| `$C016` R | RDALTZP | ALTZP state | 4b |
+| `$C017` R | RDC3ROM | SLOTC3ROM state | 2b |
+| `$C018` R | RD80STORE | 80STORE state | 4c |
+| `$C019` R | RDVBL | Vertical-blank (see Quirks) | 2c |
+| `$C01A` R | RDTEXT | TEXT mode | 2c |
+| `$C01B` R | RDMIXED | MIXED mode | 2c |
+| `$C01C` R | RDPAGE2 | PAGE2 state | 2c |
+| `$C01D` R | RDHIRES | HIRES mode | 2c |
+| `$C01E` R | RDALTCHAR | ALTCHARSET state | 3a |
+| `$C01F` R | RD80COL | 80COL state | 5b |
+
+### Display & misc (mostly reuse the existing ][+ `TwoIo` handlers)
+
+`$C050-$C057` TEXT/MIXED/PAGE2/HIRES (already handled), `$C05E`/`$C05F`
+**DHIRES** on/off (double-res enable, interacts with AN3), `$C07E`/`$C07F`
+**IOUDIS**/RDIOUDIS, `$C061-$C063` Open-Apple / Solid-Apple / Shift buttons
+(already read as buttons), `$C080-$C08F` language card (already handled by
+`Alc`, extend for ALTZP).
+
+## Current architecture — what each phase touches
+
+- `ewm-core/src/{cpu,mem,ins,fmt}.rs` — generic kernel. **Untouched** by this
+  work (65C02 already present). If a tiny accessor is unavoidable (e.g. to let
+  the renderer see aux RAM) it must remain Apple-agnostic.
+- `ewm/src/two.rs` — the machine + SDL loop. Gains a `model` field, //e ROM
+  loading, the `Mmu` device wiring, and //e branches in the frame loop.
+- `ewm/src/alc.rs` — language card. Gains ALTZP awareness (aux bank of LC RAM).
+- `ewm/src/chr.rs` — character generator. Gains the enhanced 4K char ROM
+  decode (primary + alternate sets, lower case, MouseText).
+- `ewm/src/scr.rs` — renderer. Gains a 560-wide //e path: 80-col text, DLGR,
+  DHGR, ALTCHARSET selection.
+- `ewm/src/boo.rs`, `ewm/src/main.rs` — menu + CLI, gain the //e entry.
+- Tests: new `ewm/tests/two_e_*.rs`; new `rom/` and possibly `disks/` assets.
+
+---
+
+## Phase 0 — Plan, ROM assets, and the memory/soft-switch map (S)
+
+**Goal:** This document exists, the Enhanced //e ROMs are checked in, and the
+machine map above is verified. No behavior change.
+
+**Status:** ROMs landed in `rom/` via **PR #217** ("Adding Apple IIe Enhanced
+ROMs"). The human dependency below is resolved. Recorded assets (SHA-256
+prefixes for verification):
+
+| File | Size | Maps to | sha256 (first 16) |
+|---|---|---|---|
+| `Apple IIe CD Enhanced - 342-0304-A - 2764.bin` | 8192 | `$C000-$DFFF` | `f5255e59b335e738` |
+| `Apple IIe EF Enhanced - 342-0303-A - 2764.bin` | 8192 | `$E000-$FFFF` | `3ccfd0bf9f2c87b4` |
+| `Apple IIe Video - Enhanced - 342-0265-A - 2732.bin` | 4096 | char gen (2 sets) | `52c3b87900ac939f` |
+| `Apple IIe Keyboard - 341-0150-A - 2716.bin` | 2048 | keyboard encoder | `dabc2f4a2804e92e` |
+| `Apple IIe Keyboard - 342-0132-B - 2716.bin` | 2048 | keyboard encoder | `68198ae95923926b` |
+| `Apple IIe Keyboard - 342-0132-C - 2716.bin` | 2048 | keyboard encoder | `fbb9620e01f4f728` |
+| `Apple IIe Keyboard - 342-0132-D - 2716.bin` | 2048 | keyboard encoder | `a1989da84ea4381d` |
+
+The two 8K system halves concatenate to the 16K `$C000-$FFFF` image (the
+`$C000-$CFFF` quarter is the internal I/O firmware / peripheral-slot ROM;
+`$D000-$FFFF` is Monitor + AppleSoft, banked by the language card). The 4K
+video ROM holds the primary and alternate (MouseText) glyph sets, 8
+bytes/glyph. The keyboard-encoder ROMs are informational — EWM synthesizes
+keystrokes directly (see the keyboard decision in Phase 3b), so they are not
+`include_bytes!`-loaded unless we later choose to model the encoder.
+
+**Scope (remaining):**
+- Confirm `TwoType::Apple2E` is the intended Enhanced-//e handle; leave
+  `Two::new(TwoType::Apple2E)` returning its current error until Phase 2a.
+
+**Gate:** Tree builds, all existing tests green, ROMs present with recorded
+hashes. `git grep -n Apple2E` shows the plumbing points a human will touch.
+
+---
+
+## Phase 1 — Enhanced character ROM → glyph tables
+
+Pure, unit-tested decoding of the 4K enhanced video ROM into glyph bitmaps —
+the same "decode is core, textures are frontend" split the ][+ char ROM uses.
+No machine, no SDL. Split by character set.
+
+### Phase 1a — Primary character set (S)
+
+**Goal:** Decode the primary glyph set (upper/lower case + inverse +
+flashing) into `[Option<Glyph>; 256]`.
+
+**Scope:**
+- Re-derive the //e ROM byte layout: the ][+ `chr.rs` `rom[c*8 + y + 1]`
+  one-byte offset is specific to that 2716 dump and almost certainly does
+  *not* apply to `342-0265-A`.
+- Add behind a `Chr::new_iie_primary()` (or a `CharSet` enum) without
+  disturbing the existing ][+ `Chr`.
+
+**Gate:** Unit tests — 'A' (upper), 'a' (lower, which the ][+ set cannot
+render), and an inverse glyph each decode to their expected bitmaps.
+
+### Phase 1b — Alternate set + MouseText (S)
+
+**Goal:** Decode the alternate glyph set, including MouseText.
+
+**Scope:**
+- Decode the alternate half: upper/lower + inverse + **MouseText** at codes
+  `$40-$5F`. The alternate set replaces the primary's flashing range with
+  MouseText — the //e's real behavior.
+- Expose both sets so the renderer can pick per ALTCHARSET (Phase 3a).
+
+**Gate:** Unit tests — a MouseText glyph (e.g. the "open-apple") and an
+alternate-set lower-case glyph decode as expected.
+
+---
+
+## Phase 2 — 64K //e bring-up (boots headless to `]`)
+
+Stand up a real 64K "no extended card" //e that boots to 40-column
+AppleSoft. Aux memory arrives in Phase 4; the aux switches here are inert
+(main answers). Everything below is `Apple2E`-only — the ][+ path is untouched.
+
+### Phase 2a — Machine skeleton: 65C02 + //e system ROM (M)
+
+**Goal:** `Two::new(TwoType::Apple2E)` constructs a 65C02 //e that fetches
+and executes the //e reset vector — it runs *in ROM*, even though it cannot
+finish booting until 2b/2c.
+
+**Scope:**
+- `Two::new` branches on `model`: for `Apple2E`, build the CPU with
+  `Model::M65C02` and load the //e system ROM (`$D000-$FFFF` via the reused
+  `Alc`; `$C000-$CFFF` as internal ROM for now, refined in 2b).
+- A stub `Mmu`/`IouE` device over `$C000-$C01F` that stores switch state and
+  returns benign values (no aux yet). Reuse the ][+ `$C050-$C057` display
+  switches.
+- Keep the ][+ `TwoIo` path untouched; the //e uses the new device. Slot 6
+  Disk II, slot 7 HDD, slot 1 clock attach exactly as today.
+
+**Key decisions:** 64K, aux switches inert. This is the PR where `Apple2E`
+stops erroring, so `two_boot`'s `apple2_and_apple2e_are_unsupported` test is
+narrowed to `Apple2` only.
+
+**Gate:** `ewm/tests/two_e_skeleton.rs` — construct `Apple2E`, reset, step a
+fixed cycle budget without panicking, and assert the PC has entered the //e
+ROM's cold-start path (a known early routine / ROM address range).
+
+### Phase 2b — Internal `$CX` ROM vs slot-card ROM arbitration (M)
+
+**Goal:** `$C100-$CFFF` correctly switches between the internal firmware and
+the peripheral-slot ROMs.
+
+**Scope:**
+- Implement INTCXROM/SLOTCXROM (`$C006`/`$C007`), SLOTC3ROM
+  (`$C00A`/`$C00B`), and the `$C800-$CFFF` shared expansion-ROM space (with
+  the `$CFFF` expansion-ROM reset). The internal 80-column firmware lives
+  here.
+- Compose with the existing slot ROMs (Disk II `$C600`, HDD `$C700`, clock
+  `$C100`) via the newest-first region walk; `RDCXROM`/`RDC3ROM` report state.
+
+**Key decisions:** This is the subtlest boot-critical piece (see Risks). Get
+the precedence right now so 2c and the 80-col firmware (5b) work.
+
+**Gate:** Unit tests — under each (INTCXROM, SLOTC3ROM) combination, assert
+reads at `$C300` / `$C800` / `$CFFF` come from the expected ROM.
+
+### Phase 2c — //e soft switches → boots to `]` (M)
+
+**Goal:** The //e boots DOS 3.3 to the AppleSoft `]` prompt in 40 columns,
+fully headless.
+
+**Scope:**
+- Flesh out the `$C000-$C00F` write-to-set switches (state only; aux still
+  absent) and the `$C010-$C01F` read-status switches (state in bit 7; `$C010`
+  clears the strobe and reports AKD; RDLCBNK2/RDLCRAM read the `Alc` state).
+- Whatever else the ROM cold-start touches to reach BASIC.
+
+**Key decisions:** `PR#3` (80-col) is expected to fail until Phase 5b.
+
+**Gate:** `ewm/tests/two_e_boot.rs` — insert `DOS33-SystemMaster.dsk`, reset,
+step until `text_screen()` shows `]`, type `PRINT 2+2`, assert `4`. (DOS 3.3
+runs on a //e.)
+
+---
+
+## Phase 3 — //e 40-column display & keyboard
+
+Two independent halves — display and input — that make the windowed //e
+usable in 40 columns.
+
+### Phase 3a — ALTCHARSET-aware 40-column text (M)
+
+**Goal:** 40-column //e text renders lower case and, with ALTCHARSET on,
+MouseText.
+
+**Scope:**
+- A //e 40-column text render path that selects the primary vs alternate
+  glyph set (Phase 1a/1b) from ALTCHARSET (`$C01E`). Still 280-equivalent
+  (a temporary 40-col draw, folded into the 560 buffer once 5a lands).
+- Consume the ALTCHARSET / PAGE2 state the `Mmu` already tracks.
+
+**Gate:** Headless — with ALTCHARSET on, a `$40-$5F` byte poked into the text
+page scrapes to its MouseText glyph; a //e-aware `text_screen()` preserves
+lower case for a poked lower-case string.
+
+### Phase 3b — //e keyboard: lower case + Apple keys (S)
+
+**Goal:** Lower-case input and the Open/Solid-Apple keys.
+
+**Scope:**
+- Stop force-upper-casing input for the //e (the ][+ path upper-cases in
+  `two.rs`); pass lower case through.
+- Map host modifiers to **Open-Apple** (button 0, `$C061`) and
+  **Solid-Apple** (button 1, `$C062`) — needed for the ROM self-test and many
+  games.
+
+**Key decisions:** Upper-casing stays for the ][+ (its ROM has no lower
+case). Apple-key mapping is a documented divergence (macOS reserves some Cmd
+combos, per the existing Cmd-Esc → Cmd-R note).
+
+**Gate:** Headless — a typed lower-case line scrapes as lower case;
+Open-Apple reads pressed at `$C061`. Manual (recorded in-file): lower case
+echoes; a MouseText demo renders.
+
+---
+
+## Phase 4 — Auxiliary memory + MMU routing
+
+The architectural heart of //e support: a second 64K aux bank and the full
+routing truth table, built up one rule at a time. All three sub-phases share
+the single `Mmu` device and the `Memory::new(0)` construction.
+
+### Phase 4a — Aux RAM + RAMRD/RAMWRT (`$0200-$BFFF`) (M)
+
+**Goal:** A second 64K aux bank with the main-body read/write routing.
+
+**Scope:**
+- The `Mmu` owns main + aux banks; build the //e `Memory` with
+  `Memory::new(0)` so **all** RAM flows through it.
+- `$0200-$BFFF`: reads follow RAMRD (`$C002`/`$C003`), writes follow RAMWRT
+  (`$C004`/`$C005`). `$0000-$01FF` and the LC region stay main-only for now.
+- `Two` exposes `main_ram()` / `aux_ram()` accessors for the renderers (the
+  "renderer reads `&Two` between step batches" discipline the ][+ uses).
+
+**Gate:** `ewm/tests/two_e_aux.rs` — a RAMRD×RAMWRT truth table over
+`$0200-$BFFF` (sentinel lands in and reads back from the correct bank);
+`RDRAMRD`/`RDRAMWRT` reflect state.
+
+### Phase 4b — ALTZP: zero page, stack, language-card aux (M)
+
+**Goal:** ALTZP banks the zero page, stack, and language-card RAM.
+
+**Scope:**
+- `$0000-$01FF` (ZP + stack) follow ALTZP (`$C008`/`$C009`). The CPU's
+  push/pull already go through `mem`, so this "just works" once the device
+  routes it.
+- Extend `Alc` (or fold LC into `Mmu`) so `$D000-$FFFF` card RAM has main +
+  aux copies selected by ALTZP.
+
+**Gate:** ALTZP truth table (ZP + stack writes land in the selected bank;
+`RDALTZP` reflects state); an LC-aux test extending the existing
+language-card tests.
+
+### Phase 4c — 80STORE display-page routing + AUXMOVE (M)
+
+**Goal:** The 80STORE/PAGE2(+HIRES) display-page override, verified
+end-to-end.
+
+**Scope:**
+- 80STORE (`$C000`/`$C001`) on: PAGE2 routes text page 1 (`$0400-$07FF`) to
+  aux regardless of RAMRD/RAMWRT; with HIRES on, hi-res page 1
+  (`$2000-$3FFF`) too. This override sits *above* RAMRD/RAMWRT — order
+  matters.
+
+**Gate:** 80STORE truth table; a 65C02 program using the ROM `AUXMOVE`
+(`$C311`) / `XFER` primitives round-trips a buffer main↔aux; `RD80STORE`
+reflects state.
+
+---
+
+## Phase 5 — 80-column text display
+
+### Phase 5a — 560-wide //e render buffer (M)
+
+**Goal:** Introduce the //e 560×192 render path at visual parity with the
+40-column output (pixel-doubled) — no 80 columns yet.
+
+**Scope:**
+- A //e renderer (a new `scr` path or `ScrE`) producing 560×192; 40-column
+  text / LGR / HGR draw 2× horizontally. The ][+ 280 path and its golden BMP
+  are untouched. ALTCHARSET selection from 3a carries over.
+
+**Gate:** A 560-wide golden BMP of the 40-column boot screen (pixel-doubled)
+matches (`ewm/golden/two-e-40col.bmp`, via the `--screenshot` path).
+
+### Phase 5b — 80-column text (main/aux interleave) (M)
+
+**Goal:** `PR#3` / 80COL produces real 80-column text, verified headless.
+
+**Scope:**
+- 80-column text reads interleaved memory: aux = even columns (0,2,4,…),
+  main = odd columns, 7 px each → 560. Driven by 80COL (`$C00C`/`$C00D`) plus
+  80STORE/PAGE2 (Phase 4c routing already places the aux half). `RD80COL`
+  reports state.
+- A `text_screen_80()` (24×80) scrape reading both banks — the headless
+  workhorse for this and later gates.
+
+**Key decisions:** Verify the aux-even / main-odd convention against the ROM's
+own 80-col output before baking goldens.
+
+**Gate:** `ewm/tests/two_e_80col.rs` — enable 80 columns (via `PR#3` from
+AppleSoft), print a known string, assert `text_screen_80()` shows it across 80
+columns; a checked-in golden 560-wide BMP.
+
+---
+
+## Phase 6 — Double-res graphics
+
+### Phase 6a — DHIRES/AN3/IOUDIS plumbing + double-lo-res (M)
+
+**Goal:** The double-res control path, plus double-lo-res.
+
+**Scope:**
+- DHIRES (`$C05E`/`$C05F`), AN3, and IOUDIS (`$C07E`/`$C07F`) precedence:
+  IOUDIS off exposes DHIRES at `$C05E`/`$C05F`; on, those revert to AN3
+  control. Store state; the RD switch reflects it.
+- **DLGR**: double-width lo-res, aux/main interleaved, reusing the LGR color
+  table already in `scr.rs`.
+
+**Gate:** A DLGR smoke render matches a golden; the switch-state reads are
+correct.
+
+### Phase 6b — Double-hi-res (DHGR) (M)
+
+**Goal:** DHGR renders in monochrome and color.
+
+**Scope:**
+- Aux (even 7-px groups) + main (odd) interleave → 560; the 4-bit-per-pixel
+  //e color interpretation, a fresh implementation rather than the ][+
+  single-hi-res fringing code. Keep a deterministic monochrome 560-wide path
+  for the golden test.
+
+**Gate:** `ewm/tests/two_e_dhgr.rs` — a known DHGR bit pattern in main + aux
+renders to a golden 560-wide BMP.
+
+---
+
+## Phase 7 — Frontend, menu & CLI
+
+### Phase 7a — `two::main` //e path + windowing (M)
+
+**Goal:** `ewm two --model 2e` runs the //e windowed.
+
+**Scope:**
+- A `--model 2e` / `//e` flag on `two`; size the window/texture for 560-wide
+  output; title "EWM v0.1 / Apple //e"; wire the //e renderer, status bar, and
+  the Apple-key mapping. Default the //e to 128K.
+
+**Key decisions:** Reuse the existing frame loop; branch only on render width
+and model. A `--model` flag mirrors `one --model apple1|replica1` and is less
+churn than a new subcommand.
+
+**Gate:** Automated — `ewm two --model 2e --screenshot=…` boots and dumps a
+BMP matching the Phase 5b golden.
+
+### Phase 7b — boo menu entry + CLI dispatch (S)
+
+**Goal:** The bootloader and top-level CLI expose the //e.
+
+**Scope:**
+- boo menu option **4** "APPLE //e — 65C02 / 128K / ENHANCED" returning
+  `BooChoice::BootApple2E`; `main.rs` dispatch + updated `usage()`.
+- Optional command-palette "40/80 column" toggle if convenient.
+
+**Gate:** `ewm` (no args) → menu → boots the //e. Manual checklist recorded
+in-file: 80-column BASIC works; a DHGR demo runs; Apple keys and sound work.
+
+---
+
+## Phase 8 — Parity & polish
+
+### Phase 8a — Self-test gate + quirk/doc reconciliation (M)
+
+**Goal:** The //e ROM self-test passes headless; stale ][+ notes are
+reconciled.
+
+**Scope:**
+- Drive the //e ROM **self-test** (Solid-Apple + Ctrl-Reset, or the ROM
+  entry) far enough to assert it reports RAM/ROM OK — a strong burn-in for the
+  MMU and aux routing.
+- Retire the "apple2e returns an error" quirk (#4 in `REWRITE.md`); reconcile
+  `TOTAL_RECALL_WRITE_WARNINGS.md` (many of those "unexpected" ][+ writes are
+  now *implemented* //e switches).
+
+**Gate:** The self-test headless gate is green; the referenced docs are
+updated.
+
+### Phase 8b — ProDOS 80-col + docs (M)
+
+**Goal:** End-to-end ProDOS in 80 columns; user-facing docs.
+
+**Scope:**
+- Boot **ProDOS 2.4.3** (already in `disks/`) on the //e and assert its
+  80-column Bitsy Bye / `CAT` renders in 80 columns — an aux + 80-col + clock
+  integration gate.
+- README: add the //e to "What's emulated" and the run examples; fill in the
+  parity checklist below (switch by switch, mode by mode).
+
+**Gate:** The ProDOS-80col gate is green; full `cargo test` green; README
+verified by following it literally.
+
+---
+
+## Quirks & divergences (record as they are decided)
+
+Seed list; append during implementation, mirroring `REWRITE.md`'s
+"Quirks to preserve" / "Documented divergences":
+
+1. **64K //e is a valid config** — before the aux phases (4a–4c), and
+   selectable after, the //e runs with no aux card; aux switches are inert and
+   aux reads fall back to main. This is real hardware, not a stub.
+2. **Status-switch open bus** — reading `$C011-$C01F` returns the switch
+   state in bit 7; the low 7 bits on real hardware carry the last value on
+   the video bus (often the current character). EWM returns bit 7 only
+   (0 in the low bits) unless a program is found to depend on the open-bus
+   value.
+3. **RDVBL (`$C019`)** — vertical blank is not cycle-modeled; EWM returns a
+   plausible fixed/derived value. Software that busy-waits on VBL for timing
+   may run fast, as the ][+ already does with the fake MHz display.
+4. **Apple-key mapping** — Open/Solid-Apple map to host modifier keys, not
+   the physical //e keycaps, because AppKit reserves some Cmd combinations
+   (see the existing Cmd-Esc → Cmd-R note in `REWRITE.md`).
+5. **65C02 //e timing deltas** are not modeled (top-level decision), matching
+   the rewrite's existing stance.
+6. **Character ROM `+1` offset** in the current `chr.rs` is specific to the
+   ][+ 2716 dump and is *not* reused for the //e 4K ROM.
+
+## Risks & open questions
+
+- **ROM redistribution.** ~~The gating dependency for every code phase.~~
+  **Resolved:** the Enhanced //e system, video, and keyboard ROMs are in
+  `rom/` (PR #217), hashes recorded in Phase 0.
+- **Internal-vs-slot ROM arbitration** (`$C100-$CFFF`, `$C300`, `$C800`
+  expansion) is the subtlest boot-critical piece — the 80-col firmware lives
+  in the internal `$C800` space and must appear/disappear per
+  SLOTCXROM/SLOTC3ROM. That is why it is isolated as its own PR (2b); the ROM
+  cold-start (2c) and 80-col firmware (5b) gates will catch mistakes.
+- **Aux interleave convention** (aux = even columns) — verify against real
+  ROM 80-col output before baking golden BMPs (5b).
+- **Renderer width migration.** Introducing a 560-wide path risks touching
+  shared `scr.rs` code the ][+ golden test depends on. Keep the //e path
+  additive (5a); only unify later behind its own gate.
+- **Perf of `base_ram_size = 0`.** Routing ZP/stack through a device is
+  within budget per the rewrite benches, but re-measure with the //e's
+  `mem_bench` if the accelerated (7.16 MHz) mode feels sluggish. Page-pointer
+  RAM is the escape hatch (Future work).
+
+## Sequencing notes
+
+- Sub-phases run in order within a theme; the letter is the PR sequence.
+  Across themes the dependencies are:
+  - **1a/1b** (char ROM) and **2a→2b→2c** (64K bring-up) have no aux
+    dependency and can start immediately (ROMs have landed).
+  - **3a** needs the glyph sets (1a/1b) and the switch state (2c); **3b** is
+    independent of 3a and needs only 2c.
+  - The aux phases **4a→4b→4c** are the linchpin. **5b** and all of **6**
+    depend on them (5b/6 on 4a+4c). **5a** (the 560 buffer) needs only 3a and
+    can land in parallel with Phase 4.
+  - **7a** needs the //e renderer (5a, plus 5b for the 80-col screenshot);
+    **7b** needs 7a. **8a/8b** come last.
+- Every sub-phase keeps the Apple ][+ gates green — that is the regression net.
+- Every sub-phase branches from and PRs into `claude/apple-iie-enhanced`, never
+  `master` (see the Branch callout at the top and the first ground rule).
+
+## Future work (out of scope for this plan)
+
+- Original **NMOS //e** (unenhanced) and the **Apple //c**.
+- A **RamWorks**-style aux expansion beyond 128K.
+- Cycle-exact 65C02 //e timing; real VBL modeling.
+- **Page-pointer RAM** in `ewm-core` (a generic 256-entry read/write page
+  table) as a faster, still-generic alternative to device-routed RAM — only
+  if profiling demands it.
+- Unifying the ][+ (280) and //e (560) renderers into one width-parametric
+  path.
+- `.woz` images and Disk II write-back (already tracked in `REWRITE.md`).
+</content>
