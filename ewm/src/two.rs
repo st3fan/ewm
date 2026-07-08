@@ -476,23 +476,41 @@ impl IouE {
 
     /// Read `$0000-$BFFF`: zero page and the stack (`$0000-$01FF`) follow
     /// ALTZP; `$0200-$BFFF` follows RAMRD.
+    /// The 80STORE display-page override. When 80STORE is on, PAGE2 selects
+    /// aux (on) or main (off) for text page 1 (`$0400-$07FF`) and — only when
+    /// HIRES is also on — hi-res page 1 (`$2000-$3FFF`), regardless of
+    /// RAMRD/RAMWRT. This sits *above* RAMRD/RAMWRT and, unlike them, uses the
+    /// same PAGE2 selector for both reads and writes. `None` means no override
+    /// applies, so the caller falls through to RAMRD/RAMWRT.
+    fn store80_aux(&self, addr: u16) -> Option<bool> {
+        if !self.store80 {
+            return None;
+        }
+        let text_page1 = (0x0400..0x0800).contains(&addr);
+        let hires_page1 = self.hires && (0x2000..0x4000).contains(&addr);
+        (text_page1 || hires_page1).then_some(self.page2)
+    }
+
+    /// Read `$0000-$BFFF`: `$0000-$01FF` follows ALTZP, `$0200-$BFFF` RAMRD —
+    /// unless the 80STORE display-page override claims the address.
     fn read_ram(&self, addr: u16) -> u8 {
         let i = addr as usize;
         let aux = if addr < 0x0200 {
             self.altzp
         } else {
-            self.ramrd
+            self.store80_aux(addr).unwrap_or(self.ramrd)
         };
         if aux { self.aux[i] } else { self.main[i] }
     }
 
-    /// Write `$0000-$BFFF`: `$0000-$01FF` follows ALTZP, `$0200-$BFFF` RAMWRT.
+    /// Write `$0000-$BFFF`: `$0000-$01FF` follows ALTZP, `$0200-$BFFF` RAMWRT —
+    /// unless the 80STORE display-page override claims the address.
     fn write_ram(&mut self, addr: u16, b: u8) {
         let i = addr as usize;
         let aux = if addr < 0x0200 {
             self.altzp
         } else {
-            self.ramwrt
+            self.store80_aux(addr).unwrap_or(self.ramwrt)
         };
         if aux {
             self.aux[i] = b;
