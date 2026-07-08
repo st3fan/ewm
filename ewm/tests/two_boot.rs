@@ -84,10 +84,10 @@ fn apple2plus_boots_and_evaluates_basic() {
 }
 
 #[test]
-fn apple2_and_apple2e_are_unsupported() {
-    // Quirk #4: only the ][+ is implemented, as in ewm_two_init.
+fn apple2_is_unsupported() {
+    // The original NMOS Apple ][ is out of scope; the Enhanced //e (Apple2E)
+    // now constructs — see two_e_skeleton.rs.
     assert!(Two::new(TwoType::Apple2).is_err());
-    assert!(Two::new(TwoType::Apple2E).is_err());
 }
 
 #[test]
