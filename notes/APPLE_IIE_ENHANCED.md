@@ -56,7 +56,7 @@ PR sequence.
 | 1a | Enhanced char ROM → **primary** glyph set (pure, unit-tested) | S | Done (with 1b) |
 | 1b | Enhanced char ROM → **alternate** set + MouseText | S | Done (with 1a) |
 | 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Done |
-| 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Not started |
+| 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Done |
 | 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Not started |
 | 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Not started |
 | 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Not started |
@@ -320,6 +320,31 @@ ROM's cold-start path (a known early routine / ROM address range).
 
 **Goal:** `$C100-$CFFF` correctly switches between the internal firmware and
 the peripheral-slot ROMs.
+
+> **Landed.** The arbitration lives **inside `IouE`** (per the "single device
+> owns everything" decision): the static region walk can't express a
+> runtime-switchable source, so `IouE` is mapped over `$C000-$C07F` *and*
+> `$C100-$CFFF`, holds the internal firmware (`ROM_IIE_CD[$100..$1000]`) plus
+> the peripheral slot ROM images (clock/disk, and hdd via a model-aware
+> `attach_hdd`), and routes each read. The slot ROMs moved out of `new_2e`'s
+> `add_rom` calls into `IouE::set_slot_rom`; the Disk II / clock *I/O* devices
+> stay separate.
+>
+> Switches: `$C006/$C007` (INTCXROM), `$C00A/$C00B` (SLOTC3ROM) write-to-set;
+> `$C015/$C017` report state in bit 7. Read routing: INTCXROM → internal
+> everywhere; else `$C300` = internal 80-col firmware (or open bus when
+> SLOTC3ROM selects the absent slot-3 card), `$Cn00` = that slot's card ROM or
+> open bus. The `$C800-$CFFF` expansion latch is a single `c800_internal` flag
+> (only the internal slot-3 firmware has a `$C800` image here) — set on a
+> `$C3xx` access, cleared by a `$CFFF` access, forced on under INTCXROM;
+> per-slot expansion ROM is out of scope (no EWM card has one).
+>
+> Findings: the internal `$C300` firmware carries the Pascal-1.1 signature
+> (`$C305=$38`, `$C307=$18`); internal `$C600=$8D` vs disk slot `$A2`, internal
+> `$C100=$4C` vs clock slot `$08` — all directly asserted. **This unsticks the
+> 2a `$C3FA` spin:** the //e now runs the monitor + 80-col firmware and reaches
+> the slot-6 Disk II boot ROM (`$C65E`), where it waits for a disk (boot to `]`
+> is 2c). Gate: `ewm/tests/two_e_cxrom.rs` (5 tests).
 
 **Scope:**
 - Implement INTCXROM/SLOTCXROM (`$C006`/`$C007`), SLOTC3ROM
