@@ -151,6 +151,12 @@ fn eighty_col_screen_matches_golden_bmp() {
     set(&mut two, TEXT);
     set(&mut two, COL80_ON);
     set(&mut two, ALTCHARSET_ON);
+    // Clear the screen to spaces first (fresh RAM is $00, which is inverse '@'
+    // in the alternate set), then lay out the scene.
+    let blank = " ".repeat(80);
+    for row in 0..24 {
+        put_80(&mut two, row, &blank);
+    }
     put_80(
         &mut two,
         0,
