@@ -640,11 +640,13 @@ columns; a checked-in golden 560-wide BMP.
 > Gate `ewm/tests/two_e_80col.rs`: the interleave scrape, a direct
 > aux-even/main-odd bank check, the `PR#3` firmware path (asserts 80COL +
 > ALTCHARSET on and a mixed-case string across 80 columns), and a native-560
-> golden (`ewm/golden/two-e-80col.bmp`, confirmed *not* pixel-doubled). **This
-> is also where lower case finally displays**: `PR#3` runs the 80-column
-> firmware, which sets ALTCHARSET — resolving the 40-column lower-case gap
-> diagnosed earlier (a bare 40-column //e stays primary-set, as on real
-> hardware). The ][+ path and the 5a 40-column golden are unchanged.
+> golden (`ewm/golden/two-e-80col.bmp`, confirmed *not* pixel-doubled). `PR#3`
+> also turns on ALTCHARSET, which enables **MouseText and inverse lower case**
+> (the `$40-$7F` range). *(Correction: normal lower case is **not** gated on
+> ALTCHARSET — the primary set shows lower case at `$E0-$FF` too. An earlier
+> note here wrongly claimed a bare 40-column //e can't show lower case; that was
+> a `primary_index` bug, fixed separately — the "Apple //e" cold-boot banner
+> made it visible.)* The ][+ path and the 5a 40-column golden are unchanged.
 
 ---
 
