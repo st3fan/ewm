@@ -117,6 +117,9 @@ pub struct Scr {
     white: u32,
     hgr_colors1: [u32; 4],
     hgr_colors2: [u32; 4],
+    /// The 16 lo-res colors packed, reused as the //e double-hi-res palette
+    /// (Phase 6b): a 4-bit DHGR cell selects one of these.
+    lores_palette: [u32; 16],
 }
 
 impl Scr {
@@ -134,6 +137,11 @@ impl Scr {
 
         let green = layout.pack(0, 255, 0, 255);
         let white = layout.pack(255, 255, 255, 255);
+
+        let mut lores_palette = [0u32; 16];
+        for (dst, &(r, g, b, a)) in lores_palette.iter_mut().zip(LORES_COLORS.iter()) {
+            *dst = layout.pack(r, g, b, a);
+        }
 
         let pack4 = |colors: &[(u8, u8, u8, u8); 4]| {
             let mut packed = [0u32; 4];
@@ -155,6 +163,7 @@ impl Scr {
             white,
             hgr_colors1: pack4(&HGR_COLORS1),
             hgr_colors2: pack4(&HGR_COLORS2),
+            lores_palette,
         }
     }
 
@@ -359,13 +368,13 @@ impl Scr {
                 self.render_txt_screen_80(two, flash);
                 return;
             }
-            // Double lo-res: 80-column lo-res, enabled by DHIRES + 80COL.
-            if two.dhires()
-                && two.col80()
-                && two.screen_mode() == ScreenMode::Graphics
-                && two.screen_graphics_mode() == GraphicsMode::Lgr
-            {
-                self.render_dlgr_screen(two, flash);
+            // Double-res graphics, enabled by DHIRES + 80COL: lo-res -> DLGR,
+            // hi-res -> DHGR.
+            if two.dhires() && two.col80() && two.screen_mode() == ScreenMode::Graphics {
+                match two.screen_graphics_mode() {
+                    GraphicsMode::Lgr => self.render_dlgr_screen(two, flash),
+                    GraphicsMode::Hgr => self.render_dhgr_screen(two, flash),
+                }
                 return;
             }
         }
@@ -457,6 +466,61 @@ impl Scr {
             let alt = two.alt_charset();
             for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
                 self.render_txt_row_80(main, aux, alt, row, line_offset, flash);
+            }
+        }
+    }
+
+    /// Render //e double hi-res into `wide` (560). Hi-res page 1 in both banks
+    /// interleaves: aux supplies the even 7-pixel groups (0, 2, …), main the
+    /// odd, each byte's low 7 bits with bit 0 leftmost (bit 7 is ignored). In
+    /// monochrome each of the 560 bits is a pixel; in colour the bit stream is
+    /// grouped into aligned 4-bit cells, each selecting one of the 16 lo-res
+    /// colours and drawn 4 px wide.
+    ///
+    /// NOTE (Phase 6b): the colour path uses *aligned* 4-bit cells with the
+    /// leftmost bit as the least-significant. This is the simple, deterministic
+    /// convention; we may switch to a sliding 4-bit window (closer to NTSC
+    /// fringing) after visual review — see the plan doc.
+    fn render_dhgr_screen(&mut self, two: &Two, flash: bool) {
+        let main = two.ram();
+        let aux = two.aux_ram();
+        let mixed = two.screen_graphics_style() == GraphicsStyle::Mixed;
+        let lines = if mixed { 160 } else { 192 };
+        let color = self.color_scheme == ColorScheme::Color;
+        for (line, &line_off) in HGR_LINE_OFFSETS.iter().enumerate().take(lines) {
+            let line_base = HGR_PAGE_OFFSETS[0] + line_off; // page 1
+            // Assemble the 560-bit line: aux even 7-px groups, main odd.
+            let mut bits = [false; SCR_WIDTH_E];
+            for group in 0..80 {
+                let bank = if group % 2 == 0 { aux } else { main };
+                let byte = bank[line_base + group / 2];
+                for b in 0..7 {
+                    bits[group * 7 + b] = (byte >> b) & 1 != 0;
+                }
+            }
+            let row = SCR_WIDTH_E * line;
+            if color {
+                for cell in 0..SCR_WIDTH_E / 4 {
+                    let x = cell * 4;
+                    let v = (bits[x] as usize)
+                        | (bits[x + 1] as usize) << 1
+                        | (bits[x + 2] as usize) << 2
+                        | (bits[x + 3] as usize) << 3;
+                    let c = self.lores_palette[v];
+                    for p in 0..4 {
+                        self.wide[row + x + p] = c;
+                    }
+                }
+            } else {
+                for (x, &on) in bits.iter().enumerate() {
+                    self.wide[row + x] = if on { self.green } else { 0 };
+                }
+            }
+        }
+        if mixed {
+            let alt = two.alt_charset();
+            for (r, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
+                self.render_txt_row_80(main, aux, alt, r, line_offset, flash);
             }
         }
     }

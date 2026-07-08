@@ -66,7 +66,7 @@ PR sequence.
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Done |
 | 5b | 80-column text (main/aux interleave) + golden | M | Done |
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Done |
-| 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
+| 6b | Double-hi-res (DHGR) rendering + color | M | Done |
 | 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
 | 7b | boo menu entry + CLI dispatch | S | Not started |
 | 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
@@ -694,6 +694,28 @@ correct.
 
 **Gate:** `ewm/tests/two_e_dhgr.rs` — a known DHGR bit pattern in main + aux
 renders to a golden 560-wide BMP.
+
+> **Landed.** `Scr::render_dhgr_screen` draws a **fresh** 560-wide path into
+> `wide` (the ][+ single-hi-res fringing code is untouched): hi-res page 1 in
+> both banks, aux even 7-px groups / main odd (the verified 5b interleave), low
+> 7 bits per byte with bit 0 leftmost (bit 7 ignored). Monochrome is one pixel
+> per bit (green); `update()` takes the path when the //e is in hi-res graphics
+> with DHIRES + 80COL (mixed → 80-col text in the bottom four rows). Gate
+> `ewm/tests/two_e_dhgr.rs`: aux-is-leftmost-group + bit-0-leftmost interleave
+> checks, a colour-cell → palette check, and a native-560 mono golden
+> (`two-e-dhgr.bmp`, 40 vertical 7-px stripes). Rendered and eyeballed: mono
+> stripes crisp, colour path yields the full 16-colour palette.
+>
+> **Colour convention (revisit candidate):** the colour path groups the bit
+> stream into **aligned 4-bit cells** (leftmost bit = LSB) selecting the 16
+> lo-res colours, drawn 4 px wide — the simple, deterministic choice the owner
+> approved as a starting point. We may switch to a **sliding 4-bit window**
+> (closer to NTSC fringing) after reviewing it against a known DHGR image. The
+> mono golden is unaffected by that choice.
+>
+> **Deferred (with the 6a AN3 note):** the **AN3 falling-edge → double-res
+> latch** (IOUDIS-off enable path) — 6b gates DHGR purely on the DHIRES level
+> state. To land in a later polish PR / 8a.
 
 ---
 
