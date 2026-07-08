@@ -820,6 +820,7 @@ trait SoftSwitches {
     fn screen_graphics_style(&self) -> GraphicsStyle;
     fn screen_page(&self) -> ScreenPage;
     fn alt_charset(&self) -> bool;
+    fn col80(&self) -> bool;
     fn screen_dirty(&self) -> bool;
     fn set_screen_dirty(&mut self, dirty: bool);
     fn set_button(&mut self, button: usize, state: u8);
@@ -849,6 +850,9 @@ impl SoftSwitches for TwoIo {
     }
     fn alt_charset(&self) -> bool {
         false // the ][+ has no alternate character set
+    }
+    fn col80(&self) -> bool {
+        false // the ][+ has no 80-column mode
     }
     fn screen_dirty(&self) -> bool {
         self.screen_dirty
@@ -907,6 +911,9 @@ impl SoftSwitches for IouE {
     }
     fn alt_charset(&self) -> bool {
         self.altcharset
+    }
+    fn col80(&self) -> bool {
+        self.col80
     }
     fn screen_dirty(&self) -> bool {
         self.screen_dirty
@@ -1175,6 +1182,11 @@ impl Two {
         self.switches().alt_charset()
     }
 
+    /// 80COL state (`$C01F`): the //e 80-column display. Always false on the ][+.
+    pub fn col80(&self) -> bool {
+        self.switches().col80()
+    }
+
     pub fn screen_dirty(&self) -> bool {
         self.switches().screen_dirty()
     }
@@ -1217,6 +1229,28 @@ impl Two {
                     screen_code_to_char(code)
                 };
                 text.push(ch);
+            }
+            text.push('\n');
+        }
+        text
+    }
+
+    /// Decode //e 80-column text page 1 into 24 lines of 80 characters. The
+    /// display interleaves the two banks: aux holds the even columns
+    /// (0, 2, …, 78), main the odd (1, 3, …, 79), each bank contributing byte
+    /// `base + column/2` of the row. The headless workhorse for the 80-column
+    /// gates; only meaningful on the //e.
+    pub fn text_screen_80(&self) -> String {
+        let main = self.ram();
+        let aux = self.aux_ram();
+        let alt = self.alt_charset();
+        let mut text = String::with_capacity(24 * 81);
+        for row in 0..24 {
+            let base = 0x400 + 0x80 * (row % 8) + 0x28 * (row / 8);
+            for column in 0..80 {
+                let bank = if column % 2 == 0 { aux } else { main };
+                let code = bank[base + column / 2];
+                text.push(screen_code_to_char_e(code, alt));
             }
             text.push('\n');
         }
