@@ -108,6 +108,7 @@ pub struct TwoIo {
     padl1_time: u64,
     padl1_value: u8,
     speaker_toggles: Vec<u64>,
+    debug: bool,
 }
 
 impl TwoIo {
@@ -126,6 +127,7 @@ impl TwoIo {
             padl1_time: 0,
             padl1_value: 0,
             speaker_toggles: Vec::new(),
+            debug: false,
         }
     }
 }
@@ -220,7 +222,9 @@ impl Device for TwoIo {
             }
 
             _ => {
-                eprintln!("[A2P] Unexpected read at ${addr:04X}");
+                if self.debug {
+                    eprintln!("[A2P] Unexpected read at ${addr:04X}");
+                }
             }
         }
         0
@@ -286,7 +290,9 @@ impl Device for TwoIo {
             }
 
             _ => {
-                eprintln!("[A2P] Unexpected write at ${addr:04X}");
+                if self.debug {
+                    eprintln!("[A2P] Unexpected write at ${addr:04X}");
+                }
             }
         }
     }
@@ -365,6 +371,12 @@ impl Two {
 
     fn io_mut(&mut self) -> &mut TwoIo {
         self.cpu.mem.device_mut(self.io)
+    }
+
+    /// Enable the soft-switch catch-all's "Unexpected read/write" logging
+    /// (`--debug`); see `notes/TOTAL_RECALL_WRITE_WARNINGS.md`.
+    pub fn set_debug(&mut self, debug: bool) {
+        self.io_mut().debug = debug;
     }
 
     /// Read access to machine RAM for the renderers, which scan the text
@@ -736,6 +748,7 @@ pub fn main(args: &[String]) -> i32 {
             return 1;
         }
     };
+    two.set_debug(options.debug);
 
     let layout = match sdl::pixel_format(&canvas) {
         Some(format) if format == PixelFormat::RGBA8888 => PixelLayout::Rgba8888,
