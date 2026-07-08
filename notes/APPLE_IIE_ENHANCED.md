@@ -55,7 +55,7 @@ PR sequence.
 | 0 | Plan, ROM assets, and the //e memory/soft-switch map | S | ROMs in (PR #217); map documented |
 | 1a | Enhanced char ROM → **primary** glyph set (pure, unit-tested) | S | Done (with 1b) |
 | 1b | Enhanced char ROM → **alternate** set + MouseText | S | Done (with 1a) |
-| 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Not started |
+| 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Done |
 | 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Not started |
 | 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Not started |
 | 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Not started |
@@ -102,6 +102,7 @@ PR sequence.
 |---|---|---|
 | Target model | **Enhanced //e** only (65C02 + enhanced ROM set + MouseText char ROM). Reuse the existing `TwoType::Apple2E` enum variant to mean "Enhanced //e"; leave `TwoType::Apple2` erroring (out of scope). | The 65C02 is already done and tested; the enhanced ROM is what most //e software assumes. One target keeps the matrix small. |
 | Machine structure | **Extend the existing `Two` / `two.rs`** with a `model: TwoType` field rather than forking a new `TwoE`. The ][+ construction path is untouched; //e-specific devices, ROMs, char set, and renderer paths are selected on `model`. | Disk II, HDD, clock, sound, tty, palette, and the frame loop are all shared verbatim. One evolving machine file keeps PRs focused. Split into `two_e.rs` later only if the file grows unwieldy. |
+| Soft-switch device selection | `Two` holds `io: MachineIo`, an enum `Plus(DeviceHandle<TwoIo>)` \| `E(DeviceHandle<IouE>)` — **not** two `Option` fields. The concrete-type `match` lives only in the `io()`/`io_mut()` accessors (and `set_debug`), so call sites never branch on model. A shared **`SoftSwitches` trait** for the common host-facing subset (keyboard, speaker, reset) is **deferred** to the phase that first needs it from shared code (3b/5/7), when its method set is real rather than guessed. The divergent display state (//e is a superset driving a separate 560-wide renderer) stays in each machine's own render path — handled by separation, not by one trait. | Avoids `if apple2e …` scattering while not over-abstracting up front. The enum can grow the trait later without changing the field type. |
 | Where banking lives | Auxiliary memory + the MMU/IOU soft switches live in the **`ewm` crate as a `Device`** (working name `Mmu`/`IouE`), the same pattern as `Alc`. The //e's `Memory` is built with **no base-RAM fast path** (`Memory::new(0)`) so *all* RAM (incl. zero page and stack) flows through the aux-aware device. | Zero changes to `ewm-core`. Reuses a proven seam. Per-access `dyn Device` dispatch is far inside the 1 MHz (even 7.16 MHz accelerated) budget — the rewrite benches already proved `ind*`-style dispatch is ~200 ms / 100M ops. |
 | Aux/switch state sharing | A **single //e memory-management device owns everything the MMU/IOU arbitrate**: main RAM, aux RAM, and the `$C000-$C01F` soft switches. It is mapped over `$0000-$BFFF`, `$C000-$C01F`, and (ALTZP-aware) shares the language-card region. The Disk II / clock / HDD keep their own `$C0Ex/$C09x/$C0Fx` sub-ranges and shadow it via the newest-first region walk (as `Dsk` already shadows `TwoIo` today). | The real MMU/IOU are the central arbiters; centralizing their state avoids `Rc<RefCell>` (which the project deliberately avoids) and matches the hardware. |
 | Renderer resolution | The //e renders into a **560×192** internal buffer: 80-column text and double-hi-res are native 560; 40-column / LGR / HGR pixels are drawn 2× horizontally. The ][+ keeps its **280×192** `Scr` path and golden test untouched. | 80-col and DHGR are inherently double-horizontal-res. A separate //e render path avoids disturbing the ][+ golden BMP. Unifying the two renderers is optional later cleanup. |
@@ -279,6 +280,23 @@ AppleSoft. Aux memory arrives in Phase 4; the aux switches here are inert
 **Goal:** `Two::new(TwoType::Apple2E)` constructs a 65C02 //e that fetches
 and executes the //e reset vector — it runs *in ROM*, even though it cannot
 finish booting until 2b/2c.
+
+> **Landed.** `Two::new` dispatches to `new_2plus()` / `new_2e()`; the //e
+> builds a `Model::M65C02` with the banked `$D000-$FFFF` ROM
+> (`ROM_IIE_CD[$1000..]` + `ROM_IIE_EF`, 12K) via the reused `Alc`, a stub
+> `IouE` over `$C000-$C07F`, and the ][+ slot layout (Disk II `$C600`, clock
+> `$C100`); 64K base RAM. `io` became the `MachineIo` enum (see the decision
+> table); `apple2_and_apple2e_are_unsupported` narrowed to
+> `apple2_is_unsupported`.
+>
+> Findings from the running skeleton (`ewm/tests/two_e_skeleton.rs`):
+> - Reset vector `$FFFC` = **`$FA62`** (monitor RESET, first opcode `$D8` CLD).
+> - The 65C02 executes the monitor cold start in banked ROM (`$E000-$FFFF`),
+>   then wanders into the internal **`$C300`** 80-column firmware and gets
+>   stuck spinning around `$C3FA` — because internal `$CX` ROM is not mapped
+>   yet. That is exactly the 2a boundary and motivates 2b. The
+>   deliberately-deferred internal `$C100-$CFFF` ROM (kept as slot ROMs here)
+>   is what 2b arbitrates.
 
 **Scope:**
 - `Two::new` branches on `model`: for `Apple2E`, build the CPU with
