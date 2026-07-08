@@ -7,6 +7,15 @@ and updated as phases land. **The tree must build and pass all verification
 gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
 `cargo test`) after every phase.**
 
+> **Branch:** All Apple //e Enhanced work happens on the long-lived
+> **`claude/apple-iie-enhanced`** integration branch — it stays separate from
+> `master` until every phase (and any follow-up polish) is done. Each
+> sub-phase is developed on its own branch cut *from* `claude/apple-iie-enhanced`
+> and opened as a PR *into* `claude/apple-iie-enhanced` (never into `master`).
+> Only when the whole feature is complete does one final PR promote
+> `claude/apple-iie-enhanced` → `master`. Do **not** target `master` with any
+> individual phase PR.
+
 The work is deliberately sliced into many small, PR-sized phases. The eight
 themes below (0–8) are the narrative; each is split into **2–3 lettered
 sub-phases** (`2a`, `2b`, `2c`, …). **One sub-phase = one PR.** Every
@@ -65,6 +74,10 @@ PR sequence.
 
 ## Ground rules (apply to every phase)
 
+- **All work lands on `claude/apple-iie-enhanced`.** Every sub-phase branches
+  from, and PRs back into, the `claude/apple-iie-enhanced` integration branch
+  — never `master`. The branch is promoted to `master` in a single final PR
+  once the whole feature is done. (See the Branch callout at the top.)
 - **The Apple ][+ is frozen.** Every existing gate — `two_boot`, `two_dos`,
   `two_hdd`, `two_clk`, `two_timing`, and the `boot_screen_matches_golden_bmp`
   golden screenshot — must stay green and unchanged. The //e is additive.
@@ -587,9 +600,8 @@ Seed list; append during implementation, mirroring `REWRITE.md`'s
   - **7a** needs the //e renderer (5a, plus 5b for the 80-col screenshot);
     **7b** needs 7a. **8a/8b** come last.
 - Every sub-phase keeps the Apple ][+ gates green — that is the regression net.
-- All //e work lands on the `claude/apple-iie-enhanced` integration branch;
-  each sub-phase is a PR into it, and the branch merges to `master` only once
-  every phase (and any follow-up polish) is done.
+- Every sub-phase branches from and PRs into `claude/apple-iie-enhanced`, never
+  `master` (see the Branch callout at the top and the first ground rule).
 
 ## Future work (out of scope for this plan)
 
