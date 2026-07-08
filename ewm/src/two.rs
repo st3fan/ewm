@@ -394,6 +394,14 @@ struct IouE {
     /// Cycle-stamped speaker toggles recorded on `$C030`, drained by the sound
     /// path — the //e counterpart to `TwoIo::speaker_toggles`.
     speaker_toggles: Vec<u64>,
+
+    // --- Phase 4a: auxiliary memory ---
+    /// Main and auxiliary RAM for `$0000-$BFFF` (48K each). The //e's `Memory`
+    /// has no base-RAM fast path, so all low memory flows through here: reads
+    /// of `$0200-$BFFF` follow RAMRD, writes follow RAMWRT. Zero page and the
+    /// stack (`$0000-$01FF`) stay in main until ALTZP lands (Phase 4b).
+    main: Vec<u8>,
+    aux: Vec<u8>,
 }
 
 impl IouE {
@@ -420,6 +428,37 @@ impl IouE {
             buttons: [0; 4],
             screen_dirty: true,
             speaker_toggles: Vec::new(),
+            main: vec![0; 0xc000],
+            aux: vec![0; 0xc000],
+        }
+    }
+
+    fn main_bank(&self) -> &[u8] {
+        &self.main
+    }
+
+    fn aux_bank(&self) -> &[u8] {
+        &self.aux
+    }
+
+    /// Read `$0000-$BFFF`: RAMRD selects the aux bank for `$0200-$BFFF`; zero
+    /// page and the stack (`$0000-$01FF`) stay in main (ALTZP is Phase 4b).
+    fn read_ram(&self, addr: u16) -> u8 {
+        let i = addr as usize;
+        if addr < 0x0200 || !self.ramrd {
+            self.main[i]
+        } else {
+            self.aux[i]
+        }
+    }
+
+    /// Write `$0000-$BFFF`: RAMWRT selects the aux bank for `$0200-$BFFF`.
+    fn write_ram(&mut self, addr: u16, b: u8) {
+        let i = addr as usize;
+        if addr < 0x0200 || !self.ramwrt {
+            self.main[i] = b;
+        } else {
+            self.aux[i] = b;
         }
     }
 
@@ -552,14 +591,17 @@ impl IouE {
 impl Device for IouE {
     fn read(&mut self, addr: u16, cycles: u64) -> u8 {
         match addr {
+            0x0000..=0xbfff => self.read_ram(addr),
             0xc000..=0xc07f => self.read_io(addr, cycles),
             0xc100..=0xcfff => self.read_cxrom(addr),
             _ => 0,
         }
     }
 
-    fn write(&mut self, addr: u16, _b: u8, _cycles: u64) {
+    fn write(&mut self, addr: u16, b: u8, _cycles: u64) {
         match addr {
+            0x0000..=0xbfff => self.write_ram(addr, b),
+
             // KBDSTRB clears the keyboard strobe on *any* access — the //e
             // firmware clears it with a write (STA $C010), not just a read.
             SS_KBDSTRB => self.key &= 0x7f,
@@ -666,11 +708,10 @@ impl Two {
         }
     }
 
-    /// Phase 2a/2b: the Enhanced //e — a 65C02 with the //e system ROM and the
-    /// `$C100-$CFFF` internal-vs-slot ROM arbitration. It executes the monitor
-    /// cold start and the internal 80-column firmware; it cannot finish booting
-    /// until the remaining soft switches (Phase 2c) and auxiliary memory (Phase
-    /// 4) land. 64K base RAM for now (Phase 4 switches to aux-routed RAM).
+    /// The Enhanced //e — a 65C02 with the //e system ROM, the `$C100-$CFFF`
+    /// internal-vs-slot ROM arbitration, and (Phase 4a) auxiliary memory. All
+    /// RAM below `$C000` lives in the `IouE`, so `Memory` is built with no
+    /// base-RAM fast path.
     fn new_2e() -> Two {
         assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
@@ -682,12 +723,14 @@ impl Two {
         rom.extend_from_slice(ROM_IIE_EF);
         assert_eq!(rom.len(), 0x3000, "//e banked ROM must cover $D000-$FFFF");
 
-        let mut mem = Memory::new(0xc000); // $0000-$BFFF (64K; aux is Phase 4)
+        // No base-RAM fast path: the IouE owns main + aux RAM for $0000-$BFFF.
+        let mut mem = Memory::new(0);
 
-        // The IouE owns both the $C000-$C07F soft switches and the $C100-$CFFF
-        // ROM space, arbitrating internal firmware vs the peripheral-slot ROMs
-        // it holds. The slot ROMs therefore live here, not as `add_rom`
-        // regions; the Disk II / clock I/O devices stay separate below.
+        // The IouE owns the $C000-$C07F soft switches, the $C100-$CFFF ROM
+        // space (arbitrating internal firmware vs the peripheral-slot ROMs it
+        // holds), and the $0000-$BFFF main/aux RAM. The slot ROMs therefore
+        // live here, not as `add_rom` regions; the Disk II / clock I/O devices
+        // stay separate below.
         let mut iou = IouE::new();
         iou.set_slot_rom(1, &CLK_ROM); // slot 1 Thunderclock Plus
         iou.set_slot_rom(6, &DSK_ROM); // slot 6 Disk II boot ROM
@@ -701,6 +744,11 @@ impl Two {
         mem.map_device(alc, 0xc011, 0xc012);
         let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
         let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
+
+        // Map the RAM range last so the region walk (newest-first) checks it
+        // first — zero page, the stack, and the display pages are the hottest
+        // addresses on the bus.
+        mem.map_device(io, 0x0000, 0xbfff);
 
         Two {
             cpu: Cpu::new(Model::M65C02, mem),
@@ -747,10 +795,23 @@ impl Two {
         }
     }
 
-    /// Read access to machine RAM for the renderers, which scan the text
-    /// and hires pages directly (the C renderers read `cpu->ram`).
+    /// Read access to the machine's main RAM for the renderers, which scan the
+    /// text and hires pages directly (the C renderers read `cpu->ram`). On the
+    /// //e this is the main bank; the display pages live there until 80STORE
+    /// routing lands (Phase 4c).
     pub fn ram(&self) -> &[u8] {
-        self.cpu.mem.ram()
+        match self.io {
+            MachineIo::Plus(_) => self.cpu.mem.ram(),
+            MachineIo::E(h) => self.cpu.mem.device(h).main_bank(),
+        }
+    }
+
+    /// The //e auxiliary RAM bank (`$0000-$BFFF`); empty on the ][+.
+    pub fn aux_ram(&self) -> &[u8] {
+        match self.io {
+            MachineIo::Plus(_) => &[],
+            MachineIo::E(h) => self.cpu.mem.device(h).aux_bank(),
+        }
     }
 
     pub fn dsk(&self) -> &Dsk {

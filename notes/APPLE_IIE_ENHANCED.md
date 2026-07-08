@@ -60,7 +60,7 @@ PR sequence.
 | 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Done |
 | 3a | ALTCHARSET-aware 40-column text (lower case + MouseText display) | M | Done |
 | 3b | //e keyboard: lower case + Open/Solid-Apple keys | S | Done |
-| 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Not started |
+| 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Done |
 | 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Not started |
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Not started |
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Not started |
@@ -485,6 +485,25 @@ the single `Mmu` device and the `Memory::new(0)` construction.
 ### Phase 4a — Aux RAM + RAMRD/RAMWRT (`$0200-$BFFF`) (M)
 
 **Goal:** A second 64K aux bank with the main-body read/write routing.
+
+> **Landed.** `IouE` now owns two 48K banks (`main`, `aux`) for `$0000-$BFFF`
+> and is mapped over that range, so `new_2e` builds `Memory::new(0)` — no
+> base-RAM fast path, all low memory flows through the device. Reads of
+> `$0200-$BFFF` follow RAMRD, writes follow RAMWRT; `$0000-$01FF` (ZP + stack)
+> stays in main until ALTZP (4b). `Two::ram()` is model-aware (//e → main
+> bank) and a new `aux_ram()` exposes the aux bank; the renderer and
+> `text_screen` read `ram()` unchanged, so they keep reading the display page
+> from main (80STORE routing is 4c).
+>
+> Regression-safe because RAMRD/RAMWRT default off — the //e runs entirely in
+> main, byte-identical to the old base RAM: DOS still boots and `PRINT 2+2` →
+> `4`, and **the `two-e-40col.bmp` golden still matches** (content unchanged,
+> storage moved). **Perf:** the `$0000-$BFFF` map is added *last* in `new_2e`
+> so the newest-first region walk checks RAM first (one comparison on the hot
+> zero-page/stack path); the full suite time is unchanged in practice. Gate:
+> `ewm/tests/two_e_aux.rs` (4 tests — the RAMRD×RAMWRT truth table, bank
+> inspection via `ram()`/`aux_ram()`, ZP/stack staying in main, and
+> RDRAMRD/RDRAMWRT state).
 
 **Scope:**
 - The `Mmu` owns main + aux banks; build the //e `Memory` with
