@@ -63,11 +63,11 @@ PR sequence.
 | 4a | Aux RAM + RAMRD/RAMWRT routing (`$0200-$BFFF`) | M | Done |
 | 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Done |
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Done |
-| 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Not started |
+| 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Done |
 | 5b | 80-column text (main/aux interleave) + golden | M | Not started |
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
 | 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
-| 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Partial (`--model 2e` runs at 280; 560 in 5a) |
+| 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
 | 7b | boo menu entry + CLI dispatch | S | Not started |
 | 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
 | 8b | ProDOS 80-col boot gate + README + parity checklist | M | Not started |
@@ -593,6 +593,22 @@ reflects state.
 
 **Gate:** A 560-wide golden BMP of the 40-column boot screen (pixel-doubled)
 matches (`ewm/golden/two-e-40col.bmp`, via the `--screenshot` path).
+
+> **Landed.** Kept deliberately additive per the risk note: the shared `Scr`
+> code still renders the //e's 40-column content into the 280-wide `pixels`
+> (so nothing the ][+ golden depends on moved), and `update()` then
+> pixel-doubles it into a new 560-wide `wide` buffer when the model is the //e.
+> `Scr::frame(model)` / `scr::frame_width(model)` return the right buffer/width
+> (560 //e, 280 ][+); the SDL loop, `--screenshot`, and the golden all go
+> through them. **Window size is model-independent** — the 560 texture is
+> nearest-stretched into the same on-screen rect, so //e pixels are half-width
+> (real-hardware behavior) and the status bar / tty overlay / window sizing
+> needed no changes. Gate: `iie_boot_screen_matches_golden_bmp` now renders at
+> 560 and `ewm/golden/two-e-40col.bmp` was regenerated (verified: every
+> column-pair is identical, i.e. a perfect horizontal double of the 280 render).
+> This also finishes **7a**'s deferred "560-wide windowing". 5b will branch the
+> *text* path on 80COL (native 560 for 80-col, doubled for 40-col) inside this
+> same `wide` buffer.
 
 ### Phase 5b — 80-column text (main/aux interleave) (M)
 
