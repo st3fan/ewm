@@ -5,8 +5,8 @@
 //! screenshot test runs headless; the SDL loop uploads the buffer as a
 //! texture.
 
-use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr};
-use crate::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two};
+use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr, ChrE};
+use crate::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two, TwoType};
 
 pub const SCR_WIDTH: usize = 280;
 pub const SCR_HEIGHT: usize = 192;
@@ -100,6 +100,7 @@ static HGR_LINE_OFFSETS: [usize; 192] = [
 pub struct Scr {
     color_scheme: ColorScheme,
     chr: Chr,
+    chre: ChrE,
     text_color: u32,
     lgr_bitmaps: Vec<[u32; CHR_WIDTH * CHR_HEIGHT]>, // 256 blocks
     pub pixels: Vec<u32>,
@@ -136,6 +137,7 @@ impl Scr {
         Scr {
             color_scheme: ColorScheme::Monochrome,
             chr: Chr::new(),
+            chre: ChrE::new(),
             text_color: green,
             lgr_bitmaps,
             pixels: vec![0; SCR_WIDTH * SCR_HEIGHT],
@@ -170,12 +172,19 @@ impl Scr {
         }
     }
 
-    /// Port of `scr_render_character`. Characters without a glyph leave the
-    /// buffer untouched, as in C.
+    /// Port of `scr_render_character`. On the //e the glyph comes from the
+    /// enhanced character set selected by ALTCHARSET, so lower case and
+    /// MouseText render; the ][+ uses its own set (unmapped codes leave the
+    /// buffer untouched, as in C).
     fn render_character(&mut self, two: &Two, row: usize, column: usize, flash: bool) {
         let c = two.ram()[TXT_LINE_OFFSETS[row] + Self::text_base(two) + column];
-        let Some(glyph) = self.chr.bitmap(c) else {
-            return;
+        let glyph: &[bool] = if two.model() == TwoType::Apple2E {
+            self.chre.glyph(two.alt_charset(), c)
+        } else {
+            match self.chr.bitmap(c) {
+                Some(glyph) => glyph,
+                None => return,
+            }
         };
         let base = (SCR_WIDTH * CHR_HEIGHT * row) + (CHR_WIDTH * column);
         for y in 0..CHR_HEIGHT {
@@ -428,6 +437,51 @@ mod tests {
             Err(_) => panic!(
                 "golden BMP missing — generate it with:\n  \
                  EWM_WRITE_GOLDEN=1 cargo test -p ewm boot_screen_matches_golden_bmp"
+            ),
+        }
+    }
+
+    /// The intermediate //e gate: boot the //e (40-column text) and render it
+    /// through the model-aware `Scr` at 280×192, comparing against the golden.
+    /// 80-column and double-res are Phase 5/6; this covers the 40-column path.
+    #[test]
+    fn iie_boot_screen_matches_golden_bmp() {
+        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        two.load_disk(
+            0,
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../disks/DOS33-SystemMaster.dsk"
+            ),
+        )
+        .unwrap();
+        two.cpu.reset();
+
+        let mut done = 0u64;
+        while done < 100_000_000 {
+            done += two.cpu.step() as u64;
+        }
+        assert!(
+            two.text_screen().contains("DOS VERSION 3.3"),
+            "//e System Master did not finish booting; screen was:\n{}",
+            two.text_screen()
+        );
+
+        let mut scr = Scr::new(PixelLayout::Argb8888);
+        scr.update(&two, 0, 40);
+        let bmp = encode_bmp(&scr.pixels, SCR_WIDTH, SCR_HEIGHT);
+
+        let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-40col.bmp");
+        if std::env::var("EWM_WRITE_GOLDEN").is_ok() {
+            std::fs::create_dir_all(concat!(env!("CARGO_MANIFEST_DIR"), "/golden")).unwrap();
+            std::fs::write(golden_path, &bmp).unwrap();
+            return;
+        }
+        match std::fs::read(golden_path) {
+            Ok(golden) => assert_eq!(bmp, golden, "//e boot screen differs from the golden BMP"),
+            Err(_) => panic!(
+                "golden BMP missing — generate it with:\n  \
+                 EWM_WRITE_GOLDEN=1 cargo test -p ewm iie_boot_screen_matches_golden_bmp"
             ),
         }
     }

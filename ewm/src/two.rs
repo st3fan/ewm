@@ -86,9 +86,10 @@ const SS_PADL0: u16 = 0xc064;
 const SS_PADL1: u16 = 0xc065;
 const SS_PTRIG: u16 = 0xc070;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TwoType {
     Apple2,
+    #[default]
     Apple2Plus,
     Apple2E,
 }
@@ -385,6 +386,14 @@ struct IouE {
     /// Push-button / paddle inputs, read at `$C061-$C063` (bit 7 = pressed).
     /// On the //e button 0 is Open-Apple and button 1 is Solid-Apple.
     buttons: [u8; 4],
+
+    // --- Frontend bridge (for running under the SDL loop) ---
+    /// Set when a display switch changes, so the renderer knows to redraw —
+    /// the //e counterpart to `TwoIo::screen_dirty`.
+    screen_dirty: bool,
+    /// Cycle-stamped speaker toggles recorded on `$C030`, drained by the sound
+    /// path — the //e counterpart to `TwoIo::speaker_toggles`.
+    speaker_toggles: Vec<u64>,
 }
 
 impl IouE {
@@ -409,6 +418,8 @@ impl IouE {
             col80: false,
             altcharset: false,
             buttons: [0; 4],
+            screen_dirty: true,
+            speaker_toggles: Vec::new(),
         }
     }
 
@@ -431,6 +442,7 @@ impl IouE {
             SS_GRAPHICS_MODE_HGR => self.hires = true,    // $C057
             _ => {}
         }
+        self.screen_dirty = true;
     }
 
     fn read_io(&mut self, addr: u16, cycles: u64) -> u8 {
@@ -474,9 +486,15 @@ impl IouE {
             SS_PB1 => self.buttons[1],
             SS_PB2 => self.buttons[2],
 
+            // Speaker: any $C030 access toggles it; record the cycle stamp.
+            SS_SPKR => {
+                self.speaker_toggles.push(cycles);
+                0
+            }
+
             _ => {
-                // Speaker ($C030) is Phase 7; annunciators / DHIRES
-                // ($C058-$C05F) are 6a; paddles ($C064-$C07F) are later.
+                // Annunciators / DHIRES ($C058-$C05F) are 6a; paddles
+                // ($C064-$C07F) are later.
                 if self.debug {
                     eprintln!("[A2E] Unhandled read at ${addr:04X}");
                 }
@@ -719,25 +737,6 @@ impl Two {
         self.hdd.map(|h| self.cpu.mem.device(h))
     }
 
-    // The ][+ soft-switch accessors. These are the only place that knows the
-    // concrete `TwoIo` type; every other ][+ method routes through them. They
-    // are ][+-only until the //e grows its own input/render paths (Phases
-    // 3/7) — and, when a shared `SoftSwitches` trait lands, the common subset
-    // moves behind it here without touching the call sites.
-    fn io(&self) -> &TwoIo {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h),
-            MachineIo::E(_) => panic!("Apple ][+ soft-switch accessor used on the Apple //e"),
-        }
-    }
-
-    fn io_mut(&mut self) -> &mut TwoIo {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h),
-            MachineIo::E(_) => panic!("Apple ][+ soft-switch accessor used on the Apple //e"),
-        }
-    }
-
     /// Enable the soft-switch catch-all's unexpected/unhandled read/write
     /// logging (`--debug`); see `notes/TOTAL_RECALL_WRITE_WARNINGS.md`. Applies
     /// to whichever soft-switch device backs this machine.
@@ -806,15 +805,42 @@ impl Two {
     }
 
     pub fn screen_mode(&self) -> ScreenMode {
-        self.io().screen_mode
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_mode,
+            MachineIo::E(h) => {
+                if self.cpu.mem.device(h).text {
+                    ScreenMode::Text
+                } else {
+                    ScreenMode::Graphics
+                }
+            }
+        }
     }
 
     pub fn screen_graphics_mode(&self) -> GraphicsMode {
-        self.io().screen_graphics_mode
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_graphics_mode,
+            MachineIo::E(h) => {
+                if self.cpu.mem.device(h).hires {
+                    GraphicsMode::Hgr
+                } else {
+                    GraphicsMode::Lgr
+                }
+            }
+        }
     }
 
     pub fn screen_graphics_style(&self) -> GraphicsStyle {
-        self.io().screen_graphics_style
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_graphics_style,
+            MachineIo::E(h) => {
+                if self.cpu.mem.device(h).mixed {
+                    GraphicsStyle::Mixed
+                } else {
+                    GraphicsStyle::Full
+                }
+            }
+        }
     }
 
     pub fn screen_page(&self) -> ScreenPage {
@@ -840,11 +866,17 @@ impl Two {
     }
 
     pub fn screen_dirty(&self) -> bool {
-        self.io().screen_dirty
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_dirty,
+            MachineIo::E(h) => self.cpu.mem.device(h).screen_dirty,
+        }
     }
 
     pub fn set_screen_dirty(&mut self, dirty: bool) {
-        self.io_mut().screen_dirty = dirty;
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).screen_dirty = dirty,
+            MachineIo::E(h) => self.cpu.mem.device_mut(h).screen_dirty = dirty,
+        }
     }
 
     /// Set a game-I/O button (Open-Apple = 0, Solid-Apple = 1 on the //e).
@@ -856,13 +888,20 @@ impl Two {
     }
 
     pub fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
-        self.io_mut().joystick = joystick;
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).joystick = joystick,
+            // //e analog paddles/joystick are not modelled yet (a later phase).
+            MachineIo::E(_) => {}
+        }
     }
 
     /// Cycle-stamped speaker toggles recorded on `$C030` access since the
     /// last drain, for the frontend's sound path.
     pub fn drain_speaker_toggles(&mut self) -> Vec<u64> {
-        std::mem::take(&mut self.io_mut().speaker_toggles)
+        match self.io {
+            MachineIo::Plus(h) => std::mem::take(&mut self.cpu.mem.device_mut(h).speaker_toggles),
+            MachineIo::E(h) => std::mem::take(&mut self.cpu.mem.device_mut(h).speaker_toggles),
+        }
     }
 
     /// Decode text page 1 (`$0400`, interleaved rows) into 24 lines of 40
@@ -984,6 +1023,7 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
 
 fn usage() {
     eprintln!("Usage: ewm two [options]");
+    eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
     eprintln!("  --drive1 <path>   load .dsk, .po or nib at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po or nib at path in slot 6 drive 2");
     eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
@@ -997,6 +1037,7 @@ fn usage() {
 
 #[derive(Default)]
 struct Options {
+    model: TwoType,
     drive1: Option<String>,
     drive2: Option<String>,
     hdd: Option<String>,
@@ -1021,6 +1062,14 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 usage();
                 return Err(0);
             }
+            "--model" => match it.next().map(String::as_str) {
+                Some("2plus" | "2+" | "][+" | "2") => options.model = TwoType::Apple2Plus,
+                Some("2e" | "//e" | "iie") => options.model = TwoType::Apple2E,
+                _ => {
+                    usage();
+                    return Err(1);
+                }
+            },
             "--drive1" => options.drive1 = it.next().cloned(),
             "--drive2" => options.drive2 = it.next().cloned(),
             "--hdd" => options.hdd = it.next().cloned(),
@@ -1121,8 +1170,12 @@ pub fn main(args: &[String]) -> i32 {
     let audio = context.audio().ok();
     let controller_subsystem = context.gamepad().ok();
 
+    let title = match options.model {
+        TwoType::Apple2E => "EWM v0.1 / Apple //e",
+        _ => "EWM v0.1 / Apple ][+",
+    };
     let window = video
-        .window("EWM v0.1 / Apple ][+", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
+        .window(title, 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position(400, 60)
         .build();
     let window = match window {
@@ -1167,7 +1220,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Create and configure the Apple II
 
-    let mut two = match Two::new(TwoType::Apple2Plus) {
+    let mut two = match Two::new(options.model) {
         Ok(two) => two,
         Err(e) => {
             eprintln!("[TWO] Could not create the machine: {e}");
