@@ -54,6 +54,18 @@ const SS_INTC3ROM: u16 = 0xc00a; // W: internal $C300 (80-column firmware)
 const SS_SLOTC3ROM: u16 = 0xc00b; // W: slot-3 card ROM at $C300
 const SS_RDCXROM: u16 = 0xc015; // R: bit 7 = INTCXROM
 const SS_RDC3ROM: u16 = 0xc017; // R: bit 7 = SLOTC3ROM
+// //e $C010-$C01F status reads (Phase 2c): state reported in bit 7.
+const SS_RDRAMRD: u16 = 0xc013;
+const SS_RDRAMWRT: u16 = 0xc014;
+const SS_RDALTZP: u16 = 0xc016;
+const SS_RD80STORE: u16 = 0xc018;
+const SS_RDVBL: u16 = 0xc019;
+const SS_RDTEXT: u16 = 0xc01a;
+const SS_RDMIXED: u16 = 0xc01b;
+const SS_RDPAGE2: u16 = 0xc01c;
+const SS_RDHIRES: u16 = 0xc01d;
+const SS_RDALTCHAR: u16 = 0xc01e;
+const SS_RD80COL: u16 = 0xc01f;
 const SS_TAPEOUT: u16 = 0xc020;
 const SS_SPKR: u16 = 0xc030;
 const SS_SCREEN_MODE_GRAPHICS: u16 = 0xc050;
@@ -343,6 +355,31 @@ struct IouE {
     /// Peripheral card ROM at `$Cn00-$CnFF`, indexed by slot `1..=7`
     /// (slot 0 unused); `None` when no card occupies the slot.
     slot_rom: [Option<&'static [u8]>; 8],
+
+    // --- Phase 2c: $C000-$C00F memory switches (state only; the aux-memory
+    // routing they describe arrives in Phase 4) ---
+    /// 80STORE (`$C000`/`$C001`): PAGE2 routes the display page to aux.
+    store80: bool,
+    /// RAMRD (`$C002`/`$C003`): reads of `$0200-$BFFF` come from aux.
+    ramrd: bool,
+    /// RAMWRT (`$C004`/`$C005`): writes to `$0200-$BFFF` go to aux.
+    ramwrt: bool,
+    /// ALTZP (`$C008`/`$C009`): zero page / stack / LC RAM come from aux.
+    altzp: bool,
+
+    // --- Phase 2c: display soft switches ($C050-$C057, $C00C-$C00F) ---
+    /// TEXT (`$C050` graphics / `$C051` text).
+    text: bool,
+    /// MIXED (`$C052` off / `$C053` on).
+    mixed: bool,
+    /// PAGE2 (`$C054` page 1 / `$C055` page 2).
+    page2: bool,
+    /// HIRES (`$C056` lo-res / `$C057` hi-res).
+    hires: bool,
+    /// 80COL (`$C00C` 40-column / `$C00D` 80-column).
+    col80: bool,
+    /// ALTCHARSET (`$C00E` primary / `$C00F` alternate).
+    altcharset: bool,
 }
 
 impl IouE {
@@ -355,6 +392,17 @@ impl IouE {
             c800_internal: false,
             internal_rom: &ROM_IIE_CD[0x100..0x1000],
             slot_rom: [None; 8],
+            store80: false,
+            ramrd: false,
+            ramwrt: false,
+            altzp: false,
+            // The //e powers up in 40-column text, page 1, primary char set.
+            text: true,
+            mixed: false,
+            page2: false,
+            hires: false,
+            col80: false,
+            altcharset: false,
         }
     }
 
@@ -363,7 +411,23 @@ impl IouE {
         self.slot_rom[slot] = Some(rom);
     }
 
-    fn read_io(&mut self, addr: u16) -> u8 {
+    /// Set a display soft switch. On the //e the `$C050-$C057` switches toggle
+    /// on *any* access, so this is called from both reads and writes.
+    fn set_display_switch(&mut self, addr: u16) {
+        match addr {
+            SS_SCREEN_MODE_GRAPHICS => self.text = false, // $C050
+            SS_SCREEN_MODE_TEXT => self.text = true,      // $C051
+            SS_GRAPHICS_STYLE_FULL => self.mixed = false, // $C052
+            SS_GRAPHICS_STYLE_MIXED => self.mixed = true, // $C053
+            SS_SCREEN_PAGE1 => self.page2 = false,        // $C054
+            SS_SCREEN_PAGE2 => self.page2 = true,         // $C055
+            SS_GRAPHICS_MODE_LGR => self.hires = false,   // $C056
+            SS_GRAPHICS_MODE_HGR => self.hires = true,    // $C057
+            _ => {}
+        }
+    }
+
+    fn read_io(&mut self, addr: u16, cycles: u64) -> u8 {
         match addr {
             SS_KBD => self.key, // $C000 KBD: bit 7 = key-down
             SS_KBDSTRB => {
@@ -372,10 +436,35 @@ impl IouE {
                 self.key &= 0x7f;
                 down
             }
+
+            // Display switches respond to reads as well as writes.
+            SS_SCREEN_MODE_GRAPHICS..=SS_GRAPHICS_MODE_HGR => {
+                self.set_display_switch(addr);
+                0
+            }
+
+            // $C010-$C01F status reads: state in bit 7. RDLCBNK2/RDLCRAM
+            // ($C011/$C012) are answered by the language card, which shadows
+            // those two addresses (see new_2e).
+            SS_RDRAMRD => (self.ramrd as u8) << 7,
+            SS_RDRAMWRT => (self.ramwrt as u8) << 7,
             SS_RDCXROM => (self.intcxrom as u8) << 7,
+            SS_RDALTZP => (self.altzp as u8) << 7,
             SS_RDC3ROM => (self.slotc3rom as u8) << 7,
+            SS_RD80STORE => (self.store80 as u8) << 7,
+            // RDVBL is not cycle-modelled (quirk #3); derive a plausible
+            // toggling value from the cycle counter so VBL busy-waits progress.
+            SS_RDVBL => (((cycles >> 14) & 1) as u8) << 7,
+            SS_RDTEXT => (self.text as u8) << 7,
+            SS_RDMIXED => (self.mixed as u8) << 7,
+            SS_RDPAGE2 => (self.page2 as u8) << 7,
+            SS_RDHIRES => (self.hires as u8) << 7,
+            SS_RDALTCHAR => (self.altcharset as u8) << 7,
+            SS_RD80COL => (self.col80 as u8) << 7,
+
             _ => {
-                // The remaining $C000-$C01F switches are Phase 2c.
+                // Speaker ($C030) is Phase 7; buttons ($C061/$C062) are 3b;
+                // annunciators / DHIRES ($C058-$C05F) are 6a.
                 if self.debug {
                     eprintln!("[A2E] Unhandled read at ${addr:04X}");
                 }
@@ -431,9 +520,9 @@ impl IouE {
 }
 
 impl Device for IouE {
-    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
+    fn read(&mut self, addr: u16, cycles: u64) -> u8 {
         match addr {
-            0xc000..=0xc07f => self.read_io(addr),
+            0xc000..=0xc07f => self.read_io(addr, cycles),
             0xc100..=0xcfff => self.read_cxrom(addr),
             _ => 0,
         }
@@ -441,12 +530,33 @@ impl Device for IouE {
 
     fn write(&mut self, addr: u16, _b: u8, _cycles: u64) {
         match addr {
-            SS_SLOTCXROM => self.intcxrom = false,
-            SS_INTCXROM => self.intcxrom = true,
-            SS_INTC3ROM => self.slotc3rom = false,
-            SS_SLOTC3ROM => self.slotc3rom = true,
-            // The remaining $C000-$C00F switches are Phase 2c; $C100-$CFFF is
-            // ROM (writes swallowed).
+            // KBDSTRB clears the keyboard strobe on *any* access — the //e
+            // firmware clears it with a write (STA $C010), not just a read.
+            SS_KBDSTRB => self.key &= 0x7f,
+
+            // $C000-$C00F memory switches, write-to-set. State only in 2c —
+            // the aux-memory routing arrives in Phase 4.
+            0xc000 => self.store80 = false,
+            0xc001 => self.store80 = true,
+            0xc002 => self.ramrd = false,
+            0xc003 => self.ramrd = true,
+            0xc004 => self.ramwrt = false,
+            0xc005 => self.ramwrt = true,
+            SS_SLOTCXROM => self.intcxrom = false, // $C006
+            SS_INTCXROM => self.intcxrom = true,   // $C007
+            0xc008 => self.altzp = false,
+            0xc009 => self.altzp = true,
+            SS_INTC3ROM => self.slotc3rom = false, // $C00A
+            SS_SLOTC3ROM => self.slotc3rom = true, // $C00B
+            0xc00c => self.col80 = false,
+            0xc00d => self.col80 = true,
+            0xc00e => self.altcharset = false,
+            0xc00f => self.altcharset = true,
+
+            // Display switches respond to writes as well as reads.
+            SS_SCREEN_MODE_GRAPHICS..=SS_GRAPHICS_MODE_HGR => self.set_display_switch(addr),
+
+            // $C100-$CFFF is ROM (writes swallowed); other $C0xx are 2c/later.
             _ => {
                 if self.debug && (0xc000..=0xc07f).contains(&addr) {
                     eprintln!("[A2E] Unhandled write at ${addr:04X}");
@@ -556,6 +666,9 @@ impl Two {
 
         let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
         mem.map_device(alc, 0xd000, 0xffff);
+        // The language card reports its own RDLCBNK2/RDLCRAM state at
+        // $C011/$C012; mapped after the IouE so it shadows those two addresses.
+        mem.map_device(alc, 0xc011, 0xc012);
         let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
         let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
 
@@ -663,14 +776,21 @@ impl Two {
     }
 
     /// Latch a key into `$C000` with the strobe bit set, as the SDL loop
-    /// does with `two->key = ch | 0x80`.
+    /// does with `two->key = ch | 0x80`. Model-aware: both `TwoIo` and `IouE`
+    /// own a keyboard latch.
     pub fn key(&mut self, key: u8) {
-        self.io_mut().key = key | 0x80;
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).key = key | 0x80,
+            MachineIo::E(h) => self.cpu.mem.device_mut(h).key = key | 0x80,
+        }
     }
 
     /// The keyboard latch, strobe bit included (the C `two->key`).
     pub fn key_register(&self) -> u8 {
-        self.io().key
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h).key,
+            MachineIo::E(h) => self.cpu.mem.device(h).key,
+        }
     }
 
     pub fn screen_mode(&self) -> ScreenMode {
