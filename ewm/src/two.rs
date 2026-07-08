@@ -36,6 +36,14 @@ static ROM_341_0014: &[u8] = include_bytes!("../../rom/341-0014.bin"); // AppleS
 static ROM_341_0015: &[u8] = include_bytes!("../../rom/341-0015.bin"); // AppleSoft BASIC F000
 static ROM_341_0020: &[u8] = include_bytes!("../../rom/341-0020.bin"); // Autostart Monitor F800
 
+// The two 8K Enhanced //e system ROM halves: CD = $C000-$DFFF, EF =
+// $E000-$FFFF. The language card banks $D000-$FFFF (the CD half's upper 4K
+// plus the whole EF half); $C000-$CFFF is I/O and internal firmware.
+static ROM_IIE_CD: &[u8] =
+    include_bytes!("../../rom/Apple IIe CD Enhanced - 342-0304-A - 2764.bin");
+static ROM_IIE_EF: &[u8] =
+    include_bytes!("../../rom/Apple IIe EF Enhanced - 342-0303-A - 2764.bin");
+
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
 const SS_KBDSTRB: u16 = 0xc010;
@@ -298,22 +306,89 @@ impl Device for TwoIo {
     }
 }
 
+/// The Enhanced //e memory-management / I/O unit — the MMU and IOU soft
+/// switches at `$C000-$C07F`, the //e counterpart to `TwoIo`.
+///
+/// **Phase 2a is a stub:** it answers the keyboard latch and otherwise returns
+/// benign values and ignores writes — enough for the 65C02 to execute //e ROM
+/// headlessly. Auxiliary-memory routing and the real `$C000-$C01F` switch
+/// semantics arrive in Phases 2c and 4.
+struct IouE {
+    /// Keyboard latch (`$C000`), strobe bit (`$80`) included, as in `TwoIo`.
+    key: u8,
+    /// Gate the unhandled-access logging behind `--debug`.
+    debug: bool,
+}
+
+impl IouE {
+    fn new() -> IouE {
+        IouE {
+            key: 0,
+            debug: false,
+        }
+    }
+}
+
+impl Device for IouE {
+    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
+        match addr {
+            SS_KBD => self.key, // $C000 KBD: bit 7 = key-down
+            SS_KBDSTRB => {
+                // $C010 KBDSTRB / AKD: clear the strobe, report key-down.
+                let down = self.key & 0x80;
+                self.key &= 0x7f;
+                down
+            }
+            _ => {
+                if self.debug {
+                    eprintln!("[A2E] Unhandled read at ${addr:04X}");
+                }
+                0
+            }
+        }
+    }
+
+    fn write(&mut self, addr: u16, _b: u8, _cycles: u64) {
+        // 2a stub: switch state is not modelled yet (Phase 2c). Ignore writes.
+        if self.debug {
+            eprintln!("[A2E] Unhandled write at ${addr:04X}");
+        }
+    }
+}
+
+/// Which soft-switch device backs this machine. Concentrating the choice here
+/// keeps the ][+ accessors (and, later, a shared `SoftSwitches` trait) free of
+/// per-model branching at their call sites — the `match` lives only in the two
+/// `io()`/`io_mut()` accessors below.
+#[derive(Clone, Copy)]
+enum MachineIo {
+    Plus(DeviceHandle<TwoIo>),
+    E(DeviceHandle<IouE>),
+}
+
 pub struct Two {
     pub cpu: Cpu,
-    io: DeviceHandle<TwoIo>,
+    model: TwoType,
+    io: MachineIo,
     dsk: DeviceHandle<Dsk>,
     hdd: Option<DeviceHandle<Hdd>>,
     clk: DeviceHandle<Clk>,
 }
 
 impl Two {
-    /// Port of `ewm_two_init`. Like the C, `apple2` and `apple2e` return an
-    /// error (quirk #4 in REWRITE.md).
+    /// Construct a machine. The Apple ][+ is the `ewm_two_init` port; the
+    /// Enhanced //e is the Phase 2 bring-up. The original NMOS Apple ][
+    /// remains unsupported (quirk #4 in REWRITE.md).
     pub fn new(two_type: TwoType) -> Result<Two, String> {
-        if two_type != TwoType::Apple2Plus {
-            return Err(format!("unsupported machine type {two_type:?}"));
+        match two_type {
+            TwoType::Apple2Plus => Ok(Two::new_2plus()),
+            TwoType::Apple2E => Ok(Two::new_2e()),
+            TwoType::Apple2 => Err(format!("unsupported machine type {two_type:?}")),
         }
+    }
 
+    /// Port of `ewm_two_init`: the Apple ][+.
+    fn new_2plus() -> Two {
         let mut rom = Vec::with_capacity(0x3000);
         for part in [
             ROM_341_0011,
@@ -341,13 +416,55 @@ impl Two {
         let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
         mem.add_rom(0xc100, CLK_ROM.to_vec());
 
-        Ok(Two {
+        Two {
             cpu: Cpu::new(Model::M6502, mem),
-            io,
+            model: TwoType::Apple2Plus,
+            io: MachineIo::Plus(io),
             dsk,
             hdd: None,
             clk,
-        })
+        }
+    }
+
+    /// Phase 2a: the Enhanced //e skeleton — a 65C02 with the //e system ROM
+    /// that executes cold-start ROM headlessly. It cannot finish booting yet:
+    /// the internal `$CX` ROM arbitration is Phase 2b, the soft switches are
+    /// Phase 2c, and auxiliary memory is Phase 4. The device layout is the
+    /// ][+'s (slots, no internal `$CX` ROM), with a stub `IouE` in place of
+    /// `TwoIo` and 64K of base RAM (Phase 4 switches to aux-routed RAM).
+    fn new_2e() -> Two {
+        assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
+        assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
+
+        // The language card banks $D000-$FFFF: the CD half's upper 4K
+        // ($D000-$DFFF) plus the whole EF half ($E000-$FFFF).
+        let mut rom = Vec::with_capacity(0x3000);
+        rom.extend_from_slice(&ROM_IIE_CD[0x1000..0x2000]);
+        rom.extend_from_slice(ROM_IIE_EF);
+        assert_eq!(rom.len(), 0x3000, "//e banked ROM must cover $D000-$FFFF");
+
+        let mut mem = Memory::new(0xc000); // $0000-$BFFF (64K; aux is Phase 4)
+        let io = mem.add_device(0xc000, 0xc07f, IouE::new());
+        let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
+        mem.map_device(alc, 0xd000, 0xffff);
+        let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
+        mem.add_rom(0xc600, DSK_ROM.to_vec()); // slot 6 boot ROM
+        let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
+        mem.add_rom(0xc100, CLK_ROM.to_vec()); // slot 1 clock ROM
+
+        Two {
+            cpu: Cpu::new(Model::M65C02, mem),
+            model: TwoType::Apple2E,
+            io: MachineIo::E(io),
+            dsk,
+            hdd: None,
+            clk,
+        }
+    }
+
+    /// The machine variant this instance was constructed as.
+    pub fn model(&self) -> TwoType {
+        self.model
     }
 
     /// Mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive: the
@@ -365,18 +482,33 @@ impl Two {
         self.hdd.map(|h| self.cpu.mem.device(h))
     }
 
+    // The ][+ soft-switch accessors. These are the only place that knows the
+    // concrete `TwoIo` type; every other ][+ method routes through them. They
+    // are ][+-only until the //e grows its own input/render paths (Phases
+    // 3/7) — and, when a shared `SoftSwitches` trait lands, the common subset
+    // moves behind it here without touching the call sites.
     fn io(&self) -> &TwoIo {
-        self.cpu.mem.device(self.io)
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h),
+            MachineIo::E(_) => panic!("Apple ][+ soft-switch accessor used on the Apple //e"),
+        }
     }
 
     fn io_mut(&mut self) -> &mut TwoIo {
-        self.cpu.mem.device_mut(self.io)
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h),
+            MachineIo::E(_) => panic!("Apple ][+ soft-switch accessor used on the Apple //e"),
+        }
     }
 
-    /// Enable the soft-switch catch-all's "Unexpected read/write" logging
-    /// (`--debug`); see `notes/TOTAL_RECALL_WRITE_WARNINGS.md`.
+    /// Enable the soft-switch catch-all's unexpected/unhandled read/write
+    /// logging (`--debug`); see `notes/TOTAL_RECALL_WRITE_WARNINGS.md`. Applies
+    /// to whichever soft-switch device backs this machine.
     pub fn set_debug(&mut self, debug: bool) {
-        self.io_mut().debug = debug;
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).debug = debug,
+            MachineIo::E(h) => self.cpu.mem.device_mut(h).debug = debug,
+        }
     }
 
     /// Read access to machine RAM for the renderers, which scan the text
