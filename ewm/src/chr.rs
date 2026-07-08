@@ -171,6 +171,18 @@ impl ChrE {
     pub fn bitmap(&self, set: CharSet, screen_code: u8) -> &Glyph {
         &self.sets[set as usize][screen_code as usize]
     }
+
+    /// The glyph for a screen code, selecting the set from the ALTCHARSET soft
+    /// switch (`$C01E`): alternate (lower case + MouseText) when on, primary
+    /// (upper case + symbols) when off.
+    pub fn glyph(&self, altcharset: bool, screen_code: u8) -> &Glyph {
+        let set = if altcharset {
+            CharSet::Alternate
+        } else {
+            CharSet::Primary
+        };
+        self.bitmap(set, screen_code)
+    }
 }
 
 impl Default for ChrE {
