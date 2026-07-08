@@ -53,8 +53,8 @@ PR sequence.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | 0 | Plan, ROM assets, and the //e memory/soft-switch map | S | ROMs in (PR #217); map documented |
-| 1a | Enhanced char ROM → **primary** glyph set (pure, unit-tested) | S | Not started |
-| 1b | Enhanced char ROM → **alternate** set + MouseText | S | Not started |
+| 1a | Enhanced char ROM → **primary** glyph set (pure, unit-tested) | S | Done (with 1b) |
+| 1b | Enhanced char ROM → **alternate** set + MouseText | S | Done (with 1a) |
 | 2a | Machine skeleton: 65C02 + //e system ROM, runs in ROM | M | Not started |
 | 2b | Internal `$CX` ROM vs slot-card ROM arbitration | M | Not started |
 | 2c | //e `$C000-$C01F` soft switches → boots headless to `]` (40 col) | M | Not started |
@@ -215,6 +215,28 @@ hashes. `git grep -n Apple2E` shows the plumbing points a human will touch.
 Pure, unit-tested decoding of the 4K enhanced video ROM into glyph bitmaps —
 the same "decode is core, textures are frontend" split the ][+ char ROM uses.
 No machine, no SDL. Split by character set.
+
+> **Landed (1a + 1b together).** Both sets decode in `ewm/src/chr.rs` via a
+> new `ChrE` / `CharSet { Primary, Alternate }`, leaving the ][+ `Chr`
+> untouched. Findings recorded from decoding `342-0265-A`:
+>
+> - **No `+1` offset.** Rows are `rom[idx*8 + y]`, bits 6→0 (the ][+ `+1` is
+>   specific to that 2716 dump, as suspected). Glyph index `$01` is a
+>   pixel-perfect 'A'.
+> - **Only the first 2K is used.** It holds the whole repertoire: UC/sym
+>   (`$00-$3F`), **MouseText** (`$40-$5F` — the checkerboard sits at `$56`),
+>   lower case (`$60-$7F`). The second 2K is not needed; inverse forms are
+>   synthesized by XOR exactly as the ][+ decode does.
+> - **Correction to the plan's wording:** lower case and MouseText live in the
+>   **alternate** set, *not* the primary set. The primary set is Apple ][
+>   compatible — upper case and symbols only (all codes map to ROM `$00-$3F`,
+>   top bit = normal/inverse). So the "1a decodes lower case" line below is
+>   folded into 1b's alternate set. The display-code translation implemented is
+>   the standard //e one (e.g. alt `$E1`→ROM `$61` lower 'a'; alt `$41`→ROM
+>   `$41` MouseText; alt `$C1`==primary `$C1`=='A').
+> - Both sets are returned as `&Glyph` (every //e code maps to a glyph, so no
+>   `Option`). Flashing (`$40-$7F` primary) is rendered in its inverse phase,
+>   matching the existing ][+ decode.
 
 ### Phase 1a — Primary character set (S)
 
