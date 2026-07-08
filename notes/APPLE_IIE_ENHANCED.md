@@ -64,7 +64,7 @@ PR sequence.
 | 4b | ALTZP routing (zero page, stack, language-card aux bank) | M | Done |
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Done |
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Done |
-| 5b | 80-column text (main/aux interleave) + golden | M | Not started |
+| 5b | 80-column text (main/aux interleave) + golden | M | Done |
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
 | 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
 | 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
@@ -628,6 +628,23 @@ own 80-col output before baking goldens.
 **Gate:** `ewm/tests/two_e_80col.rs` — enable 80 columns (via `PR#3` from
 AppleSoft), print a known string, assert `text_screen_80()` shows it across 80
 columns; a checked-in golden 560-wide BMP.
+
+> **Landed.** The aux-even / main-odd convention was **verified against the
+> real ROM** first: a headless `PR#3` + `PRINT "ABCDEFGH…"` showed `aux =
+> [C1 C3 C5 …]` (A, C, E — even columns) and `main = [C2 C4 C6 …]` (B, D, F —
+> odd), exactly the assumed interleave. `two.col80()` (a new `SoftSwitches`
+> accessor) and `two.text_screen_80()` (the 24×80 scrape) landed in `two.rs`;
+> `Scr::render_txt_screen_80` draws 80 × 7 px **natively into the 560-wide
+> `wide` buffer** (no doubling), and `update()` takes that path when the //e is
+> in text mode with 80COL on — every other mode keeps the 5a doubled path.
+> Gate `ewm/tests/two_e_80col.rs`: the interleave scrape, a direct
+> aux-even/main-odd bank check, the `PR#3` firmware path (asserts 80COL +
+> ALTCHARSET on and a mixed-case string across 80 columns), and a native-560
+> golden (`ewm/golden/two-e-80col.bmp`, confirmed *not* pixel-doubled). **This
+> is also where lower case finally displays**: `PR#3` runs the 80-column
+> firmware, which sets ALTCHARSET — resolving the 40-column lower-case gap
+> diagnosed earlier (a bare 40-column //e stays primary-set, as on real
+> hardware). The ][+ path and the 5a 40-column golden are unchanged.
 
 ---
 
