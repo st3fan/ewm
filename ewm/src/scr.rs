@@ -11,6 +11,12 @@ use crate::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two, TwoTy
 pub const SCR_WIDTH: usize = 280;
 pub const SCR_HEIGHT: usize = 192;
 
+/// The //e frame width. The //e renders its 40-column content into the shared
+/// 280-wide `pixels` buffer, then pixel-doubles it horizontally into a true
+/// 560-wide buffer (Phase 5a). 80-column text (Phase 5b) will draw natively at
+/// this width instead of doubling.
+pub const SCR_WIDTH_E: usize = SCR_WIDTH * 2;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ColorScheme {
     Monochrome,
@@ -104,6 +110,9 @@ pub struct Scr {
     text_color: u32,
     lgr_bitmaps: Vec<[u32; CHR_WIDTH * CHR_HEIGHT]>, // 256 blocks
     pub pixels: Vec<u32>,
+    /// The 560-wide //e output, pixel-doubled from `pixels` (Phase 5a). Only
+    /// filled when rendering the //e; the ][+ ignores it.
+    wide: Vec<u32>,
     green: u32,
     white: u32,
     hgr_colors1: [u32; 4],
@@ -141,6 +150,7 @@ impl Scr {
             text_color: green,
             lgr_bitmaps,
             pixels: vec![0; SCR_WIDTH * SCR_HEIGHT],
+            wide: vec![0; SCR_WIDTH_E * SCR_HEIGHT],
             green,
             white,
             hgr_colors1: pack4(&HGR_COLORS1),
@@ -349,6 +359,43 @@ impl Scr {
                 GraphicsMode::Hgr => self.render_hgr_screen(two, flash),
             },
         }
+
+        // The //e presents a 560-wide frame; at 40 columns it is the 280-wide
+        // render pixel-doubled horizontally (Phase 5b draws 80 columns natively).
+        if two.model() == TwoType::Apple2E {
+            self.fill_wide();
+        }
+    }
+
+    /// Pixel-double `pixels` (280) into `wide` (560), horizontally.
+    fn fill_wide(&mut self) {
+        for y in 0..SCR_HEIGHT {
+            let src = &self.pixels[y * SCR_WIDTH..(y + 1) * SCR_WIDTH];
+            let dst = &mut self.wide[y * SCR_WIDTH_E..(y + 1) * SCR_WIDTH_E];
+            for (x, &p) in src.iter().enumerate() {
+                dst[x * 2] = p;
+                dst[x * 2 + 1] = p;
+            }
+        }
+    }
+
+    /// The frame buffer to display or capture for `model`: the 560-wide //e
+    /// buffer, or the 280-wide ][+ buffer.
+    pub fn frame(&self, model: TwoType) -> &[u32] {
+        if model == TwoType::Apple2E {
+            &self.wide
+        } else {
+            &self.pixels
+        }
+    }
+}
+
+/// The frame width for `model`: 560 for the //e, 280 for the ][+.
+pub fn frame_width(model: TwoType) -> usize {
+    if model == TwoType::Apple2E {
+        SCR_WIDTH_E
+    } else {
+        SCR_WIDTH
     }
 }
 
@@ -467,9 +514,11 @@ mod tests {
             two.text_screen()
         );
 
+        // The //e presents a 560-wide frame (Phase 5a): the 40-column render
+        // pixel-doubled horizontally.
         let mut scr = Scr::new(PixelLayout::Argb8888);
         scr.update(&two, 0, 40);
-        let bmp = encode_bmp(&scr.pixels, SCR_WIDTH, SCR_HEIGHT);
+        let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
 
         let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-40col.bmp");
         if std::env::var("EWM_WRITE_GOLDEN").is_ok() {
