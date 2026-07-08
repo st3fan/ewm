@@ -67,7 +67,7 @@ PR sequence.
 | 5b | 80-column text (main/aux interleave) + golden | M | Not started |
 | 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
 | 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
-| 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Not started |
+| 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Partial (`--model 2e` runs at 280; 560 in 5a) |
 | 7b | boo menu entry + CLI dispatch | S | Not started |
 | 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
 | 8b | ProDOS 80-col boot gate + README + parity checklist | M | Not started |
@@ -221,9 +221,14 @@ No machine, no SDL. Split by character set.
 > new `ChrE` / `CharSet { Primary, Alternate }`, leaving the ][+ `Chr`
 > untouched. Findings recorded from decoding `342-0265-A`:
 >
-> - **No `+1` offset.** Rows are `rom[idx*8 + y]`, bits 6→0 (the ][+ `+1` is
->   specific to that 2716 dump, as suspected). Glyph index `$01` is a
->   pixel-perfect 'A'.
+> - **No `+1` offset.** Rows are `rom[idx*8 + y]` (the ][+ `+1` is specific to
+>   that 2716 dump, as suspected).
+> - **Bit order is reversed vs the ][+** *(corrected when the render landed —
+>   see the `--model` step)*: the //e ROM stores the **leftmost** pixel in
+>   **bit 0**, so bits are scanned low-to-high (bit 0 → bit 6). The original
+>   1a/1b decode scanned high-to-low like the ][+, which mirrored every glyph
+>   horizontally; it slipped through because Phase 1's template match only
+>   compared *symmetric* letters (A, H, I, M, O, T, U, …) against the ][+ set.
 > - **Only the first 2K is used.** It holds the whole repertoire: UC/sym
 >   (`$00-$3F`), **MouseText** (`$40-$5F` — the checkerboard sits at `$56`),
 >   lower case (`$60-$7F`). The second 2K is not needed; inverse forms are
@@ -598,10 +603,21 @@ renders to a golden 560-wide BMP.
 
 **Goal:** `ewm two --model 2e` runs the //e windowed.
 
-**Scope:**
-- A `--model 2e` / `//e` flag on `two`; size the window/texture for 560-wide
-  output; title "EWM v0.1 / Apple //e"; wire the //e renderer, status bar, and
-  the Apple-key mapping. Default the //e to 128K.
+> **Partially landed (intermediate "run it" step).** `ewm two --model 2e`
+> boots the //e in a window at **280×192** (title "EWM v0.1 / Apple //e"),
+> reusing the existing frame loop and `Scr`: 40-column text (lower case +
+> MouseText), lo-res, and hi-res all render — they're 280-equivalent. The
+> **560-wide** window + 80-column/DHGR rendering are still Phase 5a/5b/6.
+> Wiring this exercised every host-facing accessor, so `screen_mode` /
+> `screen_graphics_mode` / `screen_graphics_style` / `screen_dirty` /
+> `drain_speaker_toggles` / `set_joystick` all became model-aware (and `IouE`
+> gained `screen_dirty` + `speaker_toggles`); the old `io()`/`io_mut()` panic
+> accessors are now gone (every accessor is a `match self.io`). **That is the
+> full trigger for the deferred `SoftSwitches` trait** — the branching is now
+> substantial, so the trait is the natural next cleanup. Gate: a headless //e
+> 280 golden (`ewm/golden/two-e-40col.bmp`) rendered through the model-aware
+> `Scr`. **This step also fixed a Phase 1 glyph-mirroring bug** (see the Phase 1
+> note): the render made the reversed //e ROM bit order visible.
 
 **Key decisions:** Reuse the existing frame loop; branch only on render width
 and model. A `--model` flag mirrors `one --model apple1|replica1` and is less

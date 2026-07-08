@@ -107,8 +107,10 @@ pub enum CharSet {
 }
 
 /// Decode one glyph from the enhanced //e 4K video ROM: eight rows starting
-/// at `rom[idx * 8]` — note there is **no** `+1` offset here, unlike the ][+
-/// 2716 dump — with seven pixels per row scanned from bit 6 down to bit 0.
+/// at `rom[idx * 8]` (no `+1` offset, unlike the ][+ 2716 dump). Unlike the
+/// ][+ ROM, the //e ROM stores the leftmost pixel in **bit 0**, so bits are
+/// scanned low-to-high (bit 0 → bit 6); reading them high-to-low mirrors the
+/// glyph horizontally.
 fn generate_bitmap_iie(idx: usize, inverse: bool) -> Glyph {
     let mut glyph = [false; CHR_WIDTH * CHR_HEIGHT];
     let mut p = 0;
@@ -117,7 +119,7 @@ fn generate_bitmap_iie(idx: usize, inverse: bool) -> Glyph {
         if inverse {
             row ^= 0xff;
         }
-        for x in (0..CHR_WIDTH).rev() {
+        for x in 0..CHR_WIDTH {
             glyph[p] = row & (1 << x) != 0;
             p += 1;
         }
@@ -296,10 +298,10 @@ mod tests {
 .......
 .......
 ..XXX..
-.X.....
-.XXXX..
+.....X.
+..XXXX.
 .X...X.
-.XXXX..
+..XXXX.
 .......";
         assert_eq!(render(chr.bitmap(CharSet::Alternate, 0xe1)), expected);
     }
