@@ -55,6 +55,8 @@ const SS_SLOTC3ROM: u16 = 0xc00b; // W: slot-3 card ROM at $C300
 const SS_RDCXROM: u16 = 0xc015; // R: bit 7 = INTCXROM
 const SS_RDC3ROM: u16 = 0xc017; // R: bit 7 = SLOTC3ROM
 // //e $C010-$C01F status reads (Phase 2c): state reported in bit 7.
+const SS_RDLCBNK2: u16 = 0xc011;
+const SS_RDLCRAM: u16 = 0xc012;
 const SS_RDRAMRD: u16 = 0xc013;
 const SS_RDRAMWRT: u16 = 0xc014;
 const SS_RDALTZP: u16 = 0xc016;
@@ -399,9 +401,29 @@ struct IouE {
     /// Main and auxiliary RAM for `$0000-$BFFF` (48K each). The //e's `Memory`
     /// has no base-RAM fast path, so all low memory flows through here: reads
     /// of `$0200-$BFFF` follow RAMRD, writes follow RAMWRT. Zero page and the
-    /// stack (`$0000-$01FF`) stay in main until ALTZP lands (Phase 4b).
+    /// stack (`$0000-$01FF`) follow ALTZP (Phase 4b).
     main: Vec<u8>,
     aux: Vec<u8>,
+
+    // --- Phase 4b: the built-in language card ($D000-$FFFF) ---
+    // On the //e the language card is soldered onto the board and wired to the
+    // MMU, so it lives here rather than in `Alc` (the ][+ peripheral card). Its
+    // RAM has main + aux copies selected by ALTZP; the bank-switch mechanism
+    // is the same two-reads-to-write-enable dance as the ][+ card.
+    /// The 12K banked ROM at `$D000-$FFFF` (the fall-through when card RAM is
+    /// not read-enabled).
+    lc_rom: Vec<u8>,
+    /// The two `$D000` banks (4K each) and the `$E000` bank (8K), in main and
+    /// aux. `[bank][main=0/aux=1]`: `d[0]`/`d[1]` are the `$D000` RAM1/RAM2.
+    lc_d1: [Vec<u8>; 2],
+    lc_d2: [Vec<u8>; 2],
+    lc_e: [Vec<u8>; 2],
+    /// Card state, as in `Alc`.
+    lc_active: bool,
+    lc_bank1: bool,
+    lc_read: bool,
+    lc_write: bool,
+    lc_wrtcount: u32,
 }
 
 impl IouE {
@@ -430,6 +452,17 @@ impl IouE {
             speaker_toggles: Vec::new(),
             main: vec![0; 0xc000],
             aux: vec![0; 0xc000],
+            // The banked $D000-$FFFF ROM: the CD half's upper 4K plus the EF
+            // half, the same image the ][+ hands to `Alc`.
+            lc_rom: [&ROM_IIE_CD[0x1000..0x2000], ROM_IIE_EF].concat(),
+            lc_d1: [vec![0; 0x1000], vec![0; 0x1000]],
+            lc_d2: [vec![0; 0x1000], vec![0; 0x1000]],
+            lc_e: [vec![0; 0x2000], vec![0; 0x2000]],
+            lc_active: false,
+            lc_bank1: false,
+            lc_read: false,
+            lc_write: false,
+            lc_wrtcount: 0,
         }
     }
 
@@ -441,24 +474,135 @@ impl IouE {
         &self.aux
     }
 
-    /// Read `$0000-$BFFF`: RAMRD selects the aux bank for `$0200-$BFFF`; zero
-    /// page and the stack (`$0000-$01FF`) stay in main (ALTZP is Phase 4b).
+    /// Read `$0000-$BFFF`: zero page and the stack (`$0000-$01FF`) follow
+    /// ALTZP; `$0200-$BFFF` follows RAMRD.
     fn read_ram(&self, addr: u16) -> u8 {
         let i = addr as usize;
-        if addr < 0x0200 || !self.ramrd {
-            self.main[i]
+        let aux = if addr < 0x0200 {
+            self.altzp
         } else {
-            self.aux[i]
+            self.ramrd
+        };
+        if aux { self.aux[i] } else { self.main[i] }
+    }
+
+    /// Write `$0000-$BFFF`: `$0000-$01FF` follows ALTZP, `$0200-$BFFF` RAMWRT.
+    fn write_ram(&mut self, addr: u16, b: u8) {
+        let i = addr as usize;
+        let aux = if addr < 0x0200 {
+            self.altzp
+        } else {
+            self.ramwrt
+        };
+        if aux {
+            self.aux[i] = b;
+        } else {
+            self.main[i] = b;
         }
     }
 
-    /// Write `$0000-$BFFF`: RAMWRT selects the aux bank for `$0200-$BFFF`.
-    fn write_ram(&mut self, addr: u16, b: u8) {
-        let i = addr as usize;
-        if addr < 0x0200 || !self.ramwrt {
-            self.main[i] = b;
-        } else {
-            self.aux[i] = b;
+    fn lc_select_banks(&mut self, addr: u16) {
+        self.lc_active = true;
+        self.lc_bank1 = addr & 0b0000_1000 != 0;
+    }
+
+    /// `$C080-$C08F` read: the two-reads-to-write-enable bank switching (the
+    /// same sequence as `Alc::iom_read`).
+    fn lc_iom_read(&mut self, addr: u16) -> u8 {
+        self.lc_select_banks(addr);
+        match addr & 0b0011 {
+            0b00 => {
+                self.lc_wrtcount = 0;
+                self.lc_read = true;
+                self.lc_write = false;
+            }
+            0b01 => {
+                self.lc_wrtcount += 1;
+                self.lc_read = false;
+                if self.lc_wrtcount >= 2 {
+                    self.lc_write = true;
+                }
+            }
+            0b10 => {
+                self.lc_wrtcount = 0;
+                self.lc_read = false;
+                self.lc_write = false;
+            }
+            _ => {
+                self.lc_wrtcount += 1;
+                self.lc_read = true;
+                if self.lc_wrtcount >= 2 {
+                    self.lc_write = true;
+                }
+            }
+        }
+        0
+    }
+
+    /// `$C080-$C08F` write: resets the write count and never enables writes.
+    fn lc_iom_write(&mut self, addr: u16) {
+        self.lc_select_banks(addr);
+        match addr & 0b0011 {
+            0b00 => {
+                self.lc_wrtcount = 0;
+                self.lc_read = true;
+                self.lc_write = false;
+            }
+            0b01 => {
+                self.lc_wrtcount = 0;
+                self.lc_read = false;
+            }
+            0b10 => {
+                self.lc_wrtcount = 0;
+                self.lc_read = false;
+                self.lc_write = false;
+            }
+            _ => {
+                self.lc_wrtcount = 0;
+                self.lc_read = true;
+            }
+        }
+    }
+
+    /// `$D000-$FFFF` read: the ALTZP-selected card RAM bank when read-enabled,
+    /// else the banked ROM.
+    fn lc_read(&self, addr: u16) -> u8 {
+        if self.lc_active && self.lc_read {
+            let z = self.altzp as usize;
+            match addr {
+                0xd000..=0xdfff => {
+                    let bank = if self.lc_bank1 {
+                        &self.lc_d1[z]
+                    } else {
+                        &self.lc_d2[z]
+                    };
+                    return bank[(addr - 0xd000) as usize];
+                }
+                0xe000..=0xffff => return self.lc_e[z][(addr - 0xe000) as usize],
+                _ => {}
+            }
+        }
+        self.lc_rom[(addr - 0xd000) as usize]
+    }
+
+    /// `$D000-$FFFF` write: to the ALTZP-selected card RAM bank when
+    /// write-enabled; swallowed otherwise.
+    fn lc_write(&mut self, addr: u16, b: u8) {
+        if !self.lc_active || !self.lc_write {
+            return;
+        }
+        let z = self.altzp as usize;
+        match addr {
+            0xd000..=0xdfff => {
+                let bank = if self.lc_bank1 {
+                    &mut self.lc_d1[z]
+                } else {
+                    &mut self.lc_d2[z]
+                };
+                bank[(addr - 0xd000) as usize] = b;
+            }
+            0xe000..=0xffff => self.lc_e[z][(addr - 0xe000) as usize] = b,
+            _ => {}
         }
     }
 
@@ -508,6 +652,9 @@ impl IouE {
             SS_RDCXROM => (self.intcxrom as u8) << 7,
             SS_RDALTZP => (self.altzp as u8) << 7,
             SS_RDC3ROM => (self.slotc3rom as u8) << 7,
+            // Language-card status: bank 2 selected / card RAM read-enabled.
+            SS_RDLCBNK2 => ((!self.lc_bank1) as u8) << 7,
+            SS_RDLCRAM => (self.lc_read as u8) << 7,
             SS_RD80STORE => (self.store80 as u8) << 7,
             // RDVBL is not cycle-modelled (quirk #3); derive a plausible
             // toggling value from the cycle counter so VBL busy-waits progress.
@@ -593,7 +740,9 @@ impl Device for IouE {
         match addr {
             0x0000..=0xbfff => self.read_ram(addr),
             0xc000..=0xc07f => self.read_io(addr, cycles),
+            0xc080..=0xc08f => self.lc_iom_read(addr),
             0xc100..=0xcfff => self.read_cxrom(addr),
+            0xd000..=0xffff => self.lc_read(addr),
             _ => 0,
         }
     }
@@ -601,6 +750,8 @@ impl Device for IouE {
     fn write(&mut self, addr: u16, b: u8, _cycles: u64) {
         match addr {
             0x0000..=0xbfff => self.write_ram(addr, b),
+            0xc080..=0xc08f => self.lc_iom_write(addr),
+            0xd000..=0xffff => self.lc_write(addr, b),
 
             // KBDSTRB clears the keyboard strobe on *any* access — the //e
             // firmware clears it with a write (STA $C010), not just a read.
@@ -838,38 +989,29 @@ impl Two {
         assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
 
-        // The language card banks $D000-$FFFF: the CD half's upper 4K
-        // ($D000-$DFFF) plus the whole EF half ($E000-$FFFF).
-        let mut rom = Vec::with_capacity(0x3000);
-        rom.extend_from_slice(&ROM_IIE_CD[0x1000..0x2000]);
-        rom.extend_from_slice(ROM_IIE_EF);
-        assert_eq!(rom.len(), 0x3000, "//e banked ROM must cover $D000-$FFFF");
-
         // No base-RAM fast path: the IouE owns main + aux RAM for $0000-$BFFF.
         let mut mem = Memory::new(0);
 
-        // The IouE owns the $C000-$C07F soft switches, the $C100-$CFFF ROM
-        // space (arbitrating internal firmware vs the peripheral-slot ROMs it
-        // holds), and the $0000-$BFFF main/aux RAM. The slot ROMs therefore
-        // live here, not as `add_rom` regions; the Disk II / clock I/O devices
-        // stay separate below.
+        // The IouE is the whole //e memory-management unit: the $0000-$BFFF
+        // main/aux RAM, the $C000-$C07F soft switches, the $C080-$C08F +
+        // $D000-$FFFF built-in language card (RAM banked with an aux copy per
+        // ALTZP, ROM held internally), and the $C100-$CFFF ROM arbitration
+        // (internal firmware vs the peripheral-slot ROMs it holds). The Disk II
+        // / clock I/O devices stay separate below; the //e does not use `Alc`.
         let mut iou = IouE::new();
         iou.set_slot_rom(1, &CLK_ROM); // slot 1 Thunderclock Plus
         iou.set_slot_rom(6, &DSK_ROM); // slot 6 Disk II boot ROM
         let io = mem.add_device(0xc000, 0xc07f, iou);
-        mem.map_device(io, 0xc100, 0xcfff);
+        mem.map_device(io, 0xc080, 0xc08f); // language-card switches
+        mem.map_device(io, 0xc100, 0xcfff); // $CX ROM
 
-        let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
-        mem.map_device(alc, 0xd000, 0xffff);
-        // The language card reports its own RDLCBNK2/RDLCRAM state at
-        // $C011/$C012; mapped after the IouE so it shadows those two addresses.
-        mem.map_device(alc, 0xc011, 0xc012);
         let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
         let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
 
-        // Map the RAM range last so the region walk (newest-first) checks it
-        // first — zero page, the stack, and the display pages are the hottest
-        // addresses on the bus.
+        // Map the RAM and language-card ROM/RAM ranges last so the region walk
+        // (newest-first) checks them first — zero page, the stack, the display
+        // pages, and the $D000-$FFFF code space are the hottest on the bus.
+        mem.map_device(io, 0xd000, 0xffff);
         mem.map_device(io, 0x0000, 0xbfff);
 
         Two {
