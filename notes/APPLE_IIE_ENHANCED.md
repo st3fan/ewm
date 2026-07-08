@@ -65,7 +65,7 @@ PR sequence.
 | 4c | 80STORE display-page routing + AUXMOVE round-trip | M | Done |
 | 5a | 560-wide //e render buffer (40-col/LGR/HGR pixel-doubled) | M | Done |
 | 5b | 80-column text (main/aux interleave) + golden | M | Done |
-| 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Not started |
+| 6a | DHIRES/AN3/IOUDIS plumbing + double-lo-res (DLGR) | M | Done |
 | 6b | Double-hi-res (DHGR) rendering + color | M | Not started |
 | 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
 | 7b | boo menu entry + CLI dispatch | S | Not started |
@@ -665,6 +665,22 @@ columns; a checked-in golden 560-wide BMP.
 
 **Gate:** A DLGR smoke render matches a golden; the switch-state reads are
 correct.
+
+> **Landed.** The precedence was confirmed with the owner against the //e Tech
+> Ref (the scope note above had it backwards): **IOUDIS is the gatekeeper and
+> resets *on***, so `$C05E`/`$C05F` are the DHIRES switch out of reset (`$C05E`
+> on, `$C05F` off, on any read or write); `CLRIOUDIS` (`$C07F`) hands those
+> addresses to annunciator 3 instead. `IouE` gains `ioudis`/`dhires`/`an3`;
+> `$C07E`/`$C07F` write IOUDIS and read `RDIOUDIS`/`RDDHIRES` (bit 7).
+> `render_dlgr_screen` draws **80-column lo-res natively into the 560-wide
+> `wide` buffer** — aux even / main odd (the 5b interleave), each a 7 px LGR
+> block reusing the existing color table; `update()` takes it when the //e is in
+> lo-res graphics with DHIRES + 80COL (mixed mode renders 80-col text in the
+> bottom four rows). Gate `ewm/tests/two_e_dlgr.rs`: the IOUDIS/DHIRES/AN3
+> truth table + a native-560 golden (`two-e-dlgr.bmp`, 80 color bars, confirmed
+> not doubled). *Deferred to 6b:* the **AN3 falling-edge latching** the owner
+> flagged (a documented drift point) — level-based DHIRES is enough for DLGR and
+> matches the no-cycle-timing stance (quirk #5). The ][+ path is untouched.
 
 ### Phase 6b — Double-hi-res (DHGR) (M)
 

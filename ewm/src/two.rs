@@ -80,6 +80,15 @@ const SS_GRAPHICS_MODE_LGR: u16 = 0xc056;
 const SS_GRAPHICS_MODE_HGR: u16 = 0xc057;
 const SS_SETAN0: u16 = 0xc058;
 const SS_CLRAN3: u16 = 0xc05f;
+// $C05E/$C05F are dual-purpose (Phase 6a): under IOUDIS they are the DHIRES
+// switch (on/off), otherwise annunciator 3 (clear/set).
+const SS_DHIRES_ON: u16 = 0xc05e;
+const SS_DHIRES_OFF: u16 = 0xc05f;
+// IOUDIS ($C07E on / $C07F off); reads return RDIOUDIS / RDDHIRES in bit 7.
+const SS_SET_IOUDIS: u16 = 0xc07e;
+const SS_CLR_IOUDIS: u16 = 0xc07f;
+const SS_RDIOUDIS: u16 = 0xc07e;
+const SS_RDDHIRES: u16 = 0xc07f;
 const SS_PB3: u16 = 0xc060; // TODO On the gs only? (comment from two.c)
 const SS_PB0: u16 = 0xc061;
 const SS_PB1: u16 = 0xc062;
@@ -384,6 +393,16 @@ struct IouE {
     /// ALTCHARSET (`$C00E` primary / `$C00F` alternate).
     altcharset: bool,
 
+    // --- Phase 6a: double-resolution control ---
+    /// IOUDIS (`$C07E` on / `$C07F` off). When on (the reset default), `$C05E`/
+    /// `$C05F` are the DHIRES switch; when off they are annunciator 3.
+    ioudis: bool,
+    /// DHIRES (`$C05E` on / `$C05F` off, only while IOUDIS is on): double
+    /// resolution enable. Combined with LORES + 80COL this is double lo-res.
+    dhires: bool,
+    /// Annunciator 3, controlled by `$C05E`/`$C05F` only while IOUDIS is off.
+    an3: bool,
+
     // --- Phase 3b: game-I/O buttons ---
     /// Push-button / paddle inputs, read at `$C061-$C063` (bit 7 = pressed).
     /// On the //e button 0 is Open-Apple and button 1 is Solid-Apple.
@@ -447,6 +466,10 @@ impl IouE {
             hires: false,
             col80: false,
             altcharset: false,
+            // IOUDIS resets on (so $C05E/$C05F are the DHIRES switch), DHIRES off.
+            ioudis: true,
+            dhires: false,
+            an3: false,
             buttons: [0; 4],
             screen_dirty: true,
             speaker_toggles: Vec::new(),
@@ -646,6 +669,18 @@ impl IouE {
         self.screen_dirty = true;
     }
 
+    /// Access `$C05E`/`$C05F` (on any read or write). IOUDIS routes them: while
+    /// it is on they are the DHIRES switch (`$C05E` on, `$C05F` off); while it
+    /// is off they clear/set annunciator 3 instead.
+    fn access_dhires_an3(&mut self, addr: u16) {
+        if self.ioudis {
+            self.dhires = addr == SS_DHIRES_ON; // $C05E on, $C05F off
+        } else {
+            self.an3 = addr == SS_CLRAN3; // $C05E clears AN3, $C05F sets it
+        }
+        self.screen_dirty = true;
+    }
+
     fn read_io(&mut self, addr: u16, cycles: u64) -> u8 {
         match addr {
             SS_KBD => self.key, // $C000 KBD: bit 7 = key-down
@@ -659,6 +694,11 @@ impl IouE {
             // Display switches respond to reads as well as writes.
             SS_SCREEN_MODE_GRAPHICS..=SS_GRAPHICS_MODE_HGR => {
                 self.set_display_switch(addr);
+                0
+            }
+            // DHIRES / AN3 ($C05E/$C05F) also toggle on read.
+            SS_DHIRES_ON | SS_DHIRES_OFF => {
+                self.access_dhires_an3(addr);
                 0
             }
 
@@ -683,6 +723,9 @@ impl IouE {
             SS_RDHIRES => (self.hires as u8) << 7,
             SS_RDALTCHAR => (self.altcharset as u8) << 7,
             SS_RD80COL => (self.col80 as u8) << 7,
+            // $C07E reads IOUDIS, $C07F reads DHIRES (bit 7).
+            SS_RDIOUDIS => (self.ioudis as u8) << 7,
+            SS_RDDHIRES => (self.dhires as u8) << 7,
 
             // Game-I/O buttons: Open-Apple ($C061), Solid-Apple ($C062), and
             // the shift-key mod ($C063). Bit 7 = pressed.
@@ -796,6 +839,10 @@ impl Device for IouE {
 
             // Display switches respond to writes as well as reads.
             SS_SCREEN_MODE_GRAPHICS..=SS_GRAPHICS_MODE_HGR => self.set_display_switch(addr),
+            // DHIRES / AN3 ($C05E/$C05F) and IOUDIS ($C07E/$C07F).
+            SS_DHIRES_ON | SS_DHIRES_OFF => self.access_dhires_an3(addr),
+            SS_SET_IOUDIS => self.ioudis = true,
+            SS_CLR_IOUDIS => self.ioudis = false,
 
             // $C100-$CFFF is ROM (writes swallowed); other $C0xx are 2c/later.
             _ => {
@@ -821,6 +868,7 @@ trait SoftSwitches {
     fn screen_page(&self) -> ScreenPage;
     fn alt_charset(&self) -> bool;
     fn col80(&self) -> bool;
+    fn dhires(&self) -> bool;
     fn screen_dirty(&self) -> bool;
     fn set_screen_dirty(&mut self, dirty: bool);
     fn set_button(&mut self, button: usize, state: u8);
@@ -853,6 +901,9 @@ impl SoftSwitches for TwoIo {
     }
     fn col80(&self) -> bool {
         false // the ][+ has no 80-column mode
+    }
+    fn dhires(&self) -> bool {
+        false // the ][+ has no double-resolution mode
     }
     fn screen_dirty(&self) -> bool {
         self.screen_dirty
@@ -914,6 +965,9 @@ impl SoftSwitches for IouE {
     }
     fn col80(&self) -> bool {
         self.col80
+    }
+    fn dhires(&self) -> bool {
+        self.dhires
     }
     fn screen_dirty(&self) -> bool {
         self.screen_dirty
@@ -1185,6 +1239,12 @@ impl Two {
     /// 80COL state (`$C01F`): the //e 80-column display. Always false on the ][+.
     pub fn col80(&self) -> bool {
         self.switches().col80()
+    }
+
+    /// DHIRES state (`$C05E`/`$C05F` under IOUDIS): double-resolution enable.
+    /// Always false on the ][+.
+    pub fn dhires(&self) -> bool {
+        self.switches().dhires()
     }
 
     pub fn screen_dirty(&self) -> bool {
