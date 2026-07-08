@@ -638,10 +638,132 @@ impl Device for IouE {
     }
 }
 
-/// Which soft-switch device backs this machine. Concentrating the choice here
-/// keeps the ][+ accessors (and, later, a shared `SoftSwitches` trait) free of
-/// per-model branching at their call sites — the `match` lives only in the two
-/// `io()`/`io_mut()` accessors below.
+/// The host-facing soft-switch and input surface shared by both machines' I/O
+/// devices (`TwoIo` and `IouE`). `Two`'s public accessors delegate through a
+/// single `switches()` / `switches_mut()` dispatch, so callers never branch on
+/// the machine model. The `Device` (`read`/`write`) trait is the *bus* side;
+/// this is the *host* side.
+trait SoftSwitches {
+    fn key(&self) -> u8;
+    fn set_key(&mut self, key: u8);
+    fn screen_mode(&self) -> ScreenMode;
+    fn screen_graphics_mode(&self) -> GraphicsMode;
+    fn screen_graphics_style(&self) -> GraphicsStyle;
+    fn screen_page(&self) -> ScreenPage;
+    fn alt_charset(&self) -> bool;
+    fn screen_dirty(&self) -> bool;
+    fn set_screen_dirty(&mut self, dirty: bool);
+    fn set_button(&mut self, button: usize, state: u8);
+    fn set_joystick(&mut self, joystick: Option<(i16, i16)>);
+    fn drain_speaker_toggles(&mut self) -> Vec<u64>;
+    fn set_debug(&mut self, debug: bool);
+}
+
+impl SoftSwitches for TwoIo {
+    fn key(&self) -> u8 {
+        self.key
+    }
+    fn set_key(&mut self, key: u8) {
+        self.key = key | 0x80;
+    }
+    fn screen_mode(&self) -> ScreenMode {
+        self.screen_mode
+    }
+    fn screen_graphics_mode(&self) -> GraphicsMode {
+        self.screen_graphics_mode
+    }
+    fn screen_graphics_style(&self) -> GraphicsStyle {
+        self.screen_graphics_style
+    }
+    fn screen_page(&self) -> ScreenPage {
+        self.screen_page
+    }
+    fn alt_charset(&self) -> bool {
+        false // the ][+ has no alternate character set
+    }
+    fn screen_dirty(&self) -> bool {
+        self.screen_dirty
+    }
+    fn set_screen_dirty(&mut self, dirty: bool) {
+        self.screen_dirty = dirty;
+    }
+    fn set_button(&mut self, button: usize, state: u8) {
+        self.buttons[button] = state;
+    }
+    fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
+        self.joystick = joystick;
+    }
+    fn drain_speaker_toggles(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.speaker_toggles)
+    }
+    fn set_debug(&mut self, debug: bool) {
+        self.debug = debug;
+    }
+}
+
+impl SoftSwitches for IouE {
+    fn key(&self) -> u8 {
+        self.key
+    }
+    fn set_key(&mut self, key: u8) {
+        self.key = key | 0x80;
+    }
+    fn screen_mode(&self) -> ScreenMode {
+        if self.text {
+            ScreenMode::Text
+        } else {
+            ScreenMode::Graphics
+        }
+    }
+    fn screen_graphics_mode(&self) -> GraphicsMode {
+        if self.hires {
+            GraphicsMode::Hgr
+        } else {
+            GraphicsMode::Lgr
+        }
+    }
+    fn screen_graphics_style(&self) -> GraphicsStyle {
+        if self.mixed {
+            GraphicsStyle::Mixed
+        } else {
+            GraphicsStyle::Full
+        }
+    }
+    fn screen_page(&self) -> ScreenPage {
+        if self.page2 {
+            ScreenPage::Page2
+        } else {
+            ScreenPage::Page1
+        }
+    }
+    fn alt_charset(&self) -> bool {
+        self.altcharset
+    }
+    fn screen_dirty(&self) -> bool {
+        self.screen_dirty
+    }
+    fn set_screen_dirty(&mut self, dirty: bool) {
+        self.screen_dirty = dirty;
+    }
+    fn set_button(&mut self, button: usize, state: u8) {
+        self.buttons[button] = state;
+    }
+    fn set_joystick(&mut self, _joystick: Option<(i16, i16)>) {
+        // //e analog paddles / joystick are not modelled yet (a later phase).
+    }
+    fn drain_speaker_toggles(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.speaker_toggles)
+    }
+    fn set_debug(&mut self, debug: bool) {
+        self.debug = debug;
+    }
+}
+
+/// Which soft-switch device backs this machine. The per-model `match` lives in
+/// exactly one place — `Two::switches()` / `switches_mut()`, which return the
+/// device as a `&dyn SoftSwitches` — so no host-facing accessor branches on the
+/// model. (`ram`/`aux_ram` are the one exception: the ][+'s RAM lives in
+/// `Memory`, not in `TwoIo`, so those stay a small direct match.)
 #[derive(Clone, Copy)]
 enum MachineIo {
     Plus(DeviceHandle<TwoIo>),
@@ -785,14 +907,27 @@ impl Two {
         self.hdd.map(|h| self.cpu.mem.device(h))
     }
 
+    /// The machine's soft-switch device as a `SoftSwitches` — the single point
+    /// where the model dispatch lives, so the accessors below don't repeat it.
+    fn switches(&self) -> &dyn SoftSwitches {
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device(h),
+            MachineIo::E(h) => self.cpu.mem.device(h),
+        }
+    }
+
+    fn switches_mut(&mut self) -> &mut dyn SoftSwitches {
+        match self.io {
+            MachineIo::Plus(h) => self.cpu.mem.device_mut(h),
+            MachineIo::E(h) => self.cpu.mem.device_mut(h),
+        }
+    }
+
     /// Enable the soft-switch catch-all's unexpected/unhandled read/write
     /// logging (`--debug`); see `notes/TOTAL_RECALL_WRITE_WARNINGS.md`. Applies
     /// to whichever soft-switch device backs this machine.
     pub fn set_debug(&mut self, debug: bool) {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).debug = debug,
-            MachineIo::E(h) => self.cpu.mem.device_mut(h).debug = debug,
-        }
+        self.switches_mut().set_debug(debug);
     }
 
     /// Read access to the machine's main RAM for the renderers, which scan the
@@ -848,121 +983,59 @@ impl Two {
     }
 
     /// Latch a key into `$C000` with the strobe bit set, as the SDL loop
-    /// does with `two->key = ch | 0x80`. Model-aware: both `TwoIo` and `IouE`
-    /// own a keyboard latch.
+    /// does with `two->key = ch | 0x80`.
     pub fn key(&mut self, key: u8) {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).key = key | 0x80,
-            MachineIo::E(h) => self.cpu.mem.device_mut(h).key = key | 0x80,
-        }
+        self.switches_mut().set_key(key);
     }
 
     /// The keyboard latch, strobe bit included (the C `two->key`).
     pub fn key_register(&self) -> u8 {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).key,
-            MachineIo::E(h) => self.cpu.mem.device(h).key,
-        }
+        self.switches().key()
     }
 
     pub fn screen_mode(&self) -> ScreenMode {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_mode,
-            MachineIo::E(h) => {
-                if self.cpu.mem.device(h).text {
-                    ScreenMode::Text
-                } else {
-                    ScreenMode::Graphics
-                }
-            }
-        }
+        self.switches().screen_mode()
     }
 
     pub fn screen_graphics_mode(&self) -> GraphicsMode {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_graphics_mode,
-            MachineIo::E(h) => {
-                if self.cpu.mem.device(h).hires {
-                    GraphicsMode::Hgr
-                } else {
-                    GraphicsMode::Lgr
-                }
-            }
-        }
+        self.switches().screen_graphics_mode()
     }
 
     pub fn screen_graphics_style(&self) -> GraphicsStyle {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_graphics_style,
-            MachineIo::E(h) => {
-                if self.cpu.mem.device(h).mixed {
-                    GraphicsStyle::Mixed
-                } else {
-                    GraphicsStyle::Full
-                }
-            }
-        }
+        self.switches().screen_graphics_style()
     }
 
     pub fn screen_page(&self) -> ScreenPage {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_page,
-            MachineIo::E(h) => {
-                if self.cpu.mem.device(h).page2 {
-                    ScreenPage::Page2
-                } else {
-                    ScreenPage::Page1
-                }
-            }
-        }
+        self.switches().screen_page()
     }
 
     /// ALTCHARSET state (`$C01E`): the //e alternate character set (lower case +
     /// MouseText). The ][+ has no alternate set, so this is always false there.
     pub fn alt_charset(&self) -> bool {
-        match self.io {
-            MachineIo::Plus(_) => false,
-            MachineIo::E(h) => self.cpu.mem.device(h).altcharset,
-        }
+        self.switches().alt_charset()
     }
 
     pub fn screen_dirty(&self) -> bool {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device(h).screen_dirty,
-            MachineIo::E(h) => self.cpu.mem.device(h).screen_dirty,
-        }
+        self.switches().screen_dirty()
     }
 
     pub fn set_screen_dirty(&mut self, dirty: bool) {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).screen_dirty = dirty,
-            MachineIo::E(h) => self.cpu.mem.device_mut(h).screen_dirty = dirty,
-        }
+        self.switches_mut().set_screen_dirty(dirty);
     }
 
     /// Set a game-I/O button (Open-Apple = 0, Solid-Apple = 1 on the //e).
     pub fn set_button(&mut self, button: usize, state: u8) {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).buttons[button] = state,
-            MachineIo::E(h) => self.cpu.mem.device_mut(h).buttons[button] = state,
-        }
+        self.switches_mut().set_button(button, state);
     }
 
     pub fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
-        match self.io {
-            MachineIo::Plus(h) => self.cpu.mem.device_mut(h).joystick = joystick,
-            // //e analog paddles/joystick are not modelled yet (a later phase).
-            MachineIo::E(_) => {}
-        }
+        self.switches_mut().set_joystick(joystick);
     }
 
     /// Cycle-stamped speaker toggles recorded on `$C030` access since the
     /// last drain, for the frontend's sound path.
     pub fn drain_speaker_toggles(&mut self) -> Vec<u64> {
-        match self.io {
-            MachineIo::Plus(h) => std::mem::take(&mut self.cpu.mem.device_mut(h).speaker_toggles),
-            MachineIo::E(h) => std::mem::take(&mut self.cpu.mem.device_mut(h).speaker_toggles),
-        }
+        self.switches_mut().drain_speaker_toggles()
     }
 
     /// Decode text page 1 (`$0400`, interleaved rows) into 24 lines of 40
