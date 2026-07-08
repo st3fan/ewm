@@ -96,13 +96,14 @@ impl Default for Chr {
 /// ALTCHARSET soft switch (`$C00E`/`$C00F`, reported by `$C01E`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CharSet {
-    /// Apple ][ compatible: upper case and symbols only. No lower case, no
-    /// MouseText. `$00-$7F` display inverse (`$40-$7F` flashing), `$80-$FF`
-    /// normal.
+    /// Upper case, symbols and **lower case** (the normal `$80-$FF` range,
+    /// including lower case at `$E0-$FF`), with `$00-$3F` inverse and `$40-$7F`
+    /// flashing. No MouseText and no inverse lower case — that is the only
+    /// difference from the alternate set.
     Primary,
-    /// Adds lower case and MouseText: inverse UC/sym (`$00-$3F`), MouseText
-    /// (`$40-$5F`), inverse lower case (`$60-$7F`), normal UC/sym/lower case
-    /// (`$80-$FF`).
+    /// Adds MouseText and inverse lower case in place of the primary set's
+    /// flashing `$40-$7F`: inverse UC/sym (`$00-$3F`), MouseText (`$40-$5F`),
+    /// inverse lower case (`$60-$7F`), normal UC/sym/lower case (`$80-$FF`).
     Alternate,
 }
 
@@ -127,12 +128,18 @@ fn generate_bitmap_iie(idx: usize, inverse: bool) -> Glyph {
     glyph
 }
 
-/// Primary-set screen code → (ROM glyph index, inverse?). Every code resolves
-/// to one of the 64 upper-case/symbol glyphs at ROM `$00-$3F`; the top bit
-/// selects normal vs inverse. Flashing codes (`$40-$7F`) are rendered in
-/// their inverse phase, matching the ][+ decode above.
+/// Primary-set screen code → (ROM glyph index, inverse?). The primary and
+/// alternate sets are identical for the normal ranges — including **lower case
+/// at `$E0-$FF`** — and differ only in `$40-$7F`, which the primary set flashes
+/// (upper case / symbols) where the alternate set shows MouseText and inverse
+/// lower case. Apple's own firmware relies on this: it prints "Apple //e" with
+/// lower-case codes while the primary set is selected (`$C00E`). Flashing codes
+/// (`$40-$7F`) are rendered in their inverse phase, as in the ][+ decode above.
 fn primary_index(code: u8) -> (usize, bool) {
-    ((code & 0x3f) as usize, code < 0x80)
+    match code {
+        0xe0..=0xff => (((code & 0x1f) | 0x60) as usize, false), // normal lower case
+        _ => ((code & 0x3f) as usize, code < 0x80),
+    }
 }
 
 /// Alternate-set screen code → (ROM glyph index, inverse?). This is the //e
@@ -274,25 +281,44 @@ mod tests {
     }
 
     #[test]
-    fn iie_primary_has_no_lower_case() {
-        // The primary set is Apple ][ compatible: $E1 shows the symbol '!'
-        // ($E1 & $3F = $21), not lower-case 'a'. It must differ from the
-        // alternate set's lower-case 'a' at the same code.
+    fn iie_primary_has_lower_case() {
+        // Both //e sets show lower case in the normal $E0-$FF range: the
+        // primary set's $E1 is the same lower-case 'a' as the alternate set's,
+        // and is NOT the symbol '!' ($A1). (The sets differ only in $40-$7F.)
+        // Apple's firmware depends on this — it prints "Apple //e" with
+        // lower-case codes while the primary set is selected.
         let chr = ChrE::new();
         assert_eq!(
             chr.bitmap(CharSet::Primary, 0xe1),
-            chr.bitmap(CharSet::Primary, 0xa1) // both '!'
+            chr.bitmap(CharSet::Alternate, 0xe1),
+            "primary $E1 is lower-case 'a', as in the alternate set"
         );
         assert_ne!(
             chr.bitmap(CharSet::Primary, 0xe1),
-            chr.bitmap(CharSet::Alternate, 0xe1)
+            chr.bitmap(CharSet::Primary, 0xa1),
+            "lower-case 'a' ($E1) is not the symbol '!' ($A1)"
         );
     }
 
     #[test]
+    fn iie_primary_and_alternate_match_across_normal_range() {
+        // The two sets are identical for every normal code $80-$FF (upper case,
+        // symbols and lower case). They diverge only in $40-$7F (flash vs
+        // MouseText / inverse lower case).
+        let chr = ChrE::new();
+        for code in 0x80u8..=0xff {
+            assert_eq!(
+                chr.bitmap(CharSet::Primary, code),
+                chr.bitmap(CharSet::Alternate, code),
+                "primary and alternate differ at normal code ${code:02X}"
+            );
+        }
+    }
+
+    #[test]
     fn iie_alternate_lower_case_a() {
-        // Lower-case 'a' is screen code $E1 in the alternate set — the
-        // capability the ][+ / primary sets cannot render.
+        // Lower-case 'a' is screen code $E1 in the alternate set (and the
+        // primary set — both //e sets render lower case; the ][+ cannot).
         let chr = ChrE::new();
         let expected = "\
 .......
