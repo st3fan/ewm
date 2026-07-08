@@ -352,6 +352,13 @@ impl Scr {
     pub fn update(&mut self, two: &Two, phase: u32, fps: u32) {
         let flash = !(phase / (fps / 4)).is_multiple_of(2);
 
+        // //e 80-column text renders natively into the 560-wide buffer; every
+        // other mode renders 280-wide and (on the //e) is pixel-doubled.
+        if two.model() == TwoType::Apple2E && two.col80() && two.screen_mode() == ScreenMode::Text {
+            self.render_txt_screen_80(two, flash);
+            return;
+        }
+
         match two.screen_mode() {
             ScreenMode::Text => self.render_txt_screen(two, flash),
             ScreenMode::Graphics => match two.screen_graphics_mode() {
@@ -361,9 +368,41 @@ impl Scr {
         }
 
         // The //e presents a 560-wide frame; at 40 columns it is the 280-wide
-        // render pixel-doubled horizontally (Phase 5b draws 80 columns natively).
+        // render pixel-doubled horizontally.
         if two.model() == TwoType::Apple2E {
             self.fill_wide();
+        }
+    }
+
+    /// Render the //e 80-column text screen directly into `wide` (560). The two
+    /// banks interleave: aux supplies the even display columns (0, 2, …, 78),
+    /// main the odd (1, 3, …, 79), each contributing byte `base + column/2` of
+    /// the row. Each character is a full 7 px wide (no doubling). Glyphs come
+    /// from the ALTCHARSET-selected set, so lower case and MouseText render.
+    fn render_txt_screen_80(&mut self, two: &Two, flash: bool) {
+        let main = two.ram();
+        let aux = two.aux_ram();
+        let alt = two.alt_charset();
+        for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate() {
+            let base = 0x400 + line_offset;
+            for column in 0..80 {
+                let bank = if column % 2 == 0 { aux } else { main };
+                let c = bank[base + column / 2];
+                let glyph = self.chre.glyph(alt, c);
+                let pos = (SCR_WIDTH_E * CHR_HEIGHT * row) + (CHR_WIDTH * column);
+                for y in 0..CHR_HEIGHT {
+                    for x in 0..CHR_WIDTH {
+                        let dst = &mut self.wide[pos + y * SCR_WIDTH_E + x];
+                        *dst = if (0x40..0x80).contains(&c) && flash {
+                            0
+                        } else if glyph[y * CHR_WIDTH + x] {
+                            self.text_color
+                        } else {
+                            0
+                        };
+                    }
+                }
+            }
         }
     }
 
