@@ -74,3 +74,56 @@ fn woz_dos33_boots_and_catalogs() {
         text.contains("DISK VOLUME") && text.contains("HELLO")
     });
 }
+
+// --- Protection burn-ins (Phase 3): a deterministic subset of the sweep ---
+// (the full sweep lives in zz_woz_sweep.rs, run manually with --ignored).
+
+fn boots_to_graphics(model: TwoType, name: &str, cap: u64) {
+    let path = format!(
+        "{}/../disks/woz/WOZ 1.0/{}.woz",
+        env!("CARGO_MANIFEST_DIR"),
+        name
+    );
+    let mut two = Two::new(model).unwrap();
+    two.load_disk(0, &path).expect("cannot load woz image");
+    two.cpu.reset();
+    let mut spent = 0u64;
+    while two.screen_mode() != ewm::two::ScreenMode::Graphics {
+        let mut done = 0u64;
+        while done < 1_000_000 {
+            done += two.cpu.step() as u64;
+        }
+        spent += 1_000_000;
+        assert!(
+            spent < cap,
+            "{name} did not reach graphics; screen was:\n{}",
+            two.text_screen()
+        );
+    }
+}
+
+/// The E7 protection (D5 E7 E7 E7 + `$C08D` sequencer-reset re-framing).
+#[test]
+fn woz_commando_boots() {
+    boots_to_graphics(TwoType::Apple2Plus, "Commando - Disk 1, Side A", 30_000_000);
+}
+
+/// Half-track stepping (odd TMAP positions with real content).
+#[test]
+fn woz_bilestoad_boots() {
+    boots_to_graphics(
+        TwoType::Apple2Plus,
+        "The Bilestoad - Disk 1, Side A",
+        30_000_000,
+    );
+}
+
+/// RWTS18 (Broderbund 18-sector format) on the 128K machine it requires.
+#[test]
+fn woz_wings_of_fury_boots_on_iie() {
+    boots_to_graphics(
+        TwoType::Apple2E,
+        "Wings of Fury - Disk 1, Side A",
+        60_000_000,
+    );
+}

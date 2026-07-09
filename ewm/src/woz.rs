@@ -206,8 +206,12 @@ fn parse_meta(chunk: &[u8]) -> Vec<(String, String)> {
 // that latches a byte when its MSB arrives, holds it readable for two more
 // bit cells (the hardware's read window), then tracks the next partial byte.
 
-/// CPU cycles per bit cell (4 µs at ~1 MHz).
-const CYCLES_PER_BIT: u64 = 4;
+// One bit cell is 4 µs: at EWM's 1,023,000 cycles/second that is
+// 1023/250 = 4.092 CPU cycles per bit. The fraction matters: cycle-counted
+// readers (RWTS18 and friends) are tuned to the real ~32.7-cycle nibble
+// spacing and drift out of the latch window at an even 32.0.
+const BIT_NUM: u64 = 1023; // cycles per BIT_DEN bits
+const BIT_DEN: u64 = 250;
 /// Completed bytes stay readable in the latch this many bit cells.
 const LATCH_HOLD_CELLS: u8 = 2;
 /// When a huge time gap elapses, re-sequence only this many trailing bits.
@@ -222,41 +226,38 @@ pub struct WozMedia {
     bit_pos: usize,
     /// Cycle stamp of the last time the cursor advanced.
     last_cycles: u64,
+    /// Fractional-bit remainder, in units of 1/BIT_NUM bit.
+    bit_acc: u64,
     shifter: u8,
     latch: u8,
     /// Bit cells the completed byte in `latch` remains held.
     hold: u8,
     /// Consecutive raw zero cells seen (MC3470 fake-bit trigger).
     zero_run: u32,
-    /// The spec's 32-byte random circular buffer (deterministically seeded).
-    fake: [u8; 32],
-    fake_pos: usize,
+    /// Q6 is high (`$C08D` was read): the shift register is parked and bits
+    /// fly past unshifted until the next `$C08C` access pulls Q6 low again.
+    held: bool,
+    /// Fake-bit noise source: a free-running xorshift32 (fixed seed, so runs
+    /// are reproducible, but the period is 2^32-1 — retry loops see fresh
+    /// noise on every revolution, unlike a short circular buffer).
+    rng: u32,
 }
 
 impl WozMedia {
     pub fn new(image: WozImage) -> WozMedia {
-        // Fill the fake-bit buffer from a fixed-seed xorshift32 so runs are
-        // reproducible (quirk: real MC3470 noise is truly random).
-        let mut fake = [0u8; 32];
-        let mut state = 0x00c0_ffeeu32;
-        for b in fake.iter_mut() {
-            state ^= state << 13;
-            state ^= state >> 17;
-            state ^= state << 5;
-            *b = state as u8;
-        }
         let tmap_val = image.tmap[0];
         WozMedia {
             image,
             tmap_val,
             bit_pos: 0,
             last_cycles: 0,
+            bit_acc: 0,
             shifter: 0,
             latch: 0,
             hold: 0,
             zero_run: 0,
-            fake,
-            fake_pos: 0,
+            held: false,
+            rng: 0x00c0_ffee,
         }
     }
 
@@ -292,16 +293,21 @@ impl WozMedia {
         }
     }
 
-    /// One bit from the spec's random circular buffer.
+    /// One bit of MC3470 noise (fixed-seed xorshift32: reproducible runs,
+    /// effectively non-periodic within a session).
     fn fake_bit(&mut self) -> u8 {
-        let bit = (self.fake[self.fake_pos >> 3] >> (7 - (self.fake_pos & 7))) & 1;
-        self.fake_pos = (self.fake_pos + 1) % 256;
-        bit
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 17;
+        self.rng ^= self.rng << 5;
+        (self.rng & 1) as u8
     }
 
     /// The next bit cell under the head, with MC3470 behavior: an empty
-    /// track position is pure noise, and after more than two consecutive
-    /// zero cells the amplifier turns background noise into fake bits.
+    /// track position is pure noise, and once the last **four** cells are
+    /// all zero the amplifier turns background noise into fake bits (the
+    /// 4-bit head-window rule from the WOZ reference implementation —
+    /// runs of exactly three zeros are deliberate, readable data on
+    /// `cleaned` images and must come back as real zeros).
     fn next_bit(&mut self) -> u8 {
         let len = self.track_len();
         if self.bit_pos >= len {
@@ -368,24 +374,56 @@ impl WozMedia {
     /// Advance the disk to `cycles` and return the data latch. While the
     /// motor is off the disk is not spinning: the cursor stays put and the
     /// stamp is pinned so no time is accumulated.
-    pub fn read(&mut self, cycles: u64, motor_on: bool) -> u8 {
-        if motor_on {
-            let elapsed = cycles.saturating_sub(self.last_cycles);
-            let n = elapsed / CYCLES_PER_BIT;
-            self.last_cycles += n * CYCLES_PER_BIT;
-            self.run(n as usize);
-        } else {
-            self.last_cycles = cycles;
+    ///
+    /// `resume` is true for `$C08C` accesses (Q6 low): if the register was
+    /// parked by a `$C08D` read, the bits that flew past during the hold are
+    /// skipped (the platter kept turning) and framing restarts *here* — the
+    /// heart of the E7 protection's re-framing trick.
+    pub fn read(&mut self, cycles: u64, motor_on: bool, resume: bool) -> u8 {
+        if self.held {
+            if resume {
+                let n = self.elapsed_bits(cycles, motor_on);
+                self.skip_bits(n);
+                self.held = false;
+            }
+            return self.latch;
         }
+        let n = self.elapsed_bits(cycles, motor_on);
+        self.run(n);
         self.latch
     }
 
-    /// `$C08D,X` read: reset the sequencer and clear the latch (the E7
-    /// protection uses this to re-frame the bit stream).
+    /// Whole bit cells elapsed since the last advance (4.092 cycles each,
+    /// tracked with a fractional remainder). While the motor is off the disk
+    /// is not spinning: the stamp is pinned and no time accumulates.
+    fn elapsed_bits(&mut self, cycles: u64, motor_on: bool) -> usize {
+        if !motor_on {
+            self.last_cycles = cycles;
+            return 0;
+        }
+        let elapsed = cycles.saturating_sub(self.last_cycles);
+        self.last_cycles = cycles;
+        self.bit_acc += elapsed * BIT_DEN;
+        let n = self.bit_acc / BIT_NUM;
+        self.bit_acc %= BIT_NUM;
+        n as usize
+    }
+
+    /// Move the cursor without sequencing (bits pass while Q6 is high).
+    fn skip_bits(&mut self, n: usize) {
+        let len = self.track_len();
+        self.bit_pos = (self.bit_pos + n) % len;
+        self.zero_run = 0;
+    }
+
+    /// `$C08D,X` read (Q6 high): clear and park the shift register and the
+    /// latch until the next `$C08C` access. The E7 protection uses this to
+    /// re-frame the bit stream, turning timing bits into data bits.
     pub fn reset_sequencer(&mut self) {
         self.shifter = 0;
         self.latch = 0;
         self.hold = 0;
+        self.held = true;
     }
 
     /// Pin the time stamp (drive just selected or motor just started, after

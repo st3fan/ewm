@@ -21,7 +21,7 @@ Applesauce in 2018) live in `disks/woz/WOZ 1.0/`.
 |---|---|---|---|
 | 1 | WOZ 1.0 container parser (`ewm/src/woz.rs`) + parse gates over all 21 images | M | Done |
 | 2 | Bit-stream engine + controller wiring → boots DOS 3.3 System Master.woz | L | Done |
-| 3 | Protection compatibility sweep + fixes + per-image table | M | Not started |
+| 3 | Protection compatibility sweep + fixes + per-image table | M | Done |
 | 4 | CLI/README/quirks polish | S | Not started |
 
 ## Why not "just another `DskType`"
@@ -107,21 +107,30 @@ Parse leniently, expose as a map; nothing depends on it.
 
 ### Emulation rules (the ones that matter)
 
-- **Timing:** one bit per 4 µs ≈ one bit per 4 CPU cycles at 1.023 MHz.
-  1 bit = flux transition, 0 = none.
-- **MC3470 fake bits:** on 3+ consecutive zeros, the real amplifier outputs
-  noise. Emulate with the spec's **32-byte random circular buffer**, consumed
-  while in "fake bit mode"; also used continuously for `0xFF` (empty) TMAP
-  entries, which get a synthetic **51,200-bit** length for position math.
-  Seed the PRNG **deterministically** so gates are reproducible while
-  protections still observe varying weak bits.
+- **Timing:** one bit per 4 µs = **1023/250 ≈ 4.092 CPU cycles** at EWM's
+  1.023 MHz (tracked with a fractional remainder — cycle-counted readers are
+  tuned to the real ~32.7-cycle nibble spacing). 1 bit = flux transition,
+  0 = none.
+- **MC3470 fake bits:** once the last **four** cells are all zero the
+  amplifier turns background noise into fake bits (the 4-bit head-window rule
+  from the WOZ reference implementation). *The spec's prose says "more than
+  two zeros", but the sweep proved the window rule is what images are
+  mastered against: Stargate's track 0 carries 416 deliberate runs of exactly
+  three zeros that must read back as real zeros on a `cleaned` image.* Noise
+  comes from a **fixed-seed free-running xorshift32** — reproducible runs,
+  but no short period (a periodic buffer locks deterministic retry loops into
+  repeating the same failure every revolution). Empty (`0xFF`) TMAP entries
+  are pure noise with the synthetic **51,200-bit** length for position math.
 - **Track change:** if the TMAP value is unchanged, keep streaming — do not
   reset anything. Otherwise preserve rotational position:
   `new_pos = pos × new_len / old_len`.
 - **Latch semantics:** even soft-switch addresses return the data latch;
-  `$C08D,X` resets the sequencer and clears the latch (the E7 protection
-  relies on this). The latch holds a completed byte (MSB set) until the next
-  byte starts assembling.
+  a completed byte (MSB set) stays readable for two bit cells, then the
+  latch tracks the next partial byte. **`$C08D,X` (Q6 high) clears and
+  *parks* the shift register — bits fly past unshifted until the next
+  `$C08C` access pulls Q6 low, and framing restarts there.** Getting both
+  halves right (the park *and* the platter continuing to turn during it) is
+  exactly what the E7 protection measures.
 - **Motor-off delay:** ~1 second after `$C088,X` (`$C0E8`) before the motor
   actually stops; protections read sectors during the spin-down.
 
@@ -167,6 +176,42 @@ Record a per-image compatibility table below.
 
 **Gate:** the sweep table checked in; a chosen subset asserted in CI
 (deterministic ones only).
+
+> **Landed.** The sweep (`ewm/tests/zz_woz_sweep.rs`, run with `--ignored`)
+> surfaced and fixed four engine/controller bugs: **(1)** soft switches must
+> respond to *writes* too (loaders step the head with `STA $C0E1,X`);
+> **(2)** the `$C08D` Q6 hold semantics above (unblocked the **E7**
+> protection: Commando, Wings of Fury); **(3)** the MC3470 threshold is the
+> **4-bit window**, not "3 zeros" (unblocked Stargate's boot stage);
+> **(4)** the fake-bit source must not be short-periodic. CI now asserts
+> Commando (E7), The Bilestoad (half-tracks) and Wings of Fury on the //e
+> (RWTS18 + 128K) in `two_woz.rs`. Results table below.
+
+### Compatibility (21 reference images)
+
+| Image | Result |
+|---|---|
+| DOS 3.3 System Master | ✅ boots + CATALOG (CI gate) |
+| Blazing Paddles (Baudville) | ✅ graphics |
+| Bouncing Kamungas | ✅ graphics |
+| Commando | ✅ graphics (E7; CI gate) |
+| Crisis Mountain | ✅ graphics |
+| Dino Eggs | ✅ graphics |
+| Hard Hat Mack | ✅ graphics |
+| Miner 2049er II | ✅ graphics |
+| Planetfall | ✅ gameplay (text adventure) |
+| Rescue Raiders Side B | ✅ graphics |
+| Sammy Lightfoot | ✅ graphics |
+| Stickybear Town Builder | ✅ graphics |
+| Take 1 (Baudville) | ✅ graphics |
+| The Apple at Play | ✅ menu |
+| The Bilestoad | ✅ graphics (half-tracks; CI gate) |
+| The Print Shop Companion | ✅ graphics |
+| Wings of Fury Side A | ✅ graphics **on the //e** (RWTS18; CI gate). On a ][+ it crashes into zero page — it is a 128K //e title; a real ][+ fares no better |
+| Wings of Fury Side B | ➖ data side; shows the boot banner and stops on both machines (believed not bootable by design) |
+| DOS 3.2 System Master | ➖ out of scope: 13-sector disks need the 13-sector boot ROM (quirk #3) |
+| Stargate | ❌ boots, then `I/O ERROR` (at the physically-correct 4.092 clock it fails slightly differently) — protection not yet cracked |
+| First Math Adventures | ❌ loads, then `BRK` at $A853 on both machines and both clock models — protection not yet cracked |
 
 ### Phase 4 — Polish (S)
 

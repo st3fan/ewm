@@ -231,6 +231,11 @@ impl Dsk {
         self.drive
     }
 
+    /// Debug/test: the selected drive's head position in half-tracks.
+    pub fn half_track(&self) -> i32 {
+        self.drives[self.drive].track
+    }
+
     /// Port of `dsk_phase`: stepper motor phase change moves the head by
     /// half-tracks, clamped to the 70 half-track range. WOZ media is told the
     /// new quarter-track position (half-track × 2; dual-phase quarter
@@ -355,7 +360,7 @@ impl Dsk {
                 if self.drives[d].loaded {
                     let wp = if self.drives[d].readonly { 0x80 } else { 0x00 };
                     let r = if let Media::Woz(w) = &mut self.drives[d].media {
-                        w.read(cycles, motor)
+                        w.read(cycles, motor, false)
                     } else {
                         self.read_next()
                     };
@@ -370,7 +375,7 @@ impl Dsk {
                 let d = self.drive;
                 if self.drives[d].loaded {
                     result = if let Media::Woz(w) = &mut self.drives[d].media {
-                        w.read(cycles, motor)
+                        w.read(cycles, motor, true)
                     } else {
                         self.read_next()
                     };
@@ -393,11 +398,39 @@ impl Dsk {
         result
     }
 
-    /// Port of `dsk_write` ($C0E0-$C0EF).
+    /// Port of `dsk_write` ($C0E0-$C0EF). The controller decodes the address
+    /// regardless of read/write, so the stepper, motor and drive-select
+    /// switches respond to writes too — some loaders (found in the WOZ
+    /// compatibility sweep) step the head with `STA $C0E1,X`-style writes.
     pub fn io_write(&mut self, addr: u16, b: u8, cycles: u64) {
-        self.motor_running(cycles);
+        let motor = self.motor_running(cycles);
         match addr {
+            0xc0e0 => self.phase(0, false),
+            0xc0e1 => self.phase(0, true),
+            0xc0e2 => self.phase(1, false),
+            0xc0e3 => self.phase(1, true),
+            0xc0e4 => self.phase(2, false),
+            0xc0e5 => self.phase(2, true),
+            0xc0e6 => self.phase(3, false),
+            0xc0e7 => self.phase(3, true),
+            0xc0e8 => {
+                if self.on && self.off_at.is_none() {
+                    self.off_at = Some(cycles + MOTOR_OFF_DELAY);
+                }
+            }
+            0xc0e9 => {
+                let d = self.drive;
+                if !motor && let Media::Woz(w) = &mut self.drives[d].media {
+                    w.sync(cycles);
+                }
+                self.on = true;
+                self.off_at = None;
+            }
+            0xc0ea => self.select_drive(DSK_DRIVE1, cycles),
+            0xc0eb => self.select_drive(DSK_DRIVE2, cycles),
+            0xc0ec => {} // Q6L write: loads the write shifter on real hardware
             0xc0ed => self.write_next(b),
+            0xc0ee => self.mode = Mode::Read,
             0xc0ef => self.mode = Mode::Write,
             _ => {
                 eprintln!("[DSK] Got an unhandled write to ${addr:04X}");
