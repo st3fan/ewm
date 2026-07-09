@@ -82,7 +82,10 @@ completes. **The tree must build and pass all verification gates after every pha
    tests depend on it).
 2. Disk II writes are no-ops (write support stubbed in `dsk.c`).
 3. The MHz display is fake (always ≈1.023 MHz, not measured).
-4. `apple2` (non-plus) and `apple2e` machine types return an error, as in C.
+4. `apple2` (non-plus) returns an error, as in C. *(No longer applies to
+   `apple2e`: the Enhanced //e is now a supported machine — `two --model 2e`,
+   see `notes/APPLE_IIE_ENHANCED.md`. Only the plain NMOS `apple2` still
+   errors.)*
 5. Cycle budget per frame = `1023000 / fps`, default 40 fps fixed step
    (`EWM_TWO_SPEED`, `EWM_TWO_FPS_DEFAULT` in `two.h`).
 6. CPU test success detection = branch-to-self deadlock check; start `$0400`,

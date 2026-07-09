@@ -17,6 +17,15 @@ these writes are no-ops; the emulator treats them the same way, just noisily
 (the messages come from the C-inherited `eprintln!` in `TwoIo`'s soft-switch
 catch-all, `ewm/src/two.rs`).
 
+> **On the Enhanced //e these are *not* no-ops.** Every `$C00x`/`$C05x` address
+> below is a real, implemented soft switch on the //e (`IouE` in `two.rs` — see
+> `notes/APPLE_IIE_ENHANCED.md`): `$C00E`/`$C00C` are ALTCHARSET/80COL,
+> `$C002`/`$C004` are RAMRD/RAMWRT, `$C008` is ALTZP, `$C00A`/`$C00B` are
+> INTC3ROM/SLOTC3ROM, and `$C05E`/`$C05F` are the DHIRES switch (under IOUDIS).
+> The "unexpected write" warnings therefore come only from the **][+** path;
+> the //e path acts on them. The `$C06x`/`$C074` accelerator registers remain
+> unimplemented on both machines.
+
 Every address in the log maps to a specific place in the Total Replay source
 (https://github.com/a2-4am/4cade, `src/`):
 
@@ -66,7 +75,7 @@ TR also probes the Zip Chip, whose lock register `$C05A` overlaps the
 annunciator range `$C058-$C05F` — which `TwoIo` ignores silently, as the
 C did. TR's own source flags that overlap.
 
-## If the noise ever bothers us
+## The noise is now gated
 
-The natural fix is gating the "Unexpected read/write" messages behind
-`--debug`. Until then they can be ignored.
+The "Unexpected read/write" messages are gated behind `--debug` (PR #215), so
+a normal `two` run is quiet; pass `--debug` to see them.

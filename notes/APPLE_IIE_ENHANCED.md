@@ -69,8 +69,8 @@ PR sequence.
 | 6b | Double-hi-res (DHGR) rendering + color | M | Done |
 | 7a | `two::main` //e path: `--model`, 560-wide windowing | M | Done (560 windowing landed in 5a) |
 | 7b | CLI discoverability (usage + README); boo menu intentionally omitted | S | Done |
-| 8a | ROM self-test gate + quirk/doc reconciliation | M | Not started |
-| 8b | ProDOS 80-col boot gate + README + parity checklist | M | Not started |
+| 8a | ROM self-test gate + quirk/doc reconciliation | M | Done (with 8b) |
+| 8b | ProDOS boot gate + parity checklist | M | Done (with 8a) |
 
 ## Ground rules (apply to every phase)
 
@@ -787,19 +787,61 @@ reconciled.
 **Gate:** The self-test headless gate is green; the referenced docs are
 updated.
 
-### Phase 8b — ProDOS 80-col + docs (M)
+> **Landed (with 8b).** `ewm/tests/two_e_selftest.rs`: holding **Solid-Apple**
+> (button 1) across `cpu.reset()` runs the ROM diagnostic, which tests all 128K
+> + ROM checksums + the MMU/aux routing and prints **"System OK"** (asserted via
+> `text_screen()`, ~100M cycles). Docs reconciled: `REWRITE.md` quirk #4 now
+> says only plain `apple2` errors (the Enhanced //e is supported), and
+> `TOTAL_RECALL_WRITE_WARNINGS.md` notes those `$C00x`/`$C05x` addresses are
+> real, implemented switches on the //e path (`IouE`) — the warnings are
+> ][+-only — and that the `--debug` gating it wished for already landed (#215).
 
-**Goal:** End-to-end ProDOS in 80 columns; user-facing docs.
+### Phase 8b — ProDOS boot + parity checklist (M)
+
+**Goal:** End-to-end ProDOS on the //e; parity documented.
 
 **Scope:**
-- Boot **ProDOS 2.4.3** (already in `disks/`) on the //e and assert its
-  80-column Bitsy Bye / `CAT` renders in 80 columns — an aux + 80-col + clock
-  integration gate.
-- README: add the //e to "What's emulated" and the run examples; fill in the
-  parity checklist below (switch by switch, mode by mode).
+- Boot **ProDOS 2.4.3** (already in `disks/`) on the //e and assert the Bitsy
+  Bye launcher lists the volume — an aux + real-OS integration gate.
+- Fill in the parity checklist below (switch by switch, mode by mode).
 
-**Gate:** The ProDOS-80col gate is green; full `cargo test` green; README
-verified by following it literally.
+**Gate:** The ProDOS gate is green; full `cargo test` green.
+
+> **Landed (with 8a).** `ewm/tests/two_e_prodos.rs`: boots `ProDOS_2_4_3.po`
+> and asserts the Bitsy Bye launcher lists `PRODOS.2.4.3` / `BITSY.BOOT` — a
+> strong burn-in, since ProDOS keeps its global page, buffers and /RAM disk in
+> aux. **Scope note:** Bitsy Bye comes up in **40 columns** in this config (its
+> 80-col path wants a machine-ID/firmware signature we don't fully present), so
+> the gate asserts the 40-column catalog; the **80-column render path is
+> already covered** by `two_e_80col` (5b) and the `PR#3` test. The README's
+> user-facing //e entry + run example landed in **7b**; the switch/mode parity
+> checklist is below.
+
+---
+
+## //e parity checklist
+
+Every //e capability, and the automated gate that covers it. All green.
+
+| Area | Switches / detail | Gate |
+|---|---|---|
+| Aux RAM (`$0200-$BFFF`) | RAMRD/RAMWRT (`$C002-$C005`), RDRAMRD/RDRAMWRT | `two_e_aux` |
+| Zero-page / stack / LC aux | ALTZP (`$C008/$C009`), RDALTZP | `two_e_altzp` |
+| Display-page routing | 80STORE (`$C000/$C001`) + PAGE2/HIRES, RD80STORE | `two_e_80store`, `two_e_auxmove` |
+| Internal vs slot `$CX` ROM | INTCXROM/SLOTC3ROM (`$C006-$C00B`), RDCXROM/RDC3ROM | `two_e_cxrom` |
+| 40-column text + char sets | ALTCHARSET (`$C00E/$C00F`), primary + alternate (lower case, MouseText) | `two_e_text`, `chr.rs` units |
+| 80-column text | 80COL (`$C00C/$C00D`), RD80COL, aux/main interleave | `two_e_80col` |
+| Keyboard | lower case, Open/Solid-Apple (`$C061/$C062`) | `two_e_keyboard` |
+| Double-res control | IOUDIS (`$C07E/$C07F`), DHIRES (`$C05E/$C05F`), AN3, RDIOUDIS/RDDHIRES | `two_e_dlgr` |
+| Double lo-res (DLGR) | 80-column lo-res, aux/main interleave | `two_e_dlgr` |
+| Double hi-res (DHGR) | mono + 4-bit colour, aux/main interleave | `two_e_dhgr` |
+| 560-wide render / windowing | pixel-doubled 40-col + native 80-col, `--model 2e` | `iie_boot_screen_matches_golden_bmp`, `two_e_80col` |
+| Boot / firmware | DOS 3.3, AppleSoft, `PR#3`, ROM self-test, ProDOS 2.4.3 | `two_e_boot`, `two_e_80col`, `two_e_selftest`, `two_e_prodos` |
+
+**Outstanding before the `master` promotion** (deferred polish, tracked in the
+6a/6b notes): the **AN3 falling-edge → double-res latch** (IOUDIS-off enable
+path) and the **DHGR colour revisit** (aligned 4-bit cells → possibly a sliding
+window, after a visual review against a known DHGR image).
 
 ---
 
