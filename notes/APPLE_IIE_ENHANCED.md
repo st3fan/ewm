@@ -852,11 +852,18 @@ Every //e capability, and the automated gate that covers it. All green.
 | 560-wide render / windowing | pixel-doubled 40-col + native 80-col, `--model 2e` | `iie_boot_screen_matches_golden_bmp`, `two_e_80col` |
 | Boot / firmware | DOS 3.3, AppleSoft, `PR#3`, ROM self-test, ProDOS 2.4.3 | `two_e_boot`, `two_e_80col`, `two_e_selftest`, `two_e_prodos` |
 
-**Outstanding before the `master` promotion**: the **DHGR colour revisit**
-(aligned 4-bit cells → possibly a sliding window, after a visual review against
-a known DHGR image). *(The AN3 double-res item is now resolved — see the
-AN3/DHIRES correction under 6a and the quirk below — there is no base-//e AN3
-latch to add.)*
+**Nothing is outstanding for the `master` promotion.** The two items once
+listed here are resolved:
+
+- The **AN3 double-res latch** turned out not to be a base-//e feature — see
+  the AN3/DHIRES correction under 6a and quirk #7 below.
+- The **DHGR colour revisit** was performed as an experiment: a sliding 4-bit
+  window renderer was built and compared against the aligned-cell default
+  (identical on stable content, more hardware-like fringing at edges). The
+  owner decided to **ship with aligned cells as the default**; the experiment
+  is preserved on the `iie/experiment-dhgr-color` branch, with findings and a
+  promotion checklist in `notes/DHGR_COLOR_EXPERIMENT.md` on that branch, as a
+  post-promotion follow-up candidate.
 
 ---
 
