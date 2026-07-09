@@ -23,6 +23,17 @@ pub enum ColorScheme {
     Color,
 }
 
+/// How the DHGR colour path interprets the 560-bit stream (experimental —
+/// under visual review, see the plan doc).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DhgrColorMode {
+    /// 140 aligned 4-bit cells, each one lo-res colour drawn 4 px wide.
+    Aligned,
+    /// Per-pixel colour from the trailing 4-bit window, phase-weighted —
+    /// closer to NTSC composite fringing.
+    Sliding,
+}
+
 /// The pixel layouts `ewm_sdl_pixel_format` can pick; used to pack RGBA
 /// colors the way `SDL_MapRGBA` would for the renderer's surface format.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -120,6 +131,8 @@ pub struct Scr {
     /// The 16 lo-res colors packed, reused as the //e double-hi-res palette
     /// (Phase 6b): a 4-bit DHGR cell selects one of these.
     lores_palette: [u32; 16],
+    /// DHGR colour interpretation (experimental; defaults to aligned cells).
+    dhgr_color_mode: DhgrColorMode,
 }
 
 impl Scr {
@@ -164,7 +177,13 @@ impl Scr {
             hgr_colors1: pack4(&HGR_COLORS1),
             hgr_colors2: pack4(&HGR_COLORS2),
             lores_palette,
+            dhgr_color_mode: DhgrColorMode::Aligned,
         }
+    }
+
+    /// Select the DHGR colour interpretation (experimental).
+    pub fn set_dhgr_color_mode(&mut self, mode: DhgrColorMode) {
+        self.dhgr_color_mode = mode;
     }
 
     /// The character generator, shared with the status bar renderer.
@@ -479,8 +498,8 @@ impl Scr {
     ///
     /// NOTE (Phase 6b): the colour path uses *aligned* 4-bit cells with the
     /// leftmost bit as the least-significant. This is the simple, deterministic
-    /// convention; we may switch to a sliding 4-bit window (closer to NTSC
-    /// fringing) after visual review — see the plan doc.
+    /// convention; a sliding 4-bit window (closer to NTSC fringing) is under
+    /// experiment via `set_dhgr_color_mode` — see the plan doc.
     fn render_dhgr_screen(&mut self, two: &Two, flash: bool) {
         let main = two.ram();
         let aux = two.aux_ram();
@@ -500,16 +519,9 @@ impl Scr {
             }
             let row = SCR_WIDTH_E * line;
             if color {
-                for cell in 0..SCR_WIDTH_E / 4 {
-                    let x = cell * 4;
-                    let v = (bits[x] as usize)
-                        | (bits[x + 1] as usize) << 1
-                        | (bits[x + 2] as usize) << 2
-                        | (bits[x + 3] as usize) << 3;
-                    let c = self.lores_palette[v];
-                    for p in 0..4 {
-                        self.wide[row + x + p] = c;
-                    }
+                match self.dhgr_color_mode {
+                    DhgrColorMode::Aligned => self.render_dhgr_line_aligned(&bits, row),
+                    DhgrColorMode::Sliding => self.render_dhgr_line_sliding(&bits, row),
                 }
             } else {
                 for (x, &on) in bits.iter().enumerate() {
@@ -522,6 +534,39 @@ impl Scr {
             for (r, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
                 self.render_txt_row_80(main, aux, alt, r, line_offset, flash);
             }
+        }
+    }
+
+    /// Aligned 4-bit cells: 140 cells, each one lo-res colour drawn 4 px wide.
+    fn render_dhgr_line_aligned(&mut self, bits: &[bool; SCR_WIDTH_E], row: usize) {
+        for cell in 0..SCR_WIDTH_E / 4 {
+            let x = cell * 4;
+            let v = (bits[x] as usize)
+                | (bits[x + 1] as usize) << 1
+                | (bits[x + 2] as usize) << 2
+                | (bits[x + 3] as usize) << 3;
+            let c = self.lores_palette[v];
+            for p in 0..4 {
+                self.wide[row + x + p] = c;
+            }
+        }
+    }
+
+    /// Sliding 4-bit window (experimental): each pixel's colour comes from the
+    /// last four bits of the stream, each weighted by its NTSC colour phase
+    /// (`1 << (position & 3)`). At cell-aligned positions this reduces to the
+    /// aligned value, but edges that cross cell boundaries produce the fringing
+    /// a real composite monitor shows instead of 4-px colour blocks.
+    fn render_dhgr_line_sliding(&mut self, bits: &[bool; SCR_WIDTH_E], row: usize) {
+        for x in 0..SCR_WIDTH_E {
+            let lo = x.saturating_sub(3);
+            let mut v = 0usize;
+            for (p, &on) in bits[lo..=x].iter().enumerate().map(|(i, b)| (lo + i, b)) {
+                if on {
+                    v |= 1 << (p & 3);
+                }
+            }
+            self.wide[row + x] = self.lores_palette[v];
         }
     }
 
