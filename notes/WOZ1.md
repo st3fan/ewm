@@ -13,7 +13,11 @@ build and pass all verification gates (`cargo fmt --check`,
 
 Reference: the WOZ 1.0 specification at
 <https://applesaucefdc.com/woz/reference1/>. Test images (21, imaged with
-Applesauce in 2018) live in `disks/woz/WOZ 1.0/`.
+Applesauce in 2018) live in `disks/woz/WOZ 1.0/`. **Only
+`DOS 3.3 System Master.woz` is committed** (Apple system software, matching
+the repo's `.dsk` precedent — `disks/` is otherwise gitignored); the CI gates
+that need the other images skip with a message when they are absent and run
+fully on a checkout that has them.
 
 ## Status
 

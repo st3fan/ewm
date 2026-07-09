@@ -84,6 +84,12 @@ fn boots_to_graphics(model: TwoType, name: &str, cap: u64) {
         env!("CARGO_MANIFEST_DIR"),
         name
     );
+    // The protected reference images are not committed (only Apple system
+    // software is, per repo precedent) — exercise them when present locally.
+    if !std::path::Path::new(&path).exists() {
+        eprintln!("skipping: {name}.woz not present");
+        return;
+    }
     let mut two = Two::new(model).unwrap();
     two.load_disk(0, &path).expect("cannot load woz image");
     two.cpu.reset();
