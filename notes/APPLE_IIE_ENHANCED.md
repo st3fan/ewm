@@ -682,6 +682,20 @@ correct.
 > flagged (a documented drift point) — level-based DHIRES is enough for DLGR and
 > matches the no-cycle-timing stance (quirk #5). The ][+ path is untouched.
 
+> **Corrected later (AN3/DHIRES fix).** Researching the deferred AN3 item
+> revealed the 6a model above was wrong: it faithfully implemented the //e
+> **Technical Reference, which copy-pasted //c behavior**. On real //e hardware
+> (verified by floating-bus analysis — MAME PR #14307 — and matching Apple's own
+> DHGR tech note, which enables double-res purely via *"AN3 off, `$C05E`"* and
+> never mentions IOUDIS): **there is no IOUDIS switch**, `$C07E`/`$C07F` and
+> `RDIOUDIS`/`RDDHIRES` float, and **DHIRES = inverted AN3** — `$C05E`
+> (AN3 off) turns double-res on, `$C05F` (AN3 on) off, on any access, resetting
+> off (AN3 on). `IouE` now keeps only `dhires`; `$C07E`/`$C07F` are inert. The
+> "AN3 falling-edge latch" is **not** a base-//e feature — it's the Video7 RGB
+> card's DHGR colour-mode selector (out of scope). See the quirk entry below.
+> Render/goldens unchanged (`$C05E` still enables); `two_e_dlgr` switch tests
+> rewritten to the AN3 model.
+
 ### Phase 6b — Double-hi-res (DHGR) (M)
 
 **Goal:** DHGR renders in monochrome and color.
@@ -832,16 +846,17 @@ Every //e capability, and the automated gate that covers it. All green.
 | 40-column text + char sets | ALTCHARSET (`$C00E/$C00F`), primary + alternate (lower case, MouseText) | `two_e_text`, `chr.rs` units |
 | 80-column text | 80COL (`$C00C/$C00D`), RD80COL, aux/main interleave | `two_e_80col` |
 | Keyboard | lower case, Open/Solid-Apple (`$C061/$C062`) | `two_e_keyboard` |
-| Double-res control | IOUDIS (`$C07E/$C07F`), DHIRES (`$C05E/$C05F`), AN3, RDIOUDIS/RDDHIRES | `two_e_dlgr` |
+| Double-res control | DHIRES = inverted AN3 (`$C05E`/`$C05F`); `$C07E/$C07F` IOUDIS don't exist on the //e (inert/float) | `two_e_dlgr` |
 | Double lo-res (DLGR) | 80-column lo-res, aux/main interleave | `two_e_dlgr` |
 | Double hi-res (DHGR) | mono + 4-bit colour, aux/main interleave | `two_e_dhgr` |
 | 560-wide render / windowing | pixel-doubled 40-col + native 80-col, `--model 2e` | `iie_boot_screen_matches_golden_bmp`, `two_e_80col` |
 | Boot / firmware | DOS 3.3, AppleSoft, `PR#3`, ROM self-test, ProDOS 2.4.3 | `two_e_boot`, `two_e_80col`, `two_e_selftest`, `two_e_prodos` |
 
-**Outstanding before the `master` promotion** (deferred polish, tracked in the
-6a/6b notes): the **AN3 falling-edge → double-res latch** (IOUDIS-off enable
-path) and the **DHGR colour revisit** (aligned 4-bit cells → possibly a sliding
-window, after a visual review against a known DHGR image).
+**Outstanding before the `master` promotion**: the **DHGR colour revisit**
+(aligned 4-bit cells → possibly a sliding window, after a visual review against
+a known DHGR image). *(The AN3 double-res item is now resolved — see the
+AN3/DHIRES correction under 6a and the quirk below — there is no base-//e AN3
+latch to add.)*
 
 ---
 
@@ -868,6 +883,19 @@ Seed list; append during implementation, mirroring `REWRITE.md`'s
    the rewrite's existing stance.
 6. **Character ROM `+1` offset** in the current `chr.rs` is specific to the
    ][+ 2716 dump and is *not* reused for the //e 4K ROM.
+7. **No IOUDIS on the //e; DHIRES = inverted AN3.** The //e Technical Reference
+   describes an IOUDIS switch (`$C07E`/`$C07F`) gating DHIRES, with
+   `RDIOUDIS`/`RDDHIRES` reads — but that is **//c** behavior copy-pasted in
+   error. On real //e hardware those addresses **float** (verified by
+   floating-bus analysis, [MAME PR #14307](https://github.com/mamedev/mame/pull/14307)),
+   and double-resolution is enabled **directly by annunciator 3**: `$C05E`
+   (AN3 off) → DHIRES on, `$C05F` (AN3 on) → DHIRES off, on any access, resetting
+   off. This matches Apple's own [Double Hi-Res tech note](http://www.appleoldies.ca/graphics/dhgr/dhgrtechnote.txt)
+   (*"AN3 must be turned off … by reading `$C05E`"*, no IOUDIS) and the
+   comp.emulators.apple2 "DHGR Video Riddle" analysis. EWM models exactly this;
+   `$C07E`/`$C07F` are inert. The **AN3 falling-edge latch** some sources
+   describe is the **Video7 RGB card**'s DHGR colour-mode selector, a card
+   feature we do not emulate — not a base-//e behavior.
 
 ## Risks & open questions
 

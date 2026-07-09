@@ -10,7 +10,7 @@ use ewm::two::{Two, TwoType};
 const GRAPHICS: u16 = 0xc050;
 const HIRES: u16 = 0xc057;
 const COL80_ON: u16 = 0xc00d;
-const DHIRES_ON: u16 = 0xc05e; // IOUDIS on by default -> DHIRES
+const DHIRES_ON: u16 = 0xc05e; // AN3 off -> DHIRES on
 const RAMWRT_OFF: u16 = 0xc004;
 const RAMWRT_ON: u16 = 0xc005;
 const HGR1: u16 = 0x2000; // hi-res page 1, line 0
