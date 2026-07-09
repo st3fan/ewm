@@ -1,6 +1,6 @@
-//! WOZ 1.0 disk image support: the container parser (this phase) and the
-//! bit-stream engine the Disk II controller drives (next phase). See
-//! `notes/WOZ1.md` for the plan and the format digest, and
+//! WOZ 1.0 disk image support: the container parser and the bit-stream
+//! engine the Disk II controller (`dsk.rs`) drives. See `notes/WOZ1.md` for
+//! the plan and the format digest, and
 //! <https://applesaucefdc.com/woz/reference1/> for the specification.
 //!
 //! A WOZ image is a bit-accurate recording of a floppy: each track is a
@@ -195,6 +195,204 @@ fn parse_meta(chunk: &[u8]) -> Vec<(String, String)> {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
         })
         .collect()
+}
+
+// --- The bit-stream engine (Phase 2) ---
+//
+// The Disk II controller in `dsk.rs` drives this per WOZ-loaded drive. The
+// disk "spins" lazily: on every latch access the engine advances its bit
+// cursor by elapsed-CPU-cycles / 4 (one 4 µs cell per bit at 1.023 MHz) and
+// runs each bit through a simplified Logic State Sequencer: a shift register
+// that latches a byte when its MSB arrives, holds it readable for two more
+// bit cells (the hardware's read window), then tracks the next partial byte.
+
+/// CPU cycles per bit cell (4 µs at ~1 MHz).
+const CYCLES_PER_BIT: u64 = 4;
+/// Completed bytes stay readable in the latch this many bit cells.
+const LATCH_HOLD_CELLS: u8 = 2;
+/// When a huge time gap elapses, re-sequence only this many trailing bits.
+const RESYNC_BITS: usize = 64;
+
+/// A WOZ image mounted in a drive, plus the read-head state.
+pub struct WozMedia {
+    image: WozImage,
+    /// The TMAP value under the head: a TRKS index, or `0xFF` for no track.
+    tmap_val: u8,
+    /// Bit cursor within the current track (`< track_len()`).
+    bit_pos: usize,
+    /// Cycle stamp of the last time the cursor advanced.
+    last_cycles: u64,
+    shifter: u8,
+    latch: u8,
+    /// Bit cells the completed byte in `latch` remains held.
+    hold: u8,
+    /// Consecutive raw zero cells seen (MC3470 fake-bit trigger).
+    zero_run: u32,
+    /// The spec's 32-byte random circular buffer (deterministically seeded).
+    fake: [u8; 32],
+    fake_pos: usize,
+}
+
+impl WozMedia {
+    pub fn new(image: WozImage) -> WozMedia {
+        // Fill the fake-bit buffer from a fixed-seed xorshift32 so runs are
+        // reproducible (quirk: real MC3470 noise is truly random).
+        let mut fake = [0u8; 32];
+        let mut state = 0x00c0_ffeeu32;
+        for b in fake.iter_mut() {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            *b = state as u8;
+        }
+        let tmap_val = image.tmap[0];
+        WozMedia {
+            image,
+            tmap_val,
+            bit_pos: 0,
+            last_cycles: 0,
+            shifter: 0,
+            latch: 0,
+            hold: 0,
+            zero_run: 0,
+            fake,
+            fake_pos: 0,
+        }
+    }
+
+    pub fn write_protected(&self) -> bool {
+        self.image.info.write_protected
+    }
+
+    /// The bit length of the track under the head (empty positions get the
+    /// spec's synthetic 51,200-bit length so position math keeps working).
+    fn track_len(&self) -> usize {
+        if self.tmap_val == 0xff {
+            WOZ_EMPTY_TRACK_BITS
+        } else {
+            self.image.tracks[self.tmap_val as usize].bit_count
+        }
+    }
+
+    /// Move the head to a quarter-track position (the stepper landed there).
+    /// If the TMAP entry is unchanged the stream continues untouched; on a
+    /// real change the rotational position is preserved by scaling, per the
+    /// spec: `new_pos = pos × new_len / old_len`.
+    pub fn step_to(&mut self, quarter_track: usize) {
+        let new = self.image.tmap[quarter_track.min(159)];
+        if new == self.tmap_val {
+            return;
+        }
+        let old_len = self.track_len();
+        self.tmap_val = new;
+        let new_len = self.track_len();
+        self.bit_pos = self.bit_pos * new_len / old_len;
+        if self.bit_pos >= new_len {
+            self.bit_pos = 0;
+        }
+    }
+
+    /// One bit from the spec's random circular buffer.
+    fn fake_bit(&mut self) -> u8 {
+        let bit = (self.fake[self.fake_pos >> 3] >> (7 - (self.fake_pos & 7))) & 1;
+        self.fake_pos = (self.fake_pos + 1) % 256;
+        bit
+    }
+
+    /// The next bit cell under the head, with MC3470 behavior: an empty
+    /// track position is pure noise, and after more than two consecutive
+    /// zero cells the amplifier turns background noise into fake bits.
+    fn next_bit(&mut self) -> u8 {
+        let len = self.track_len();
+        if self.bit_pos >= len {
+            self.bit_pos = 0;
+        }
+        let raw = if self.tmap_val == 0xff {
+            None
+        } else {
+            Some(self.image.tracks[self.tmap_val as usize].bit(self.bit_pos))
+        };
+        self.bit_pos += 1;
+        if self.bit_pos == len {
+            self.bit_pos = 0;
+        }
+        match raw {
+            None => self.fake_bit(),
+            Some(1) => {
+                self.zero_run = 0;
+                1
+            }
+            Some(_) => {
+                self.zero_run += 1;
+                if self.zero_run > 2 {
+                    self.fake_bit()
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    /// Run `n` bit cells through the sequencer.
+    fn run(&mut self, mut n: usize) {
+        let len = self.track_len();
+        // A long gap (seconds of spinning without reads): jump the cursor and
+        // re-sequence only the trailing bits — the sequencer's state depends
+        // only on recent history.
+        if n > len + RESYNC_BITS {
+            let skip = n - RESYNC_BITS;
+            self.bit_pos = (self.bit_pos + skip) % len;
+            self.zero_run = 0;
+            n = RESYNC_BITS;
+        }
+        for _ in 0..n {
+            let bit = self.next_bit();
+            if self.hold > 0 {
+                self.hold -= 1;
+            }
+            self.shifter = (self.shifter << 1) | bit;
+            if self.shifter & 0x80 != 0 {
+                // A byte completed: latch it and hold it readable while the
+                // sequencer starts on the next byte.
+                self.latch = self.shifter;
+                self.shifter = 0;
+                self.hold = LATCH_HOLD_CELLS;
+            } else if self.hold == 0 {
+                // Outside the hold window the latch tracks the partial byte
+                // (MSB clear), so polls wait for the next completion.
+                self.latch = self.shifter;
+            }
+        }
+    }
+
+    /// Advance the disk to `cycles` and return the data latch. While the
+    /// motor is off the disk is not spinning: the cursor stays put and the
+    /// stamp is pinned so no time is accumulated.
+    pub fn read(&mut self, cycles: u64, motor_on: bool) -> u8 {
+        if motor_on {
+            let elapsed = cycles.saturating_sub(self.last_cycles);
+            let n = elapsed / CYCLES_PER_BIT;
+            self.last_cycles += n * CYCLES_PER_BIT;
+            self.run(n as usize);
+        } else {
+            self.last_cycles = cycles;
+        }
+        self.latch
+    }
+
+    /// `$C08D,X` read: reset the sequencer and clear the latch (the E7
+    /// protection uses this to re-frame the bit stream).
+    pub fn reset_sequencer(&mut self) {
+        self.shifter = 0;
+        self.latch = 0;
+        self.hold = 0;
+    }
+
+    /// Pin the time stamp (drive just selected or motor just started, after
+    /// a period of not spinning).
+    pub fn sync(&mut self, cycles: u64) {
+        self.last_cycles = cycles;
+    }
 }
 
 /// Standard CRC-32 (the Gary S. Brown 1986 table-driven variant the WOZ spec

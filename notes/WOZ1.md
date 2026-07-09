@@ -20,7 +20,7 @@ Applesauce in 2018) live in `disks/woz/WOZ 1.0/`.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | 1 | WOZ 1.0 container parser (`ewm/src/woz.rs`) + parse gates over all 21 images | M | Done |
-| 2 | Bit-stream engine + controller wiring → boots DOS 3.3 System Master.woz | L | Not started |
+| 2 | Bit-stream engine + controller wiring → boots DOS 3.3 System Master.woz | L | Done |
 | 3 | Protection compatibility sweep + fixes + per-image table | M | Not started |
 | 4 | CLI/README/quirks polish | S | Not started |
 

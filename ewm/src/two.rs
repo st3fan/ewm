@@ -1498,8 +1498,10 @@ fn render_status_bar(
         let Some(glyph) = scr_chr.bitmap(code) else {
             continue;
         };
-        let drive1_active = two.dsk().on && i == 35 && two.dsk().active_drive() == 0;
-        let drive2_active = two.dsk().on && i == 38 && two.dsk().active_drive() == 1;
+        let drive1_active =
+            two.dsk().motor_lit(two.cpu.counter) && i == 35 && two.dsk().active_drive() == 0;
+        let drive2_active =
+            two.dsk().motor_lit(two.cpu.counter) && i == 38 && two.dsk().active_drive() == 1;
         let color = if drive1_active || drive2_active {
             green
         } else {
