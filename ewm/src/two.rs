@@ -80,15 +80,14 @@ const SS_GRAPHICS_MODE_LGR: u16 = 0xc056;
 const SS_GRAPHICS_MODE_HGR: u16 = 0xc057;
 const SS_SETAN0: u16 = 0xc058;
 const SS_CLRAN3: u16 = 0xc05f;
-// $C05E/$C05F are dual-purpose (Phase 6a): under IOUDIS they are the DHIRES
-// switch (on/off), otherwise annunciator 3 (clear/set).
+// On the //e, $C05E/$C05F drive the DHIRES (double-resolution) switch directly
+// via annunciator 3: $C05E clears AN3 -> DHIRES on, $C05F sets AN3 -> DHIRES
+// off. (There is no IOUDIS gate; IOUDIS/RDIOUDIS/RDDHIRES at $C07E/$C07F are a
+// //c feature the //e Technical Reference documents in error — verified
+// floating on real //e hardware. See the AN3/DHIRES note in
+// notes/APPLE_IIE_ENHANCED.md.)
 const SS_DHIRES_ON: u16 = 0xc05e;
 const SS_DHIRES_OFF: u16 = 0xc05f;
-// IOUDIS ($C07E on / $C07F off); reads return RDIOUDIS / RDDHIRES in bit 7.
-const SS_SET_IOUDIS: u16 = 0xc07e;
-const SS_CLR_IOUDIS: u16 = 0xc07f;
-const SS_RDIOUDIS: u16 = 0xc07e;
-const SS_RDDHIRES: u16 = 0xc07f;
 const SS_PB3: u16 = 0xc060; // TODO On the gs only? (comment from two.c)
 const SS_PB0: u16 = 0xc061;
 const SS_PB1: u16 = 0xc062;
@@ -394,14 +393,11 @@ struct IouE {
     altcharset: bool,
 
     // --- Phase 6a: double-resolution control ---
-    /// IOUDIS (`$C07E` on / `$C07F` off). When on (the reset default), `$C05E`/
-    /// `$C05F` are the DHIRES switch; when off they are annunciator 3.
-    ioudis: bool,
-    /// DHIRES (`$C05E` on / `$C05F` off, only while IOUDIS is on): double
-    /// resolution enable. Combined with LORES + 80COL this is double lo-res.
+    /// DHIRES: double-resolution enable, driven directly by annunciator 3 —
+    /// `$C05E` (AN3 off) turns it on, `$C05F` (AN3 on) off. Combined with 80COL
+    /// this gives double lo-res (LORES) or double hi-res (HIRES). Resets off
+    /// (AN3 on). There is no IOUDIS switch on the //e.
     dhires: bool,
-    /// Annunciator 3, controlled by `$C05E`/`$C05F` only while IOUDIS is off.
-    an3: bool,
 
     // --- Phase 3b: game-I/O buttons ---
     /// Push-button / paddle inputs, read at `$C061-$C063` (bit 7 = pressed).
@@ -466,10 +462,7 @@ impl IouE {
             hires: false,
             col80: false,
             altcharset: false,
-            // IOUDIS resets on (so $C05E/$C05F are the DHIRES switch), DHIRES off.
-            ioudis: true,
-            dhires: false,
-            an3: false,
+            dhires: false, // AN3 resets on, so DHIRES is off
             buttons: [0; 4],
             screen_dirty: true,
             speaker_toggles: Vec::new(),
@@ -669,15 +662,12 @@ impl IouE {
         self.screen_dirty = true;
     }
 
-    /// Access `$C05E`/`$C05F` (on any read or write). IOUDIS routes them: while
-    /// it is on they are the DHIRES switch (`$C05E` on, `$C05F` off); while it
-    /// is off they clear/set annunciator 3 instead.
-    fn access_dhires_an3(&mut self, addr: u16) {
-        if self.ioudis {
-            self.dhires = addr == SS_DHIRES_ON; // $C05E on, $C05F off
-        } else {
-            self.an3 = addr == SS_CLRAN3; // $C05E clears AN3, $C05F sets it
-        }
+    /// Access `$C05E`/`$C05F` (on any read or write). On the //e these drive
+    /// DHIRES directly through annunciator 3: `$C05E` clears AN3 → DHIRES on,
+    /// `$C05F` sets AN3 → DHIRES off. (No IOUDIS gate — that is a //c switch the
+    /// //e Tech Ref documents in error.)
+    fn access_dhires(&mut self, addr: u16) {
+        self.dhires = addr == SS_DHIRES_ON; // $C05E on, $C05F off
         self.screen_dirty = true;
     }
 
@@ -696,9 +686,9 @@ impl IouE {
                 self.set_display_switch(addr);
                 0
             }
-            // DHIRES / AN3 ($C05E/$C05F) also toggle on read.
+            // DHIRES ($C05E/$C05F) toggles on read as well as write.
             SS_DHIRES_ON | SS_DHIRES_OFF => {
-                self.access_dhires_an3(addr);
+                self.access_dhires(addr);
                 0
             }
 
@@ -723,9 +713,8 @@ impl IouE {
             SS_RDHIRES => (self.hires as u8) << 7,
             SS_RDALTCHAR => (self.altcharset as u8) << 7,
             SS_RD80COL => (self.col80 as u8) << 7,
-            // $C07E reads IOUDIS, $C07F reads DHIRES (bit 7).
-            SS_RDIOUDIS => (self.ioudis as u8) << 7,
-            SS_RDDHIRES => (self.dhires as u8) << 7,
+            // $C07E/$C07F (RDIOUDIS/RDDHIRES) do not exist on the //e — they
+            // float; fall through to the open-bus default.
 
             // Game-I/O buttons: Open-Apple ($C061), Solid-Apple ($C062), and
             // the shift-key mod ($C063). Bit 7 = pressed.
@@ -839,10 +828,8 @@ impl Device for IouE {
 
             // Display switches respond to writes as well as reads.
             SS_SCREEN_MODE_GRAPHICS..=SS_GRAPHICS_MODE_HGR => self.set_display_switch(addr),
-            // DHIRES / AN3 ($C05E/$C05F) and IOUDIS ($C07E/$C07F).
-            SS_DHIRES_ON | SS_DHIRES_OFF => self.access_dhires_an3(addr),
-            SS_SET_IOUDIS => self.ioudis = true,
-            SS_CLR_IOUDIS => self.ioudis = false,
+            // DHIRES ($C05E/$C05F). ($C07E/$C07F are inert — no IOUDIS on the //e.)
+            SS_DHIRES_ON | SS_DHIRES_OFF => self.access_dhires(addr),
 
             // $C100-$CFFF is ROM (writes swallowed); other $C0xx are 2c/later.
             _ => {
