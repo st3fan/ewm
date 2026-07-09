@@ -22,7 +22,7 @@ Applesauce in 2018) live in `disks/woz/WOZ 1.0/`.
 | 1 | WOZ 1.0 container parser (`ewm/src/woz.rs`) + parse gates over all 21 images | M | Done |
 | 2 | Bit-stream engine + controller wiring → boots DOS 3.3 System Master.woz | L | Done |
 | 3 | Protection compatibility sweep + fixes + per-image table | M | Done |
-| 4 | CLI/README/quirks polish | S | Not started |
+| 4 | CLI/README/quirks polish | S | Done |
 
 ## Why not "just another `DskType`"
 
@@ -151,7 +151,7 @@ assertions on `DOS 3.3 System Master.woz`.
 
 - Per-drive bit cursor advanced by elapsed cycles / 4; shift register + data
   latch per the rules above; `$C08D` reset hook.
-- Fake-bit generator (32-byte buffer, fixed-seed PRNG); empty-track handling.
+- Fake-bit generator (fixed-seed xorshift32); empty-track handling.
 - Stepping: keep the existing half-track stepper; **TMAP index =
   half-track × 2**. True quarter-track (dual-phase) stepping is out of scope
   — standard stepping only reaches even quarter indices — recorded as a
@@ -231,8 +231,10 @@ this note finalized.
    fine but cannot boot: the slot 6 boot ROM in EWM is the 16-sector P5A; DOS
    3.2 needs the 13-sector ROM. A boot-ROM option is future work, not a WOZ
    problem.
-4. **Deterministic weak bits.** The MC3470 noise buffer is seeded from a
-   fixed PRNG so test gates are reproducible; real hardware is truly random.
+4. **Deterministic weak bits.** MC3470 noise comes from a fixed-seed
+   free-running xorshift32, so test gates are reproducible; real hardware is
+   truly random. The period is 2^32-1 bits, so retry loops still see fresh
+   noise every revolution.
 5. **3.5″ WOZ images are rejected** (INFO disk type 2) — EWM has no 3.5″
    drive.
 
