@@ -29,6 +29,10 @@ and sound.
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
   low-resolution and high-resolution graphics (color or green monochrome),
   speaker sound, joystick paddles and buttons
+* **Disk images** — `.dsk`/`.do`/`.po` sector images, `.nib` nibble images,
+  and bit-accurate [WOZ 1.0](https://applesaucefdc.com/woz/reference1/)
+  images with copy-protection support (E7, RWTS18, half-tracks, MC3470
+  weak bits — see `notes/WOZ1.md` for the compatibility table)
 * **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
   language card and MMU/IOU soft switches, 40- and 80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
@@ -65,6 +69,9 @@ cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
 
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
 cargo run --release -- two --color --hdd "disks/Total Replay v6.0.1.hdv"
+
+# A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
+cargo run --release -- two --color --drive1 "disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
 cargo run --release -- two --model 2e --color --drive1 disks/DOS33-SystemMaster.dsk

@@ -1399,8 +1399,8 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
 fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
-    eprintln!("  --drive1 <path>   load .dsk, .po or nib at path in slot 6 drive 1");
-    eprintln!("  --drive2 <path>   load .dsk, .po or nib at path in slot 6 drive 2");
+    eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
+    eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
     eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
     eprintln!("  --color           enable color");
     eprintln!("  --fps <fps>       set fps for display (default: 30)");
@@ -1498,8 +1498,10 @@ fn render_status_bar(
         let Some(glyph) = scr_chr.bitmap(code) else {
             continue;
         };
-        let drive1_active = two.dsk().on && i == 35 && two.dsk().active_drive() == 0;
-        let drive2_active = two.dsk().on && i == 38 && two.dsk().active_drive() == 1;
+        let drive1_active =
+            two.dsk().motor_lit(two.cpu.counter) && i == 35 && two.dsk().active_drive() == 0;
+        let drive2_active =
+            two.dsk().motor_lit(two.cpu.counter) && i == 38 && two.dsk().active_drive() == 1;
         let color = if drive1_active || drive2_active {
             green
         } else {

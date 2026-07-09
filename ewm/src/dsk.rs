@@ -8,6 +8,8 @@
 
 use ewm_core::mem::Device;
 
+use crate::woz::{WozImage, WozMedia};
+
 pub const DSK_TRACKS: usize = 35;
 pub const DSK_SECTORS: usize = 16;
 pub const DSK_SECTOR_SIZE: usize = 256;
@@ -15,6 +17,9 @@ pub const DSK_NIBBLES_PER_TRACK: usize = 6656;
 
 pub const DSK_DRIVE1: usize = 0;
 pub const DSK_DRIVE2: usize = 1;
+
+/// Motor spin-down time after `$C0E8`, ~1 second of CPU cycles.
+const MOTOR_OFF_DELAY: u64 = 1_023_000;
 
 // The slot 6 boot ROM at $C600, embedded in dsk.c as dsk_rom[].
 pub static DSK_ROM: [u8; 256] = [
@@ -59,6 +64,7 @@ pub enum DskType {
     Do,
     Po,
     Nib,
+    Woz,
 }
 
 impl DskType {
@@ -70,6 +76,8 @@ impl DskType {
             Some(DskType::Po)
         } else if path.ends_with(".nib") {
             Some(DskType::Nib)
+        } else if path.ends_with(".woz") {
+            Some(DskType::Woz)
         } else {
             None
         }
@@ -82,6 +90,16 @@ enum Mode {
     Write,
 }
 
+/// What is in a drive: pre-nibblized tracks (the original `.dsk`/`.po`/`.nib`
+/// path, byte-for-byte unchanged) or a WOZ bitstream engine.
+#[derive(Default)]
+enum Media {
+    #[default]
+    None,
+    Nibbles(Vec<Vec<u8>>), // 35 nibblized tracks
+    Woz(Box<WozMedia>),
+}
+
 #[derive(Default)]
 struct Drive {
     loaded: bool,
@@ -90,11 +108,15 @@ struct Drive {
     head: usize,
     phase: usize,
     readonly: bool,
-    tracks: Vec<Vec<u8>>, // 35 nibblized tracks
+    media: Media,
 }
 
 pub struct Dsk {
     pub on: bool,
+    /// Cycle stamp at which the motor actually stops: the Disk II delays
+    /// ~1 second after the motor-off switch (`$C0E8`), and protections read
+    /// sectors during the spin-down. Expired lazily on IO access.
+    off_at: Option<u64>,
     mode: Mode,
     latch: u8,
     drive: usize,
@@ -106,6 +128,7 @@ impl Dsk {
     pub fn new() -> Dsk {
         Dsk {
             on: false,
+            off_at: None,
             mode: Mode::Read,
             latch: 0,
             drive: 0,
@@ -137,6 +160,7 @@ impl Dsk {
                     return Err(format!("bad image size {}", data.len()));
                 }
             }
+            DskType::Woz => {} // the parser validates structure below
         }
 
         let drive = &mut self.drives[index];
@@ -146,25 +170,39 @@ impl Dsk {
         drive.head = 0;
         drive.phase = 0;
         drive.readonly = readonly;
-        drive.tracks.clear();
+        drive.media = Media::None;
 
         match dsk_type {
             DskType::Do | DskType::Po => {
+                let mut tracks = Vec::with_capacity(DSK_TRACKS);
                 for t in 0..DSK_TRACKS {
-                    let track = convert_track(drive.volume, data, t, dsk_type);
-                    drive.tracks.push(track);
+                    tracks.push(convert_track(drive.volume, data, t, dsk_type));
                 }
+                drive.media = Media::Nibbles(tracks);
             }
             DskType::Nib => {
+                let mut tracks = Vec::with_capacity(DSK_TRACKS);
                 for t in 0..DSK_TRACKS {
-                    drive.tracks.push(
+                    tracks.push(
                         data[t * DSK_NIBBLES_PER_TRACK..(t + 1) * DSK_NIBBLES_PER_TRACK].to_vec(),
                     );
                 }
-                let volume = locate_volume_number(&drive.tracks[0]);
+                let volume = locate_volume_number(&tracks[0]);
                 if volume != 0 {
                     drive.volume = volume;
                 }
+                drive.media = Media::Nibbles(tracks);
+            }
+            DskType::Woz => {
+                let image = WozImage::parse(data)?;
+                if image.info.disk_type != 1 {
+                    drive.loaded = false;
+                    return Err("only 5.25\" WOZ images are supported".into());
+                }
+                // WOZ media is read-only; the image's write-protect flag is
+                // what protected software checks via the status bit.
+                drive.readonly = readonly || image.info.write_protected;
+                drive.media = Media::Woz(Box::new(WozMedia::new(image)));
             }
         }
 
@@ -193,15 +231,43 @@ impl Dsk {
         self.drive
     }
 
+    /// Debug/test: the selected drive's head position in half-tracks.
+    pub fn half_track(&self) -> i32 {
+        self.drives[self.drive].track
+    }
+
     /// Port of `dsk_phase`: stepper motor phase change moves the head by
-    /// half-tracks, clamped to the 70 half-track range.
+    /// half-tracks, clamped to the 70 half-track range. WOZ media is told the
+    /// new quarter-track position (half-track × 2; dual-phase quarter
+    /// stepping is not modeled — see notes/WOZ1.md).
     fn phase(&mut self, phase: usize, on: bool) {
         if on {
             let drive = self.drive();
             drive.track += PHASE_DELTA[drive.phase][phase];
             drive.phase = phase;
             drive.track = drive.track.clamp(0, (DSK_TRACKS * 2 - 1) as i32);
+            let quarter = (drive.track * 2) as usize;
+            if let Media::Woz(w) = &mut drive.media {
+                w.step_to(quarter);
+            }
         }
+    }
+
+    /// Lazily expire the spin-down timer; true while the platter turns.
+    fn motor_running(&mut self, cycles: u64) -> bool {
+        if let Some(t) = self.off_at
+            && cycles >= t
+        {
+            self.on = false;
+            self.off_at = None;
+        }
+        self.on
+    }
+
+    /// Whether the drive light should be lit (spin-down keeps it on), for
+    /// the frontend status bar.
+    pub fn motor_lit(&self, cycles: u64) -> bool {
+        self.on && self.off_at.is_none_or(|t| cycles < t)
     }
 
     /// Port of `dsk_write_next`.
@@ -212,7 +278,8 @@ impl Dsk {
     }
 
     /// Port of `dsk_read_next`, including the skip counter that makes every
-    /// fourth read return 0.
+    /// fourth read return 0. Nibble media only; WOZ media is dispatched to
+    /// its bit-stream engine in `io_read` instead.
     fn read_next(&mut self) -> u8 {
         let mut result = 0;
         if self.skip != 0 || self.mode == Mode::Write {
@@ -220,19 +287,21 @@ impl Dsk {
             let latch = self.latch;
             let drive = self.drive();
             let track_idx = (drive.track >> 1) as usize; // TODO Because drv->track actually goes to 70? (comment from dsk.c)
-            let track = &mut drive.tracks[track_idx];
+            if let Media::Nibbles(tracks) = &mut drive.media {
+                let track = &mut tracks[track_idx];
 
-            if drive.head >= track.len() {
-                drive.head = 0;
+                if drive.head >= track.len() {
+                    drive.head = 0;
+                }
+
+                if mode == Mode::Write {
+                    track[drive.head] = latch; // TODO Implement write support (comment from dsk.c)
+                } else {
+                    result = track[drive.head];
+                }
+
+                drive.head += 1;
             }
-
-            if mode == Mode::Write {
-                track[drive.head] = latch; // TODO Implement write support (comment from dsk.c)
-            } else {
-                result = track[drive.head];
-            }
-
-            drive.head += 1;
         }
 
         self.skip = (self.skip + 1) % 4;
@@ -240,8 +309,20 @@ impl Dsk {
         result
     }
 
+    /// Select a drive; a newly selected WOZ drive was not spinning, so pin
+    /// its time stamp to now.
+    fn select_drive(&mut self, index: usize, cycles: u64) {
+        if self.drive != index {
+            self.drive = index;
+            if let Media::Woz(w) = &mut self.drives[index].media {
+                w.sync(cycles);
+            }
+        }
+    }
+
     /// Port of `dsk_read` ($C0E0-$C0EF).
-    pub fn io_read(&mut self, addr: u16) -> u8 {
+    pub fn io_read(&mut self, addr: u16, cycles: u64) -> u8 {
+        let motor = self.motor_running(cycles);
         let mut result = 0x00;
         match addr {
             0xc0e0 => self.phase(0, false),
@@ -253,18 +334,37 @@ impl Dsk {
             0xc0e6 => self.phase(3, false),
             0xc0e7 => self.phase(3, true),
 
-            0xc0e8 => self.on = false,
-            0xc0e9 => self.on = true,
+            // MOTOROFF: the Disk II keeps spinning ~1 second (protections
+            // read sectors during the spin-down).
+            0xc0e8 => {
+                if self.on && self.off_at.is_none() {
+                    self.off_at = Some(cycles + MOTOR_OFF_DELAY);
+                }
+            }
+            0xc0e9 => {
+                let d = self.drive;
+                if !motor && let Media::Woz(w) = &mut self.drives[d].media {
+                    w.sync(cycles); // was stopped: no time accumulates
+                }
+                self.on = true;
+                self.off_at = None;
+            }
 
-            0xc0ea => self.drive = DSK_DRIVE1,
-            0xc0eb => self.drive = DSK_DRIVE2,
+            0xc0ea => self.select_drive(DSK_DRIVE1, cycles),
+            0xc0eb => self.select_drive(DSK_DRIVE2, cycles),
 
             // READMODE
             0xc0ee => {
                 self.mode = Mode::Read;
-                if self.drive().loaded {
-                    let readonly = self.drive().readonly;
-                    result = (self.read_next() & 0x7f) | if readonly { 0x80 } else { 0x00 };
+                let d = self.drive;
+                if self.drives[d].loaded {
+                    let wp = if self.drives[d].readonly { 0x80 } else { 0x00 };
+                    let r = if let Media::Woz(w) = &mut self.drives[d].media {
+                        w.read(cycles, motor, false)
+                    } else {
+                        self.read_next()
+                    };
+                    result = (r & 0x7f) | wp;
                 }
             }
             // WRITEMODE
@@ -272,12 +372,24 @@ impl Dsk {
 
             // READ
             0xc0ec => {
-                if self.drive().loaded {
-                    result = self.read_next();
+                let d = self.drive;
+                if self.drives[d].loaded {
+                    result = if let Media::Woz(w) = &mut self.drives[d].media {
+                        w.read(cycles, motor, true)
+                    } else {
+                        self.read_next()
+                    };
                 }
             }
-            // WRITE - Called by code, but doesn't do anything? (comment from dsk.c)
-            0xc0ed => {}
+            // WRITE - Called by code, but doesn't do anything? (comment from
+            // dsk.c). On WOZ media a $C08D read resets the sequencer and
+            // clears the latch (the E7 protection depends on it).
+            0xc0ed => {
+                let d = self.drive;
+                if let Media::Woz(w) = &mut self.drives[d].media {
+                    w.reset_sequencer();
+                }
+            }
 
             _ => {
                 eprintln!("[DSK] Got an unhandled read from ${addr:04X}");
@@ -286,10 +398,39 @@ impl Dsk {
         result
     }
 
-    /// Port of `dsk_write` ($C0E0-$C0EF).
-    pub fn io_write(&mut self, addr: u16, b: u8) {
+    /// Port of `dsk_write` ($C0E0-$C0EF). The controller decodes the address
+    /// regardless of read/write, so the stepper, motor and drive-select
+    /// switches respond to writes too — some loaders (found in the WOZ
+    /// compatibility sweep) step the head with `STA $C0E1,X`-style writes.
+    pub fn io_write(&mut self, addr: u16, b: u8, cycles: u64) {
+        let motor = self.motor_running(cycles);
         match addr {
+            0xc0e0 => self.phase(0, false),
+            0xc0e1 => self.phase(0, true),
+            0xc0e2 => self.phase(1, false),
+            0xc0e3 => self.phase(1, true),
+            0xc0e4 => self.phase(2, false),
+            0xc0e5 => self.phase(2, true),
+            0xc0e6 => self.phase(3, false),
+            0xc0e7 => self.phase(3, true),
+            0xc0e8 => {
+                if self.on && self.off_at.is_none() {
+                    self.off_at = Some(cycles + MOTOR_OFF_DELAY);
+                }
+            }
+            0xc0e9 => {
+                let d = self.drive;
+                if !motor && let Media::Woz(w) = &mut self.drives[d].media {
+                    w.sync(cycles);
+                }
+                self.on = true;
+                self.off_at = None;
+            }
+            0xc0ea => self.select_drive(DSK_DRIVE1, cycles),
+            0xc0eb => self.select_drive(DSK_DRIVE2, cycles),
+            0xc0ec => {} // Q6L write: loads the write shifter on real hardware
             0xc0ed => self.write_next(b),
+            0xc0ee => self.mode = Mode::Read,
             0xc0ef => self.mode = Mode::Write,
             _ => {
                 eprintln!("[DSK] Got an unhandled write to ${addr:04X}");
@@ -308,12 +449,12 @@ impl Default for Dsk {
 /// itself with `cpu_add_iom`. The slot ROM at `$C600` is a plain ROM region
 /// added by the machine.
 impl Device for Dsk {
-    fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
-        self.io_read(addr)
+    fn read(&mut self, addr: u16, cycles: u64) -> u8 {
+        self.io_read(addr, cycles)
     }
 
-    fn write(&mut self, addr: u16, b: u8, _cycles: u64) {
-        self.io_write(addr, b);
+    fn write(&mut self, addr: u16, b: u8, cycles: u64) {
+        self.io_write(addr, b, cycles);
     }
 }
 
@@ -552,27 +693,27 @@ mod tests {
         dsk.set_disk_data(0, false, &image, DskType::Do).unwrap();
 
         // skip starts at 0: the first $C0EC read is skipped and returns 0.
-        assert_eq!(dsk.io_read(0xc0ec), 0x00);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
         // The next three return real nibbles (gap bytes here).
-        assert_eq!(dsk.io_read(0xc0ec), 0xff);
-        assert_eq!(dsk.io_read(0xc0ec), 0xff);
-        assert_eq!(dsk.io_read(0xc0ec), 0xff);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0xff);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0xff);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0xff);
         // And the cycle repeats.
-        assert_eq!(dsk.io_read(0xc0ec), 0x00);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
     }
 
     #[test]
     fn stepper_phases_move_the_head_in_half_tracks() {
         let mut dsk = Dsk::new();
         // Phase sequence 1, 2 from phase 0 moves in a full track.
-        dsk.io_read(0xc0e3); // phase 1 on
-        dsk.io_read(0xc0e5); // phase 2 on
+        dsk.io_read(0xc0e3, 0); // phase 1 on
+        dsk.io_read(0xc0e5, 0); // phase 2 on
         assert_eq!(dsk.drives[0].track, 2);
         // Stepping back down below track 0 clamps.
-        dsk.io_read(0xc0e3); // phase 1 on: -1
-        dsk.io_read(0xc0e1); // phase 0 on: -1
+        dsk.io_read(0xc0e3, 0); // phase 1 on: -1
+        dsk.io_read(0xc0e1, 0); // phase 0 on: -1
         assert_eq!(dsk.drives[0].track, 0);
-        dsk.io_read(0xc0e7); // phase 3 on from phase 0: -1, clamped
+        dsk.io_read(0xc0e7, 0); // phase 3 on from phase 0: -1, clamped
         assert_eq!(dsk.drives[0].track, 0);
     }
 }
