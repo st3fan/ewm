@@ -23,6 +23,53 @@ pub enum ColorScheme {
     Color,
 }
 
+/// The monitor a machine is plugged into: three classic monochrome phosphors
+/// or an RGB color monitor. Selected at startup with `--color <style>` and at
+/// runtime from the command palette ("Monitor Style: …").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MonitorStyle {
+    /// The classic green phosphor — EWM's historical default.
+    #[default]
+    Green,
+    Amber,
+    White,
+    Rgb,
+}
+
+impl MonitorStyle {
+    /// Parse a `--color` flag value.
+    pub fn parse(s: &str) -> Option<MonitorStyle> {
+        match s {
+            "green" => Some(MonitorStyle::Green),
+            "amber" => Some(MonitorStyle::Amber),
+            "white" => Some(MonitorStyle::White),
+            "rgb" => Some(MonitorStyle::Rgb),
+            _ => None,
+        }
+    }
+
+    /// The human label used by the command palette.
+    pub fn label(self) -> &'static str {
+        match self {
+            MonitorStyle::Green => "Green",
+            MonitorStyle::Amber => "Amber",
+            MonitorStyle::White => "White",
+            MonitorStyle::Rgb => "Color",
+        }
+    }
+
+    /// The phosphor color of the monochrome styles (amber is the classic
+    /// P3 #FFB000); `None` for RGB.
+    fn phosphor(self) -> Option<(u8, u8, u8)> {
+        match self {
+            MonitorStyle::Green => Some((0, 255, 0)),
+            MonitorStyle::Amber => Some((255, 176, 0)),
+            MonitorStyle::White => Some((255, 255, 255)),
+            MonitorStyle::Rgb => None,
+        }
+    }
+}
+
 /// The pixel layouts `ewm_sdl_pixel_format` can pick; used to pack RGBA
 /// colors the way `SDL_MapRGBA` would for the renderer's surface format.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -105,6 +152,10 @@ static HGR_LINE_OFFSETS: [usize; 192] = [
 
 pub struct Scr {
     color_scheme: ColorScheme,
+    monitor_style: MonitorStyle,
+    /// The packed monochrome phosphor color the mono render paths use
+    /// (text, HGR mono, DHGR mono); follows the monitor style.
+    phosphor: u32,
     chr: Chr,
     chre: ChrE,
     text_color: u32,
@@ -120,6 +171,9 @@ pub struct Scr {
     /// The 16 lo-res colors packed, reused as the //e double-hi-res palette
     /// (Phase 6b): a 4-bit DHGR cell selects one of these.
     lores_palette: [u32; 16],
+    /// The pixel layout colors are packed with (needed to repack the
+    /// phosphor on a monitor-style change).
+    layout: PixelLayout,
 }
 
 impl Scr {
@@ -153,6 +207,8 @@ impl Scr {
 
         Scr {
             color_scheme: ColorScheme::Monochrome,
+            monitor_style: MonitorStyle::Green,
+            phosphor: green,
             chr: Chr::new(),
             chre: ChrE::new(),
             text_color: green,
@@ -164,6 +220,7 @@ impl Scr {
             hgr_colors1: pack4(&HGR_COLORS1),
             hgr_colors2: pack4(&HGR_COLORS2),
             lores_palette,
+            layout,
         }
     }
 
@@ -172,15 +229,38 @@ impl Scr {
         &self.chr
     }
 
-    /// Port of `ewm_scr_set_color_scheme`: in color mode text renders
-    /// white, in monochrome it renders green.
+    /// Select the monitor style: a monochrome phosphor tints everything the
+    /// monochrome pipeline draws (text, HGR mono, DHGR mono); RGB is the
+    /// color pipeline with white text — exactly the old `--color` behavior.
+    pub fn set_monitor_style(&mut self, style: MonitorStyle) {
+        self.monitor_style = style;
+        match style.phosphor() {
+            Some((r, g, b)) => {
+                self.color_scheme = ColorScheme::Monochrome;
+                self.phosphor = self.layout.pack(r, g, b, 255);
+                self.text_color = self.phosphor;
+            }
+            None => {
+                self.color_scheme = ColorScheme::Color;
+                self.phosphor = self.green;
+                self.text_color = self.white;
+            }
+        }
+    }
+
+    /// The current monitor style (drives the palette label).
+    pub fn monitor_style(&self) -> MonitorStyle {
+        self.monitor_style
+    }
+
+    /// Port of `ewm_scr_set_color_scheme`, kept for compatibility: the
+    /// classic monochrome/color switch maps onto the green and RGB monitor
+    /// styles.
     pub fn set_color_scheme(&mut self, color_scheme: ColorScheme) {
-        self.color_scheme = color_scheme;
-        self.text_color = if color_scheme == ColorScheme::Monochrome {
-            self.green
-        } else {
-            self.white
-        };
+        self.set_monitor_style(match color_scheme {
+            ColorScheme::Monochrome => MonitorStyle::Green,
+            ColorScheme::Color => MonitorStyle::Rgb,
+        });
     }
 
     fn text_base(two: &Two) -> usize {
@@ -269,7 +349,7 @@ impl Scr {
         let dst = &mut self.pixels[SCR_WIDTH * line..];
         for (i, &c) in src.iter().enumerate() {
             for j in 0..7 {
-                dst[i * 7 + j] = if c & (1 << j) != 0 { self.green } else { 0 };
+                dst[i * 7 + j] = if c & (1 << j) != 0 { self.phosphor } else { 0 };
             }
         }
     }
@@ -513,7 +593,7 @@ impl Scr {
                 }
             } else {
                 for (x, &on) in bits.iter().enumerate() {
-                    self.wide[row + x] = if on { self.green } else { 0 };
+                    self.wide[row + x] = if on { self.phosphor } else { 0 };
                 }
             }
         }
@@ -600,6 +680,53 @@ pub fn encode_bmp(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::two::TwoType;
+
+    #[test]
+    fn monitor_style_parses_flag_values() {
+        assert_eq!(MonitorStyle::parse("green"), Some(MonitorStyle::Green));
+        assert_eq!(MonitorStyle::parse("amber"), Some(MonitorStyle::Amber));
+        assert_eq!(MonitorStyle::parse("white"), Some(MonitorStyle::White));
+        assert_eq!(MonitorStyle::parse("rgb"), Some(MonitorStyle::Rgb));
+        assert_eq!(MonitorStyle::parse("blue"), None);
+        assert_eq!(MonitorStyle::parse(""), None);
+        // The palette wording: RGB reads as "Color".
+        assert_eq!(MonitorStyle::Rgb.label(), "Color");
+        // The historical default.
+        assert_eq!(MonitorStyle::default(), MonitorStyle::Green);
+    }
+
+    /// The phosphor actually lands in rendered pixels. A fresh ][+ text page
+    /// is all zeros — inverse '@' cells — so the frame is full of lit
+    /// text-color pixels without booting anything.
+    #[test]
+    fn monitor_styles_tint_the_rendered_phosphor() {
+        let layout = PixelLayout::Argb8888;
+        let two = Two::new(TwoType::Apple2Plus).unwrap();
+        let mut scr = Scr::new(layout);
+        let green = layout.pack(0, 255, 0, 255);
+        let amber = layout.pack(255, 176, 0, 255);
+        let white = layout.pack(255, 255, 255, 255);
+
+        scr.update(&two, 0, 40);
+        assert!(scr.pixels.contains(&green), "default renders green");
+
+        scr.set_monitor_style(MonitorStyle::Amber);
+        scr.update(&two, 0, 40);
+        assert!(scr.pixels.contains(&amber), "amber phosphor");
+        assert!(!scr.pixels.contains(&green), "no green left in amber");
+
+        scr.set_monitor_style(MonitorStyle::White);
+        scr.update(&two, 0, 40);
+        assert!(scr.pixels.contains(&white), "white phosphor");
+
+        scr.set_monitor_style(MonitorStyle::Rgb);
+        scr.update(&two, 0, 40);
+        assert!(scr.pixels.contains(&white), "RGB text renders white");
+
+        scr.set_monitor_style(MonitorStyle::Green);
+        scr.update(&two, 0, 40);
+        assert!(scr.pixels.contains(&green), "switching back restores green");
+    }
 
     /// The Phase 7 automated gate: boot the System Master for a fixed
     /// number of cycles (the emulator is deterministic), render the text
