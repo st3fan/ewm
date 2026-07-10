@@ -1928,7 +1928,7 @@ pub fn main(args: &[String]) -> i32 {
                                 );
                                 // The monitor style opens a choice submenu,
                                 // like a VS Code quick-pick.
-                                palette.add_command(
+                                palette.add_submenu_command(
                                     format!("Monitor Style: {}", monitor_style.label()),
                                     (|ctx| *ctx.open_monitor_menu = true) as TwoAction,
                                 );
