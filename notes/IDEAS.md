@@ -95,10 +95,9 @@ deterministic golden-BMP test culture.
   (and the DHGR **sliding-window** color already prototyped on the
   `iie/experiment-dhgr-color` branch — see `notes/DHGR_COLOR_EXPERIMENT.md`
   for its promotion checklist). AppleWin's NTSC mode is the reference.
-- **Monitor styles** (S) — green / amber / white monochrome and "RGB
-  monitor" color as runtime choices instead of the boot-time `--color` flag.
-  *(infra: `Scr::set_color_scheme` already exists; this is palette wiring +
-  a couple of palettes.)*
+- ~~**Monitor styles**~~ — **landed**: green / amber / white monochrome and
+  color via `--color [green|amber|white|rgb]` and the palette's
+  "Monitor Style" choice submenu.
 - **Scanlines / CRT flavor** (S/M) — optional scanline dimming or a simple
   CRT bloom for the 3× window; every mainstream emulator offers some.
 - **Video recording** (M) — capture the frame buffer to animated GIF or

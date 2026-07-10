@@ -10,7 +10,7 @@ use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
-use crate::scr::{ColorScheme, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp, frame_width};
+use crate::scr::{MonitorStyle, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp, frame_width};
 use crate::sdl;
 use crate::snd::Snd;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
@@ -1360,6 +1360,10 @@ struct TwoCtx<'a> {
     /// The audio path, so a speed change can rescale its cycle→sample
     /// mapping and keep the sound real-time (pitched up when accelerated).
     snd: &'a mut Option<Snd>,
+    /// The monitor style; the loop applies changes to the renderer.
+    monitor: &'a mut MonitorStyle,
+    /// Set by "Monitor Style: …" to reopen the palette as the style submenu.
+    open_monitor_menu: &'a mut bool,
 }
 
 type TwoAction = fn(&mut TwoCtx);
@@ -1370,6 +1374,36 @@ fn set_speed(ctx: &mut TwoCtx, hz: u32) {
     if let Some(snd) = ctx.snd.as_mut() {
         snd.set_cpu_frequency(hz as u64);
     }
+}
+
+/// A choice label with a VS Code-style check mark on the active option.
+fn choice_label(text: &str, active: bool) -> String {
+    if active {
+        format!("{text}  \u{2713}")
+    } else {
+        text.to_string()
+    }
+}
+
+/// Register the monitor-style submenu: one row per style, the active one
+/// checked, picked exactly like a VS Code quick-pick choice.
+fn add_monitor_style_commands(palette: &mut Palette<TwoAction>, monitor: MonitorStyle) {
+    palette.add_command(
+        choice_label("Green", monitor == MonitorStyle::Green),
+        (|ctx| *ctx.monitor = MonitorStyle::Green) as TwoAction,
+    );
+    palette.add_command(
+        choice_label("Amber", monitor == MonitorStyle::Amber),
+        (|ctx| *ctx.monitor = MonitorStyle::Amber) as TwoAction,
+    );
+    palette.add_command(
+        choice_label("White", monitor == MonitorStyle::White),
+        (|ctx| *ctx.monitor = MonitorStyle::White) as TwoAction,
+    );
+    palette.add_command(
+        choice_label("Color", monitor == MonitorStyle::Rgb),
+        (|ctx| *ctx.monitor = MonitorStyle::Rgb) as TwoAction,
+    );
 }
 
 // Frames to run before dumping the hidden --screenshot and exiting.
@@ -1402,7 +1436,9 @@ fn usage() {
     eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
     eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
-    eprintln!("  --color           enable color");
+    eprintln!(
+        "  --color [green|amber|white|rgb]  monitor style (bare --color = rgb; default green)"
+    );
     eprintln!("  --fps <fps>       set fps for display (default: 30)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --trace <file>    trace cpu to file");
@@ -1416,7 +1452,7 @@ struct Options {
     drive1: Option<String>,
     drive2: Option<String>,
     hdd: Option<String>,
-    color: bool,
+    monitor: MonitorStyle,
     fps: u32,
     memory: Vec<MemoryOption>,
     trace_path: Option<String>,
@@ -1430,7 +1466,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         fps: TWO_FPS_DEFAULT,
         ..Options::default()
     };
-    let mut it = args.iter();
+    let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" => {
@@ -1448,7 +1484,18 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             "--drive1" => options.drive1 = it.next().cloned(),
             "--drive2" => options.drive2 = it.next().cloned(),
             "--hdd" => options.hdd = it.next().cloned(),
-            "--color" => options.color = true,
+            // Bare --color keeps its historical meaning (an RGB color
+            // monitor); an optional value picks a monochrome phosphor
+            // instead. Peek-don't-consume so `--color --drive1 x` works.
+            "--color" => {
+                options.monitor = it
+                    .peek()
+                    .and_then(|v| MonitorStyle::parse(v))
+                    .inspect(|_| {
+                        it.next();
+                    })
+                    .unwrap_or(MonitorStyle::Rgb);
+            }
             "--fps" => {
                 // atoi semantics
                 options.fps = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -1612,9 +1659,7 @@ pub fn main(args: &[String]) -> i32 {
         _ => PixelLayout::Argb8888,
     };
     let mut scr = Scr::new(layout);
-    if options.color {
-        scr.set_color_scheme(ColorScheme::Color);
-    }
+    scr.set_monitor_style(options.monitor);
 
     let mut snd = audio.as_ref().and_then(|audio| match Snd::new(audio) {
         Ok(snd) => Some(snd),
@@ -1723,6 +1768,9 @@ pub fn main(args: &[String]) -> i32 {
     let mut frames: u32 = 0;
     // Emulated CPU speed, switchable from the command palette.
     let mut speed: u32 = SPEED_NORMAL;
+    // Monitor style, switchable from the command palette; the renderer was
+    // seeded from --color above.
+    let mut monitor_style = options.monitor;
 
     let mut counter = two.cpu.counter;
     let mut mhz = 1.0f64;
@@ -1782,14 +1830,29 @@ pub fn main(args: &[String]) -> i32 {
                             PaletteAction::Dismiss => palette_visible = false,
                             PaletteAction::Execute(run) => {
                                 palette_visible = false;
+                                let mut open_monitor_menu = false;
+                                let before = monitor_style;
                                 let mut ctx = TwoCtx {
                                     two: &mut two,
                                     paused: &mut paused,
                                     window: canvas.window_mut(),
                                     speed: &mut speed,
                                     snd: &mut snd,
+                                    monitor: &mut monitor_style,
+                                    open_monitor_menu: &mut open_monitor_menu,
                                 };
                                 run(&mut ctx);
+                                if monitor_style != before {
+                                    scr.set_monitor_style(monitor_style);
+                                    two.set_screen_dirty(true);
+                                }
+                                if open_monitor_menu {
+                                    // Reopen as the style submenu — a VS
+                                    // Code-style choice quick-pick.
+                                    palette.open();
+                                    add_monitor_style_commands(&mut palette, monitor_style);
+                                    palette_visible = true;
+                                }
                             }
                             PaletteAction::None => {}
                         }
@@ -1863,24 +1926,26 @@ pub fn main(args: &[String]) -> i32 {
                                         let _ = ctx.window.set_fullscreen(!on);
                                     },
                                 );
+                                // The monitor style opens a choice submenu,
+                                // like a VS Code quick-pick.
+                                palette.add_submenu_command(
+                                    format!("Monitor Style: {}", monitor_style.label()),
+                                    (|ctx| *ctx.open_monitor_menu = true) as TwoAction,
+                                );
                                 // Speed choices; the active one carries a check.
-                                let speed_label = |hz: u32, text: &str| {
-                                    if speed == hz {
-                                        format!("{text}  \u{2713}")
-                                    } else {
-                                        text.to_string()
-                                    }
-                                };
                                 palette.add_command(
-                                    speed_label(SPEED_NORMAL, "Speed: 1.023 MHz (normal)"),
+                                    choice_label(
+                                        "Speed: 1.023 MHz (normal)",
+                                        speed == SPEED_NORMAL,
+                                    ),
                                     (|ctx| set_speed(ctx, SPEED_NORMAL)) as TwoAction,
                                 );
                                 palette.add_command(
-                                    speed_label(SPEED_FAST, "Speed: 3.58 MHz"),
+                                    choice_label("Speed: 3.58 MHz", speed == SPEED_FAST),
                                     (|ctx| set_speed(ctx, SPEED_FAST)) as TwoAction,
                                 );
                                 palette.add_command(
-                                    speed_label(SPEED_FASTER, "Speed: 7.16 MHz"),
+                                    choice_label("Speed: 7.16 MHz", speed == SPEED_FASTER),
                                     (|ctx| set_speed(ctx, SPEED_FASTER)) as TwoAction,
                                 );
                                 palette_visible = true;
@@ -2082,4 +2147,30 @@ pub fn main(args: &[String]) -> i32 {
     }
 
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(args: &[&str]) -> Options {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_options(&args).expect("options must parse")
+    }
+
+    #[test]
+    fn color_flag_selects_the_monitor_style() {
+        // No flag: the historical green-monochrome default.
+        assert_eq!(opts(&[]).monitor, MonitorStyle::Green);
+        // Bare --color keeps its historical meaning: an RGB color monitor.
+        assert_eq!(opts(&["--color"]).monitor, MonitorStyle::Rgb);
+        // A style value picks a phosphor.
+        assert_eq!(opts(&["--color", "amber"]).monitor, MonitorStyle::Amber);
+        assert_eq!(opts(&["--color", "white"]).monitor, MonitorStyle::White);
+        assert_eq!(opts(&["--color", "rgb"]).monitor, MonitorStyle::Rgb);
+        // Bare --color followed by another flag: the flag is not consumed.
+        let o = opts(&["--color", "--drive1", "game.dsk"]);
+        assert_eq!(o.monitor, MonitorStyle::Rgb);
+        assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
+    }
 }

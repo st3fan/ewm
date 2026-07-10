@@ -27,7 +27,9 @@ and sound.
 * **Apple ][+** — 6502, 48KB RAM, Apple Language Card, Disk II with two
   drives, a slot 7 hard drive for 32MB ProDOS block images (boots
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
-  low-resolution and high-resolution graphics (color or green monochrome),
+  low-resolution and high-resolution graphics on a green, amber or white
+  monochrome monitor or in color (`--color [green|amber|white|rgb]`, also
+  switchable at runtime from the command palette),
   speaker sound, joystick paddles and buttons
 * **Disk images** — `.dsk`/`.do`/`.po` sector images, `.nib` nibble images,
   and bit-accurate [WOZ 1.0](https://applesaucefdc.com/woz/reference1/)

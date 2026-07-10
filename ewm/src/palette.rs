@@ -34,6 +34,11 @@ const PLACEHOLDER: (u8, u8, u8) = (0x80, 0x80, 0x80);
 const CURSOR: (u8, u8, u8) = (0xae, 0xaf, 0xad);
 
 const FONT_PX: f32 = 15.0;
+/// The submenu indicator: a small right-pointing triangle, drawn at a
+/// reduced size and right-aligned in the row, VS Code style. (Inter has no
+/// U+25B8 SMALL TRIANGLE, so we scale U+25B6 down instead.)
+const SUBMENU_MARK: char = '\u{25B6}';
+const SUBMENU_MARK_PX: f32 = 8.0;
 const MARGIN: usize = 8;
 const INPUT_HEIGHT: usize = 26;
 const ROW_HEIGHT: usize = 26;
@@ -58,9 +63,17 @@ pub enum PaletteAction<A> {
     Execute(A),
 }
 
+struct Command<A> {
+    label: String,
+    action: A,
+    /// Selecting this command opens another menu; rendered with a
+    /// right-aligned triangle.
+    submenu: bool,
+}
+
 pub struct Palette<A> {
     font: Font,
-    commands: Vec<(String, A)>,
+    commands: Vec<Command<A>>,
     filter: String,
     selected: usize,
     pub pixels: Vec<u32>,
@@ -89,7 +102,21 @@ impl<A: Copy> Palette<A> {
     }
 
     pub fn add_command(&mut self, label: impl Into<String>, action: A) {
-        self.commands.push((label.into(), action));
+        self.commands.push(Command {
+            label: label.into(),
+            action,
+            submenu: false,
+        });
+    }
+
+    /// A command that leads to another menu; its row carries a right-aligned
+    /// triangle to say so.
+    pub fn add_submenu_command(&mut self, label: impl Into<String>, action: A) {
+        self.commands.push(Command {
+            label: label.into(),
+            action,
+            submenu: true,
+        });
     }
 
     /// Indices into `commands` matching the filter, in registration order.
@@ -98,7 +125,7 @@ impl<A: Copy> Palette<A> {
         self.commands
             .iter()
             .enumerate()
-            .filter(|(_, (label, _))| label.to_lowercase().contains(&needle))
+            .filter(|(_, command)| command.label.to_lowercase().contains(&needle))
             .map(|(i, _)| i)
             .collect()
     }
@@ -126,7 +153,7 @@ impl<A: Copy> Palette<A> {
             }
             PaletteKey::Enter => {
                 if let Some(&index) = self.filtered().get(self.selected) {
-                    return PaletteAction::Execute(self.commands[index].1);
+                    return PaletteAction::Execute(self.commands[index].action);
                 }
             }
             PaletteKey::Backspace => {
@@ -186,9 +213,21 @@ impl<A: Copy> Palette<A> {
             if row == self.selected {
                 self.fill_rect(1, row_y, w - 2, ROW_HEIGHT, bg);
             }
-            let label = self.commands[index].0.clone();
+            let label = self.commands[index].label.clone();
             self.draw_text(text_x, row_y, ROW_HEIGHT, &label, TEXT, bg);
+            if self.commands[index].submenu {
+                self.draw_submenu_mark(row_y, bg);
+            }
         }
+    }
+
+    /// The right-aligned submenu triangle, vertically centered in the row and
+    /// inset from the right edge by the same margin as the label's left inset.
+    fn draw_submenu_mark(&mut self, row_y: usize, bg: (u8, u8, u8)) {
+        let (metrics, bitmap) = self.font.rasterize(SUBMENU_MARK, SUBMENU_MARK_PX);
+        let glyph_x = (WIDTH - 1 - 2 * MARGIN) as i32 - metrics.width as i32;
+        let glyph_y = row_y as i32 + (ROW_HEIGHT as i32 - metrics.height as i32) / 2;
+        self.blit_glyph(&metrics, &bitmap, glyph_x, glyph_y, TEXT, bg);
     }
 
     fn fill_rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: (u8, u8, u8)) {
@@ -225,34 +264,75 @@ impl<A: Copy> Palette<A> {
             let (metrics, bitmap) = self.font.rasterize(ch, FONT_PX);
             let glyph_x = pen_x as i32 + metrics.xmin;
             let glyph_y = baseline as i32 - (metrics.ymin + metrics.height as i32);
-            for gy in 0..metrics.height {
-                for gx in 0..metrics.width {
-                    let px = glyph_x + gx as i32;
-                    let py = glyph_y + gy as i32;
-                    if px < 0 || py < 0 || px as usize >= WIDTH || py as usize >= MAX_HEIGHT {
-                        continue;
-                    }
-                    let coverage = bitmap[gy * metrics.width + gx] as u32;
-                    let blend = |f: u8, b: u8| {
-                        ((f as u32 * coverage + b as u32 * (255 - coverage)) / 255) as u8
-                    };
-                    self.pixels[py as usize * WIDTH + px as usize] = self.layout.pack(
-                        blend(fg.0, bg.0),
-                        blend(fg.1, bg.1),
-                        blend(fg.2, bg.2),
-                        255,
-                    );
-                }
-            }
+            self.blit_glyph(&metrics, &bitmap, glyph_x, glyph_y, fg, bg);
             pen_x += metrics.advance_width;
         }
         pen_x as usize
+    }
+
+    /// Blend one rasterized glyph into the panel against a known background.
+    fn blit_glyph(
+        &mut self,
+        metrics: &fontdue::Metrics,
+        bitmap: &[u8],
+        glyph_x: i32,
+        glyph_y: i32,
+        fg: (u8, u8, u8),
+        bg: (u8, u8, u8),
+    ) {
+        for gy in 0..metrics.height {
+            for gx in 0..metrics.width {
+                let px = glyph_x + gx as i32;
+                let py = glyph_y + gy as i32;
+                if px < 0 || py < 0 || px as usize >= WIDTH || py as usize >= MAX_HEIGHT {
+                    continue;
+                }
+                let coverage = bitmap[gy * metrics.width + gx] as u32;
+                let blend = |f: u8, b: u8| {
+                    ((f as u32 * coverage + b as u32 * (255 - coverage)) / 255) as u8
+                };
+                self.pixels[py as usize * WIDTH + px as usize] =
+                    self.layout
+                        .pack(blend(fg.0, bg.0), blend(fg.1, bg.1), blend(fg.2, bg.2), 255);
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The vendored Inter must contain the submenu triangle (it has no
+    /// U+25B8, which is why SUBMENU_MARK is a scaled-down U+25B6).
+    #[test]
+    fn font_has_the_submenu_mark() {
+        let font = Font::from_bytes(FONT, FontSettings::default()).unwrap();
+        assert_ne!(font.lookup_glyph_index(SUBMENU_MARK), 0);
+    }
+
+    /// A submenu command renders its right-aligned triangle: pixels near the
+    /// right edge of the first row differ from the untouched panel color.
+    #[test]
+    fn submenu_command_renders_a_right_mark() {
+        let mut with = Palette::<u32>::new(PixelLayout::Argb8888);
+        with.open();
+        with.add_submenu_command("Monitor Style: Green", 1);
+        with.render();
+
+        let mut without = Palette::<u32>::new(PixelLayout::Argb8888);
+        without.open();
+        without.add_command("Monitor Style: Green", 1);
+        without.render();
+
+        // The mark region: right-inset area of the first command row.
+        let row_y = 1 + MARGIN + INPUT_HEIGHT + ROW_GAP;
+        let differs = (row_y..row_y + ROW_HEIGHT).any(|y| {
+            (WIDTH - 3 * MARGIN..WIDTH - MARGIN)
+                .any(|x| with.pixels[y * WIDTH + x] != without.pixels[y * WIDTH + x])
+        });
+        assert!(differs, "the submenu triangle must be drawn on the right");
+    }
 
     /// A palette whose actions are plain markers; frontends use fn pointers.
     fn palette() -> Palette<u32> {
