@@ -1376,9 +1376,17 @@ struct TwoCtx<'a> {
 enum Submenu {
     MonitorStyle,
     Scanlines,
+    Controller,
 }
 
-type TwoAction = fn(&mut TwoCtx);
+/// A palette command's action: either a plain callback, or a data-carrying
+/// choice (fn pointers cannot capture which row was picked).
+#[derive(Clone, Copy)]
+enum TwoAction {
+    Run(fn(&mut TwoCtx)),
+    /// Make the gamepad with this joystick id the active controller.
+    PickController(u32),
+}
 
 /// Palette action: switch the emulation speed, keeping the sound in step.
 fn set_speed(ctx: &mut TwoCtx, hz: u32) {
@@ -1401,15 +1409,15 @@ fn choice_label(text: &str, active: bool) -> String {
 fn add_scanline_commands(palette: &mut Palette<TwoAction>, scanlines: Scanlines) {
     palette.add_command(
         choice_label("Off", scanlines == Scanlines::Off),
-        (|ctx| *ctx.scanlines = Scanlines::Off) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.scanlines = Scanlines::Off),
     );
     palette.add_command(
         choice_label("Light", scanlines == Scanlines::Light),
-        (|ctx| *ctx.scanlines = Scanlines::Light) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.scanlines = Scanlines::Light),
     );
     palette.add_command(
         choice_label("Heavy", scanlines == Scanlines::Heavy),
-        (|ctx| *ctx.scanlines = Scanlines::Heavy) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.scanlines = Scanlines::Heavy),
     );
 }
 
@@ -1418,19 +1426,19 @@ fn add_scanline_commands(palette: &mut Palette<TwoAction>, scanlines: Scanlines)
 fn add_monitor_style_commands(palette: &mut Palette<TwoAction>, monitor: MonitorStyle) {
     palette.add_command(
         choice_label("Green", monitor == MonitorStyle::Green),
-        (|ctx| *ctx.monitor = MonitorStyle::Green) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.monitor = MonitorStyle::Green),
     );
     palette.add_command(
         choice_label("Amber", monitor == MonitorStyle::Amber),
-        (|ctx| *ctx.monitor = MonitorStyle::Amber) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.monitor = MonitorStyle::Amber),
     );
     palette.add_command(
         choice_label("White", monitor == MonitorStyle::White),
-        (|ctx| *ctx.monitor = MonitorStyle::White) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.monitor = MonitorStyle::White),
     );
     palette.add_command(
         choice_label("Color", monitor == MonitorStyle::Rgb),
-        (|ctx| *ctx.monitor = MonitorStyle::Rgb) as TwoAction,
+        TwoAction::Run(|ctx| *ctx.monitor = MonitorStyle::Rgb),
     );
 }
 
@@ -1681,14 +1689,29 @@ pub fn main(args: &[String]) -> i32 {
         eprintln!("[TWO] Renderer name={}", canvas.renderer_name);
     }
 
-    // If we have a gamepad, open it
+    // If we have a gamepad, open it. Bluetooth pads usually connect after
+    // launch: the ControllerDeviceAdded/Removed arms below handle hot-plug,
+    // and the command palette's "Controller" submenu picks between several.
 
-    let controller = controller_subsystem.as_ref().and_then(|subsystem| {
+    let open_controller = |subsystem: &sdl3::GamepadSubsystem, id| match subsystem.open(id) {
+        Ok(pad) => {
+            eprintln!(
+                "[SDL] Controller connected: {}",
+                pad.name().unwrap_or_else(|| "(unnamed)".to_string())
+            );
+            Some(pad)
+        }
+        Err(e) => {
+            eprintln!("[SDL] Cannot open controller: {e}");
+            None
+        }
+    };
+    let mut controller = controller_subsystem.as_ref().and_then(|subsystem| {
         subsystem
             .gamepads()
             .ok()
             .and_then(|ids| ids.first().copied())
-            .and_then(|id| subsystem.open(id).ok())
+            .and_then(|id| open_controller(subsystem, id))
     });
 
     // Create and configure the Apple II
@@ -1856,8 +1879,52 @@ pub fn main(args: &[String]) -> i32 {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => two.set_screen_dirty(true),
 
-                Event::ControllerButtonDown { button, .. }
-                | Event::ControllerButtonUp { button, .. } => {
+                // Hot-plug: auto-connect when no pad is active (a pad already
+                // present at startup also fires Added — a no-op here); on
+                // losing the active pad, fall back to any remaining one.
+                Event::ControllerDeviceAdded { which, .. } => {
+                    if let Some(subsystem) = controller_subsystem.as_ref() {
+                        if controller.is_none() {
+                            controller = open_controller(
+                                subsystem,
+                                sdl3::sys::joystick::SDL_JoystickID(which),
+                            );
+                        } else if let Ok(name) =
+                            subsystem.name_for_id(sdl3::sys::joystick::SDL_JoystickID(which))
+                        {
+                            eprintln!("[SDL] Controller available: {name}");
+                        }
+                    }
+                }
+                Event::ControllerDeviceRemoved { which, .. } => {
+                    let active = controller
+                        .as_ref()
+                        .and_then(|c| c.id().ok())
+                        .is_some_and(|id| u32::from(id) == which);
+                    if active {
+                        eprintln!("[SDL] Controller disconnected");
+                        controller = None;
+                        two.set_joystick(None);
+                        if let Some(subsystem) = controller_subsystem.as_ref() {
+                            controller = subsystem
+                                .gamepads()
+                                .ok()
+                                .and_then(|ids| ids.first().copied())
+                                .and_then(|id| open_controller(subsystem, id));
+                        }
+                    }
+                }
+
+                Event::ControllerButtonDown { which, button, .. }
+                | Event::ControllerButtonUp { which, button, .. } => {
+                    // Only the active pad drives the machine.
+                    let active = controller
+                        .as_ref()
+                        .and_then(|c| c.id().ok())
+                        .is_some_and(|id| u32::from(id) == which);
+                    if !active {
+                        continue;
+                    }
                     let pressed = matches!(event, Event::ControllerButtonDown { .. });
                     let state = if pressed { 0x80 } else { 0x00 };
                     match button {
@@ -1903,31 +1970,53 @@ pub fn main(args: &[String]) -> i32 {
                         };
                         match action {
                             PaletteAction::Dismiss => palette_visible = false,
-                            PaletteAction::Execute(run) => {
+                            PaletteAction::Execute(action) => {
                                 palette_visible = false;
                                 let mut open_submenu = None;
-                                let monitor_before = monitor_style;
-                                let scanlines_before = scanlines;
-                                let mut ctx = TwoCtx {
-                                    two: &mut two,
-                                    paused: &mut paused,
-                                    window: canvas.window_mut(),
-                                    speed: &mut speed,
-                                    snd: &mut snd,
-                                    monitor: &mut monitor_style,
-                                    scanlines: &mut scanlines,
-                                    open_submenu: &mut open_submenu,
-                                };
-                                run(&mut ctx);
-                                if monitor_style != monitor_before {
-                                    scr.set_monitor_style(monitor_style);
-                                    two.set_screen_dirty(true);
-                                }
-                                if scanlines != scanlines_before {
-                                    if scanlines != Scanlines::Off {
-                                        fill_scanline_texture(&mut scanline_texture, scanlines);
+                                match action {
+                                    TwoAction::Run(run) => {
+                                        let monitor_before = monitor_style;
+                                        let scanlines_before = scanlines;
+                                        let mut ctx = TwoCtx {
+                                            two: &mut two,
+                                            paused: &mut paused,
+                                            window: canvas.window_mut(),
+                                            speed: &mut speed,
+                                            snd: &mut snd,
+                                            monitor: &mut monitor_style,
+                                            scanlines: &mut scanlines,
+                                            open_submenu: &mut open_submenu,
+                                        };
+                                        run(&mut ctx);
+                                        if monitor_style != monitor_before {
+                                            scr.set_monitor_style(monitor_style);
+                                            two.set_screen_dirty(true);
+                                        }
+                                        if scanlines != scanlines_before {
+                                            if scanlines != Scanlines::Off {
+                                                fill_scanline_texture(
+                                                    &mut scanline_texture,
+                                                    scanlines,
+                                                );
+                                            }
+                                            two.set_screen_dirty(true);
+                                        }
                                     }
-                                    two.set_screen_dirty(true);
+                                    TwoAction::PickController(id) => {
+                                        let already = controller
+                                            .as_ref()
+                                            .and_then(|c| c.id().ok())
+                                            .is_some_and(|active| u32::from(active) == id);
+                                        if !already
+                                            && let Some(subsystem) = controller_subsystem.as_ref()
+                                        {
+                                            two.set_joystick(None);
+                                            controller = open_controller(
+                                                subsystem,
+                                                sdl3::sys::joystick::SDL_JoystickID(id),
+                                            );
+                                        }
+                                    }
                                 }
                                 // Reopen as a choice submenu — a VS Code-style
                                 // quick-pick.
@@ -1939,6 +2028,35 @@ pub fn main(args: &[String]) -> i32 {
                                         }
                                         Submenu::Scanlines => {
                                             add_scanline_commands(&mut palette, scanlines)
+                                        }
+                                        Submenu::Controller => {
+                                            let active = controller
+                                                .as_ref()
+                                                .and_then(|c| c.id().ok())
+                                                .map(u32::from);
+                                            let ids = controller_subsystem
+                                                .as_ref()
+                                                .and_then(|s| s.gamepads().ok())
+                                                .unwrap_or_default();
+                                            if ids.is_empty() {
+                                                palette.add_command(
+                                                    "No controllers found",
+                                                    TwoAction::Run(|_| {}),
+                                                );
+                                            }
+                                            for id in ids {
+                                                let name = controller_subsystem
+                                                    .as_ref()
+                                                    .and_then(|s| s.name_for_id(id).ok())
+                                                    .unwrap_or_else(|| "(unnamed)".to_string());
+                                                palette.add_command(
+                                                    choice_label(
+                                                        &name,
+                                                        active == Some(u32::from(id)),
+                                                    ),
+                                                    TwoAction::PickController(u32::from(id)),
+                                                );
+                                            }
                                         }
                                     }
                                     palette_visible = true;
@@ -1994,14 +2112,14 @@ pub fn main(args: &[String]) -> i32 {
                                 palette.open();
                                 palette.add_command(
                                     "Reset",
-                                    (|ctx| {
+                                    TwoAction::Run(|ctx| {
                                         ctx.two.cpu.reset();
-                                    }) as TwoAction,
+                                    }),
                                 );
-                                palette
-                                    .add_command(if paused { "Unpause" } else { "Pause" }, |ctx| {
-                                        *ctx.paused = !*ctx.paused
-                                    });
+                                palette.add_command(
+                                    if paused { "Unpause" } else { "Pause" },
+                                    TwoAction::Run(|ctx| *ctx.paused = !*ctx.paused),
+                                );
                                 let fullscreen =
                                     canvas.window().fullscreen_state() == FullscreenType::True;
                                 palette.add_command(
@@ -2010,23 +2128,37 @@ pub fn main(args: &[String]) -> i32 {
                                     } else {
                                         "Enter Full Screen"
                                     },
-                                    |ctx| {
+                                    TwoAction::Run(|ctx| {
                                         let on =
                                             ctx.window.fullscreen_state() == FullscreenType::True;
                                         let _ = ctx.window.set_fullscreen(!on);
-                                    },
+                                    }),
                                 );
                                 // Choice rows open submenus, like VS Code
                                 // quick-picks.
                                 palette.add_submenu_command(
                                     format!("Monitor Style: {}", monitor_style.label()),
-                                    (|ctx| *ctx.open_submenu = Some(Submenu::MonitorStyle))
-                                        as TwoAction,
+                                    TwoAction::Run(|ctx| {
+                                        *ctx.open_submenu = Some(Submenu::MonitorStyle)
+                                    }),
                                 );
                                 palette.add_submenu_command(
                                     format!("Scanlines: {}", scanlines.label()),
-                                    (|ctx| *ctx.open_submenu = Some(Submenu::Scanlines))
-                                        as TwoAction,
+                                    TwoAction::Run(|ctx| {
+                                        *ctx.open_submenu = Some(Submenu::Scanlines)
+                                    }),
+                                );
+                                palette.add_submenu_command(
+                                    format!(
+                                        "Controller: {}",
+                                        controller
+                                            .as_ref()
+                                            .and_then(|c| c.name())
+                                            .unwrap_or_else(|| "None".to_string())
+                                    ),
+                                    TwoAction::Run(|ctx| {
+                                        *ctx.open_submenu = Some(Submenu::Controller)
+                                    }),
                                 );
                                 // Speed choices; the active one carries a check.
                                 palette.add_command(
@@ -2034,15 +2166,15 @@ pub fn main(args: &[String]) -> i32 {
                                         "Speed: 1.023 MHz (normal)",
                                         speed == SPEED_NORMAL,
                                     ),
-                                    (|ctx| set_speed(ctx, SPEED_NORMAL)) as TwoAction,
+                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_NORMAL)),
                                 );
                                 palette.add_command(
                                     choice_label("Speed: 3.58 MHz", speed == SPEED_FAST),
-                                    (|ctx| set_speed(ctx, SPEED_FAST)) as TwoAction,
+                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_FAST)),
                                 );
                                 palette.add_command(
                                     choice_label("Speed: 7.16 MHz", speed == SPEED_FASTER),
-                                    (|ctx| set_speed(ctx, SPEED_FASTER)) as TwoAction,
+                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_FASTER)),
                                 );
                                 palette_visible = true;
                             }

@@ -31,7 +31,9 @@ and sound.
   monochrome monitor or in color (`--color [green|amber|white|rgb]`) with an
   optional scanline effect (`--scanlines [off|light|heavy]`), both switchable
   at runtime from the command palette,
-  speaker sound, joystick paddles and buttons
+  speaker sound, joystick paddles and buttons (game controllers hot-plug —
+  Bluetooth pads connect any time — and the command palette picks between
+  several)
 * **Disk images** — `.dsk`/`.do`/`.po` sector images, `.nib` nibble images,
   and bit-accurate [WOZ 1.0](https://applesaucefdc.com/woz/reference1/)
   images with copy-protection support (E7, RWTS18, half-tracks, MC3470

@@ -121,11 +121,12 @@ deterministic golden-BMP test culture.
 - **//e paddle timers** (S) — a real gap today: the ][+ models the `$C064-`
   `$C067` paddle timers but `IouE` leaves them unhandled, so joystick games
   don't see analog input on the //e. Port the `TwoIo` paddle timing over.
-- **Gamepad support polish** (M) — SDL game-controller hot-plug, button
-  mapping (fire = button 0/1, Open/Solid-Apple on shoulder buttons),
-  per-axis deadzone/calibration, and a palette "Controller" panel.
-  *(infra: `set_joystick`/`set_button` already flow through
-  `SoftSwitches`.)*
+- **Gamepad support polish** (M) — *partially landed*: **hot-plug**
+  (Bluetooth pads auto-connect on appearance, auto-fallback on disconnect)
+  and the **palette "Controller" picker** (choice submenu, active pad ✓,
+  button events filtered to the active pad) are done. Still open: button
+  mapping (Open/Solid-Apple on shoulder buttons), per-axis
+  deadzone/calibration.
 - **Keyboard-as-joystick** (S) — arrows/WASD emulating the stick with
   configurable throw, for laptops without a controller.
 - **Mouse-as-paddles** (S) — map mouse position to the paddle timers, the
