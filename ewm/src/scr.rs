@@ -70,6 +70,72 @@ impl MonitorStyle {
     }
 }
 
+/// The optional scanline effect for the 3x window: every emulated row maps
+/// to three window rows, and the third is dimmed by multiplying it with a
+/// gray. Selected at startup with `--scanlines [off|light|heavy]` and at
+/// runtime from the command palette ("Scanlines: ...").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Scanlines {
+    #[default]
+    Off,
+    Light,
+    Heavy,
+}
+
+/// The multiply grays: how dark a dimmed row gets (255 = untouched).
+const SCANLINE_LIGHT: u8 = 200;
+const SCANLINE_HEAVY: u8 = 140;
+
+impl Scanlines {
+    /// Parse a `--scanlines` flag value.
+    pub fn parse(s: &str) -> Option<Scanlines> {
+        match s {
+            "off" => Some(Scanlines::Off),
+            "light" => Some(Scanlines::Light),
+            "heavy" => Some(Scanlines::Heavy),
+            _ => None,
+        }
+    }
+
+    /// The human label used by the command palette.
+    pub fn label(self) -> &'static str {
+        match self {
+            Scanlines::Off => "Off",
+            Scanlines::Light => "Light",
+            Scanlines::Heavy => "Heavy",
+        }
+    }
+
+    /// The multiply gray of the dimmed rows; `None` when the effect is off.
+    fn level(self) -> Option<u8> {
+        match self {
+            Scanlines::Off => None,
+            Scanlines::Light => Some(SCANLINE_LIGHT),
+            Scanlines::Heavy => Some(SCANLINE_HEAVY),
+        }
+    }
+}
+
+/// The scanline overlay for a window-scale rect: rows `y % 3 == 2` carry the
+/// dim gray, every other row is white (a no-op under multiply blending). The
+/// frontend uploads this once per setting change to a `BlendMode::Mod`
+/// texture; the headless render path (goldens, --screenshot) never sees it.
+pub fn scanline_overlay(
+    width: usize,
+    height: usize,
+    scanlines: Scanlines,
+    layout: PixelLayout,
+) -> Vec<u32> {
+    let level = scanlines.level().unwrap_or(255);
+    let white = layout.pack(255, 255, 255, 255);
+    let dim = layout.pack(level, level, level, 255);
+    let mut pixels = vec![white; width * height];
+    for y in (2..height).step_by(3) {
+        pixels[y * width..(y + 1) * width].fill(dim);
+    }
+    pixels
+}
+
 /// The pixel layouts `ewm_sdl_pixel_format` can pick; used to pack RGBA
 /// colors the way `SDL_MapRGBA` would for the renderer's surface format.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -693,6 +759,34 @@ mod tests {
         assert_eq!(MonitorStyle::Rgb.label(), "Color");
         // The historical default.
         assert_eq!(MonitorStyle::default(), MonitorStyle::Green);
+    }
+
+    #[test]
+    fn scanlines_parse_flag_values() {
+        assert_eq!(Scanlines::parse("off"), Some(Scanlines::Off));
+        assert_eq!(Scanlines::parse("light"), Some(Scanlines::Light));
+        assert_eq!(Scanlines::parse("heavy"), Some(Scanlines::Heavy));
+        assert_eq!(Scanlines::parse("crt"), None);
+        assert_eq!(Scanlines::default(), Scanlines::Off);
+        assert_eq!(Scanlines::Heavy.label(), "Heavy");
+    }
+
+    #[test]
+    fn scanline_overlay_dims_every_third_row() {
+        let layout = PixelLayout::Argb8888;
+        let white = layout.pack(255, 255, 255, 255);
+        for (setting, level) in [(Scanlines::Light, 200u8), (Scanlines::Heavy, 140)] {
+            let dim = layout.pack(level, level, level, 255);
+            let overlay = scanline_overlay(12, 9, setting, layout);
+            assert_eq!(overlay.len(), 12 * 9);
+            for y in 0..9 {
+                let expected = if y % 3 == 2 { dim } else { white };
+                assert!(
+                    overlay[y * 12..(y + 1) * 12].iter().all(|&p| p == expected),
+                    "{setting:?} row {y}"
+                );
+            }
+        }
     }
 
     /// The phosphor actually lands in rendered pixels. A fresh ][+ text page
