@@ -39,7 +39,10 @@ and sound.
   images with copy-protection support (E7, RWTS18, half-tracks, MC3470
   weak bits — see `notes/WOZ1.md` for the compatibility table)
 * **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
-  language card and MMU/IOU soft switches, 40- and 80-column text with lower
+  language card and MMU/IOU soft switches, a swappable auxiliary slot
+  (`--aux`): the Extended 80-Column Text Card (64K, default), the plain
+  80-Column Text Card (1K), or an Applied Engineering RamWorks III with up
+  to 8MB (`--aux ramworksiii:1m`), 40- and 80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
   graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
   hard drive, clock and sound. Start it with `two --model 2e`.
@@ -80,6 +83,9 @@ cargo run --release -- two --color --drive1 "disks/woz/WOZ 1.0/Commando - Disk 1
 
 # Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
 cargo run --release -- two --model 2e --color --drive1 disks/DOS33-SystemMaster.dsk
+
+# Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
+cargo run --release -- two --model 2e --aux ramworksiii --drive1 disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1

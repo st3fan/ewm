@@ -856,7 +856,7 @@ Every //e capability, and the automated gate that covers it. All green.
 listed here are resolved:
 
 - The **AN3 double-res latch** turned out not to be a base-//e feature — see
-  the AN3/DHIRES correction under 6a and quirk #7 below.
+  the AN3/DHIRES correction under 6a and quirk #8 below.
 - The **DHGR colour revisit** was performed as an experiment: a sliding 4-bit
   window renderer was built and compared against the aligned-cell default
   (identical on stable content, more hardware-like fringing at edges). The
@@ -890,7 +890,15 @@ Seed list; append during implementation, mirroring `REWRITE.md`'s
    the rewrite's existing stance.
 6. **Character ROM `+1` offset** in the current `chr.rs` is specific to the
    ][+ 2716 dump and is *not* reused for the //e 4K ROM.
-7. **No IOUDIS on the //e; DHIRES = inverted AN3.** The //e Technical Reference
+7. **RamWorks III routing** (`--aux ramworksiii`): the `$C073`-selected bank
+   replaces aux memory for RAMRD/RAMWRT/ALTZP and the aux language card, but
+   **the 80STORE display pages and the video scanner always use bank 0** (the
+   80-column video buffers only exist there — period references note the
+   documentation is "not certain"; this matches observed software behavior).
+   Only `$C073` is decoded (no odd-address shadows); unpopulated banks read
+   `0xFF` and drop writes, and the plain 1K 80-Column Text Card answers only
+   at `$0400-$07FF`.
+8. **No IOUDIS on the //e; DHIRES = inverted AN3.** The //e Technical Reference
    describes an IOUDIS switch (`$C07E`/`$C07F`) gating DHIRES, with
    `RDIOUDIS`/`RDDHIRES` reads — but that is **//c** behavior copy-pasted in
    error. On real //e hardware those addresses **float** (verified by
