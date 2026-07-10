@@ -116,6 +116,21 @@ deterministic golden-BMP test culture.
   `SAVE` output to WAV doubles as a fun preservation trick.
 - *(Mockingboard/SSI263 belong here too — listed under Hardware.)*
 
+## Input
+
+- **//e paddle timers** (S) — a real gap today: the ][+ models the `$C064-`
+  `$C067` paddle timers but `IouE` leaves them unhandled, so joystick games
+  don't see analog input on the //e. Port the `TwoIo` paddle timing over.
+- **Gamepad support polish** (M) — SDL game-controller hot-plug, button
+  mapping (fire = button 0/1, Open/Solid-Apple on shoulder buttons),
+  per-axis deadzone/calibration, and a palette "Controller" panel.
+  *(infra: `set_joystick`/`set_button` already flow through
+  `SoftSwitches`.)*
+- **Keyboard-as-joystick** (S) — arrows/WASD emulating the stick with
+  configurable throw, for laptops without a controller.
+- **Mouse-as-paddles** (S) — map mouse position to the paddle timers, the
+  classic way to play paddle games (and how a Koala Pad could be faked).
+
 ## Debugging tools
 
 The REWRITE explicitly lists "a debugger" as never-implemented future work,
@@ -162,6 +177,15 @@ Today: Reset, Pause, Full Screen, three CPU speeds. Cheap, high-value adds:
   BASIC listings from the web painless.
 - **Machine info** (S) — a read-only panel: model, ROM hashes, mounted
   images, switch states.
+- **Game cheats** (M) — a "Cheats" palette submenu: pick "Hard Hat Mack —
+  more lives" and it pokes the right zero-page/memory locations (or patches
+  code) on the running machine. Backed by a small cheat database: per-title
+  TOML files (name, description, pokes `addr = value`, optional code
+  patches), matched to the mounted image by name or content hash, shipped
+  in-repo and user-extendable in the disk library. The 4am write-ups
+  document many of these addresses. *(infra: the bus makes pokes trivial;
+  the palette's per-open command registration means cheats can appear only
+  when a matching disk is mounted.)*
 
 ## Configuration & launch experience
 
@@ -209,6 +233,11 @@ Everything in this section serves that goal.
   determinism makes replay-from-snapshot exact.
 - **Boot snapshots** (S, after save states) — `--resume <state>` to skip
   the ~10s DOS boot during development and testing.
+- **Quit & resume** (S, after save states) — persist across emulator
+  restarts: auto-save the machine state on exit (opt-in, per machine
+  config), restore it on the next launch — quit mid-game tonight, continue
+  exactly there tomorrow. Needs care with mounted-image paths moving
+  between runs.
 
 ## Automation & scripting
 
