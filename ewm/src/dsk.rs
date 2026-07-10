@@ -270,6 +270,14 @@ impl Dsk {
         self.on && self.off_at.is_none_or(|t| cycles < t)
     }
 
+    /// Whether drive `index`'s activity light is lit: the motor is running
+    /// (spin-down included) and this drive is the selected one — the Disk II
+    /// shares one motor line and only the selected drive spins. Drives the
+    /// frontend status bar and the activity LED overlay.
+    pub fn drive_lit(&self, index: usize, cycles: u64) -> bool {
+        self.motor_lit(cycles) && self.drive == index
+    }
+
     /// Port of `dsk_write_next`.
     fn write_next(&mut self, v: u8) {
         if self.mode == Mode::Write {
@@ -700,6 +708,31 @@ mod tests {
         assert_eq!(dsk.io_read(0xc0ec, 0), 0xff);
         // And the cycle repeats.
         assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
+    }
+
+    #[test]
+    fn drive_lit_follows_motor_and_drive_select() {
+        let mut dsk = Dsk::new();
+
+        // Motor off: neither drive is lit.
+        assert!(!dsk.drive_lit(DSK_DRIVE1, 0));
+        assert!(!dsk.drive_lit(DSK_DRIVE2, 0));
+
+        // Motor on ($C0E9): only the selected drive (1) is lit.
+        dsk.io_read(0xc0e9, 0);
+        assert!(dsk.drive_lit(DSK_DRIVE1, 0));
+        assert!(!dsk.drive_lit(DSK_DRIVE2, 0));
+
+        // Selecting drive 2 ($C0EB) moves the light.
+        dsk.io_read(0xc0eb, 0);
+        assert!(!dsk.drive_lit(DSK_DRIVE1, 0));
+        assert!(dsk.drive_lit(DSK_DRIVE2, 0));
+
+        // Motor off ($C0E8): lit through the ~1s spin-down, then dark.
+        dsk.io_read(0xc0e8, 1000);
+        assert!(dsk.drive_lit(DSK_DRIVE2, 1000 + MOTOR_OFF_DELAY - 1));
+        assert!(!dsk.drive_lit(DSK_DRIVE2, 1000 + MOTOR_OFF_DELAY));
+        assert!(!dsk.drive_lit(DSK_DRIVE1, 1000 + MOTOR_OFF_DELAY));
     }
 
     #[test]
