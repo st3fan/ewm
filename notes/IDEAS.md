@@ -163,6 +163,41 @@ Today: Reset, Pause, Full Screen, three CPU speeds. Cheap, high-value adds:
 - **Machine info** (S) — a read-only panel: model, ROM hashes, mounted
   images, switch states.
 
+## Configuration & launch experience
+
+The north star: **start `ewm` with no command-line options and fully use it
+from there** — boot to the menu, configure a machine, insert disks, play.
+Everything in this section serves that goal.
+
+- **Machine config files** (M) — describe a machine in YAML or TOML: model,
+  CPU, memory size, cards per slot, display/color options, mounted images.
+  `ewm --config myiie.toml` boots it; the boo menu could list saved
+  configs. Virtual ]['s configurable virtual machines are the reference;
+  this also becomes the natural home for choices we currently spread across
+  flags (`--color`, `--fps`, `--model`, `--drive1`, …). *(infra: hand-rolled
+  flag parsing stays; the config file populates the same `Options`.)*
+- **Disk management** (M) — the full story, not just palette entries:
+  start with **no disks mounted**, then insert/eject/swap floppies and
+  mount HD volumes on the HDD card at runtime from the Command Palette
+  (file picker + recently-used list). Drive doors and image names in the
+  status bar. Ejecting flushes (once write support lands).
+- **A disk library** (S/M) — a well-known images directory the pickers
+  default to (`~/Library/Application Support/EWM/Disks` on macOS,
+  `$XDG_DATA_HOME/ewm/disks` elsewhere; the repo's `disks/` as a dev
+  fallback), with recently-used tracking. Where downloads (next item) land.
+- **Fetch from the Internet Archive** (M/L) — archive.org has a documented
+  JSON API (advanced search + per-item metadata endpoints, direct file
+  downloads), and the 4am collections ("Apple II Library: The 4am
+  Collection", the woz-a-day series) are exactly the WOZ images our bit
+  engine was built for. A palette flow — search archive.org, browse the 4am
+  collection, download into the disk library, insert into drive 1 — would
+  make EWM self-sufficient for software. (Respect rate limits; cache
+  downloads; surface item metadata/credits.)
+- **Zero-flag startup** (theme) — with config files + disk management +
+  the library in place, the CLI becomes optional: `ewm` → boo menu →
+  pick/configure machine → insert disks from the palette. Tracks the
+  gaps blocking that flow.
+
 ## Save states & rewind
 
 - **Save/load state** (L) — full machine snapshots (CPU, RAM/aux, devices,
@@ -189,6 +224,26 @@ Today: Reset, Pause, Full Screen, three CPU speeds. Cheap, high-value adds:
 - **Control socket / REPL** (M) — a simple line protocol (read/write
   memory, key injection, screenshot) for driving a windowed instance from
   outside; the automation counterpart of the debugger.
+
+## Distribution & platforms
+
+- **Native macOS app** (M/L) — a real double-clickable `EWM.app`: bundle
+  (cargo-bundle or a hand-rolled bundle + `codesign`/notarization), icon,
+  and **file associations** so double-clicking a `.dsk`/`.woz` opens it in
+  drive 1. Virtual ][ is the native-feel benchmark. Pairs with zero-flag
+  startup — the app must be fully usable without a terminal.
+- **Raspberry Pi boot image** (L) — flash a card, power on, and the Pi *is*
+  an Apple ][+ / //e: a minimal Linux (or bare KMS/DRM console) image that
+  boots straight into the boo menu, from which you pick the machine — the
+  bootloader's original purpose, finally literal. Needs SDL on KMS without
+  X, GPIO-friendly shutdown, and the disk library on the card. (Appliance
+  cousins: RetroPie ships emulators this way.)
+- **Hosted / virtual Apple //e** (L) — run the emulator server-side and use
+  it from a browser: boot instances from a small web UI, interact via VNC
+  or a web VNC client (noVNC). The headless core already runs without SDL;
+  the missing piece is a frame-buffer → RFB/WebSocket bridge plus keyboard
+  injection (which the control socket above provides). "Virtual Apple //e
+  hosting" — shareable, embeddable, demo-able.
 
 ## References
 
