@@ -406,6 +406,13 @@ struct IouE {
     /// Push-button / paddle inputs, read at `$C061-$C063` (bit 7 = pressed).
     /// On the //e button 0 is Open-Apple and button 1 is Solid-Apple.
     buttons: [u8; 4],
+    /// Joystick axes (x, y) as raw SDL values, as in `TwoIo`; the paddle
+    /// timers at `$C064`/`$C065` are armed by a `$C070` PTRIG read.
+    joystick: Option<(i16, i16)>,
+    padl0_time: u64,
+    padl0_value: u8,
+    padl1_time: u64,
+    padl1_value: u8,
 
     // --- Frontend bridge (for running under the SDL loop) ---
     /// Set when a display switch changes, so the renderer knows to redraw —
@@ -467,6 +474,11 @@ impl IouE {
             altcharset: false,
             dhires: false, // AN3 resets on, so DHIRES is off
             buttons: [0; 4],
+            joystick: None,
+            padl0_time: 0,
+            padl0_value: 0,
+            padl1_time: 0,
+            padl1_value: 0,
             screen_dirty: true,
             speaker_toggles: Vec::new(),
             main: vec![0; 0xc000],
@@ -725,6 +737,35 @@ impl IouE {
             SS_PB1 => self.buttons[1],
             SS_PB2 => self.buttons[2],
 
+            // Analog paddles, the same 558-timer model as the ][+ (`TwoIo`):
+            // a PTRIG read arms the timers from the joystick axes; the PADL
+            // reads report bit 7 until their timer expires.
+            SS_PTRIG => {
+                if let Some((axis_x, axis_y)) = self.joystick {
+                    let x = 128 + (axis_x as i64 / 256);
+                    self.padl0_time = cycles + (x as u64 * (2820 / 255));
+                    self.padl0_value = 0xff;
+                    let y = 128 + (axis_y as i64 / 256);
+                    self.padl1_time = cycles + (y as u64 * (2820 / 255));
+                    self.padl1_value = 0xff;
+                }
+                0
+            }
+            SS_PADL0 => {
+                if self.padl0_time != 0 && cycles >= self.padl0_time {
+                    self.padl0_time = 0;
+                    self.padl0_value = 0;
+                }
+                self.padl0_value
+            }
+            SS_PADL1 => {
+                // As in two.c, PADL1 never clears its timer.
+                if self.padl1_time != 0 && cycles >= self.padl1_time {
+                    self.padl1_value = 0;
+                }
+                self.padl1_value
+            }
+
             // Speaker: any $C030 access toggles it; record the cycle stamp.
             SS_SPKR => {
                 self.speaker_toggles.push(cycles);
@@ -968,8 +1009,8 @@ impl SoftSwitches for IouE {
     fn set_button(&mut self, button: usize, state: u8) {
         self.buttons[button] = state;
     }
-    fn set_joystick(&mut self, _joystick: Option<(i16, i16)>) {
-        // //e analog paddles / joystick are not modelled yet (a later phase).
+    fn set_joystick(&mut self, joystick: Option<(i16, i16)>) {
+        self.joystick = joystick;
     }
     fn drain_speaker_toggles(&mut self) -> Vec<u64> {
         std::mem::take(&mut self.speaker_toggles)
@@ -1869,6 +1910,8 @@ pub fn main(args: &[String]) -> i32 {
     let mut monitor_style = options.monitor;
     // Scanline effect, switchable from the command palette.
     let mut scanlines = options.scanlines;
+    // D-pad state (-1/0/1 per axis), merged into the joystick feed.
+    let mut dpad: (i8, i8) = (0, 0);
 
     let mut counter = two.cpu.counter;
     let mut mhz = 1.0f64;
@@ -1933,6 +1976,13 @@ pub fn main(args: &[String]) -> i32 {
                         Button::East | Button::RightShoulder => two.set_button(1, state),
                         Button::West => two.set_button(2, state),
                         Button::North => two.set_button(3, state),
+                        // The D-pad reports as buttons; fold it into the
+                        // joystick axes (full deflection, merged with the
+                        // analog stick in the per-frame feed).
+                        Button::DPadLeft => dpad.0 = if pressed { -1 } else { dpad.0.max(0) },
+                        Button::DPadRight => dpad.0 = if pressed { 1 } else { dpad.0.min(0) },
+                        Button::DPadUp => dpad.1 = if pressed { -1 } else { dpad.1.max(0) },
+                        Button::DPadDown => dpad.1 = if pressed { 1 } else { dpad.1.min(0) },
                         _ => {}
                     }
                 }
@@ -2239,11 +2289,18 @@ pub fn main(args: &[String]) -> i32 {
         if sdl3::timer::ticks() >= next_frame {
             if !paused && !palette_visible && sdl3::timer::ticks() >= boot_at {
                 // Feed the joystick axes to the paddle logic before the burst.
-                two.set_joystick(
-                    controller
-                        .as_ref()
-                        .map(|c| (c.axis(Axis::LeftX), c.axis(Axis::LeftY))),
-                );
+                two.set_joystick(controller.as_ref().map(|c| {
+                    // The D-pad (full deflection) wins over the analog stick.
+                    let x = match dpad.0 {
+                        0 => c.axis(Axis::LeftX),
+                        d => d as i16 * i16::MAX,
+                    };
+                    let y = match dpad.1 {
+                        0 => c.axis(Axis::LeftY),
+                        d => d as i16 * i16::MAX,
+                    };
+                    (x, y)
+                }));
 
                 let mut budget = (speed / fps) as i64;
                 while budget > 0 {
