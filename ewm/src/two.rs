@@ -1453,6 +1453,9 @@ struct Options {
     drive2: Option<String>,
     hdd: Option<String>,
     monitor: MonitorStyle,
+    /// Seconds to hold the machine before it starts executing (the window is
+    /// up and rendering) — for debugging and video recording.
+    boot_delay: f64,
     fps: u32,
     memory: Vec<MemoryOption>,
     trace_path: Option<String>,
@@ -1495,6 +1498,13 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                         it.next();
                     })
                     .unwrap_or(MonitorStyle::Rgb);
+            }
+            "--boot-delay" => {
+                options.boot_delay = it
+                    .next()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0)
+                    .max(0.0);
             }
             "--fps" => {
                 // atoi semantics
@@ -1762,6 +1772,12 @@ pub fn main(args: &[String]) -> i32 {
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let frame_ms = (1000 / fps) as u64;
     let mut next_frame = sdl3::timer::ticks() + frame_ms;
+    // --boot-delay: the window is up and rendering, but the CPU holds at
+    // power-on until this tick — lets a screen recorder catch the boot.
+    let boot_at = sdl3::timer::ticks() + (options.boot_delay * 1000.0) as u64;
+    if options.boot_delay > 0.0 {
+        eprintln!("[TWO] Boot delayed {:.1}s", options.boot_delay);
+    }
     let mut phase: u32 = 1;
     let mut paused = false;
     let mut status_bar_visible = false;
@@ -2009,7 +2025,7 @@ pub fn main(args: &[String]) -> i32 {
         }
 
         if sdl3::timer::ticks() >= next_frame {
-            if !paused && !palette_visible {
+            if !paused && !palette_visible && sdl3::timer::ticks() >= boot_at {
                 // Feed the joystick axes to the paddle logic before the burst.
                 two.set_joystick(
                     controller
@@ -2172,5 +2188,16 @@ mod tests {
         let o = opts(&["--color", "--drive1", "game.dsk"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
         assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
+    }
+
+    #[test]
+    fn boot_delay_flag_parses_seconds() {
+        assert_eq!(opts(&[]).boot_delay, 0.0);
+        assert_eq!(opts(&["--boot-delay", "3"]).boot_delay, 3.0);
+        assert_eq!(opts(&["--boot-delay", "1.5"]).boot_delay, 1.5);
+        // atoi semantics, like --fps: garbage means no delay.
+        assert_eq!(opts(&["--boot-delay", "soon"]).boot_delay, 0.0);
+        // Negative delays clamp to zero.
+        assert_eq!(opts(&["--boot-delay", "-2"]).boot_delay, 0.0);
     }
 }
