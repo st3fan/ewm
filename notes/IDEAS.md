@@ -274,6 +274,87 @@ Everything in this section serves that goal.
   injection (which the control socket above provides). "Virtual Apple //e
   hosting" — shareable, embeddable, demo-able.
 
+## AI
+
+The headless core is unusually AI-friendly: deterministic execution,
+`text_screen()`/`text_screen_80()` as ground-truth screen text (no OCR),
+keyboard injection, and save states (once landed) as perfect episode resets.
+
+- **MCP server** (M) — expose EWM to AI agents as tools: boot a machine,
+  insert a disk, type, wait-for-text, read the screen, screenshot, poke/peek
+  memory. Everything our own integration tests do, packaged for Claude and
+  friends — "load Hard Hat Mack and tell me how the protection works", or an
+  agent that plays Planetfall. *(infra: the expect-style driver and control
+  socket under Automation are 90% of this; MCP is a thin protocol layer.)*
+- **AI debugging assistant** (M) — feed the trace ring buffer, disassembly,
+  and soft-switch log to an LLM to explain what the machine is doing —
+  literally how the E7 protection and the //e lowercase bug were cracked
+  during EWM's own development, productized.
+- **Cheat finder** (M) — diff memory snapshots across "lost a life" events
+  to locate lives/score counters automatically, then emit a cheat-file entry
+  (see Game cheats). Classic Cheat-Engine flow; determinism plus snapshots
+  make it reliable, and an LLM can name/describe what it found.
+- **BASIC copilot** (S/M) — prompt → AppleSoft BASIC → auto-pasted through
+  the keyboard latch and run; the screen scrape closes the loop for
+  self-correction. A lovely demo of paste + scripting + AI in one.
+- **RL / game-playing harness** (M/L) — frame buffer + joystick as a gym
+  environment; deterministic stepping and snapshot resets are exactly what
+  RL wants and real hardware can't give.
+
+## Cloud & web
+
+Extends "Hosted / virtual Apple //e" under Distribution.
+
+- **WebAssembly build** (L) — compile the emulator to WASM and run it
+  client-side in the browser: canvas for the 560-wide frame, no server at
+  all. The cleanest "try EWM in one click" and an embeddable widget for
+  blog posts ("here, *play* the bug I'm describing"). The `ewm-core` /
+  frontend crate split already isolates the SDL dependency.
+- **Cloud disk library & save-state sync** (M) — the disk library and
+  quit-&-resume states in S3/iCloud; start a game on the desk, resume it
+  anywhere. Pairs with the Archive.org fetcher.
+- **Shareable replays** (M) — determinism means a session is fully defined
+  by (config, images, timestamped inputs): record tiny replay files,
+  share a link, the server re-executes into video or a live view. Demo
+  captures, bug reports, and speedruns all fall out of one feature.
+- **Spectator mode / pass-the-controller** (M/L) — one instance, one
+  driver, N viewers over the RFB/WebSocket fan-out; hand the keyboard to
+  another viewer. Retro game night, remote demos, teaching.
+- **Emulation API service** (M) — the control socket as a hosted REST/WS
+  API: POST a disk image, drive it, get screenshots/screen text back.
+  CI-for-Apple-II-software as a service; the expect-style driver is the
+  local version of the same contract.
+
+## Mobile
+
+- **iPad / iPhone app** (L) — App Store rules now allow retro emulators
+  (2024's policy change; Delta et al.). Touch keyboard overlay with the
+  //e layout, tap-to-insert disks from the Files app / disk library,
+  MFi + Bluetooth gamepads, external keyboards. The SDL frontend would be
+  replaced by a small native shell over `ewm-core` — the crate seam again.
+- **Touch & motion controls** (M, after the app) — drag = paddle, virtual
+  stick overlay, tilt-as-joystick for Choplifter.
+- **Handoff** (S, after cloud sync) — quit on the Mac, resume the same
+  state on the iPad via the synced save states.
+- *(The WASM build is the no-install mobile fallback: EWM in mobile
+  Safari with a touch keyboard, zero App Store involvement.)*
+
+## Apple Watch (yes, really)
+
+Not the emulator *on* the watch — the watch as the world's smallest Apple II
+peripheral, talking to a Mac/hosted instance:
+
+- **Digital Crown = paddle** (M) — the crown is a rotary encoder and Apple
+  paddles were rotary knobs; this is the most faithful paddle controller
+  Apple has shipped since 1983. Breakout on a //e, controlled from the
+  wrist. *(infra: paddle injection already exists via `set_joystick`; this
+  is a WebSocket bridge + a tiny watch app.)*
+- **Status complication** (S, after hosted instances) — your cloud //e's
+  drive light and MHz on a watch face; tap to peek at the text screen
+  (40×24 fits a watch better than most modern UIs).
+- **Wrist notifications** (S) — the speaker BELL or a finished long-running
+  BASIC program pings your wrist: "your //e wants attention."
+
 ## References
 
 - [AppleWin](https://github.com/AppleWin/AppleWin) — debugger, save states,
