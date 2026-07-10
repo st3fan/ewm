@@ -1,7 +1,7 @@
 # Disk Activity LEDs — Implementation Plan
 
 A working document for adding disk activity "LEDs" to the `two` frontend:
-two small circles in the lower-right corner of the screen, one per Disk II
+two small squares in the lower-right corner of the screen, one per Disk II
 drive. Modeled on `WOZ1.md` / `APPLE_IIE_ENHANCED.md`: small phases, each
 independently verifiable. **The tree must build and pass all verification
 gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
@@ -12,13 +12,13 @@ gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
 
 ## What we are building
 
-When there is disk activity, two small filled circles appear in the
+When there is disk activity, two small filled squares appear in the
 lower-right corner of the emulated screen — one for drive 1, one for
 drive 2:
 
 - **Red** — the drive is active.
 - **Grey** — the drive is idle (but the other one is active).
-- **Hidden** — when no drive is active, the circles are not drawn at all.
+- **Hidden** — when no drive is active, the squares are not drawn at all.
 
 ## Semantics: what "active" means
 
@@ -64,21 +64,21 @@ byte-for-byte unchanged, and the Apple 1 (`one`) frontend is unaffected.
   frame-loop upload).
 - Geometry, in emulated (1x) pixels, drawn at 3x by the frame loop like
   everything else so the LEDs look chunky-pixel consistent with the screen:
-  - circle diameter **7 px**, gap **3 px** → strip buffer **17×7**;
-  - filled-circle test: `dx² + dy² ≤ r²` around each center — no
-    anti-aliasing, matching the crisp nearest-neighbor look.
+  - square side **5 px**, gap **3 px** → strip buffer **13×5** — plain
+    filled squares, no anti-aliasing, matching the crisp nearest-neighbor
+    look. (v1 drew 7 px circles; squares read better at this size.)
 - Colors, packed via the existing `PixelLayout::pack`:
   - active: red `(255, 0, 0, 255)` — same red the status bar uses;
   - idle: grey `(128, 128, 128, 255)`.
 - The texture is created once (`BlendMode::Blend`, `ScaleMode::Nearest`,
-  17×7), updated per frame while lit (it is tiny — same policy as the
+  13×5), updated per frame while lit (it is tiny — same policy as the
   status bar texture), and copied to a dst rect anchored to the
   lower-right corner of `screen_dst` with a 4-logical-px margin:
 
   ```text
-  x = pad + (SCR_WIDTH*3) - margin*3 - 17*3
-  y = pad + (SCR_HEIGHT*3) - margin*3 - 7*3
-  w = 17*3, h = 7*3
+  x = pad + (SCR_WIDTH*3) - margin*3 - 13*3
+  y = pad + (SCR_HEIGHT*3) - margin*3 - 5*3
+  w = 13*3, h = 5*3
   ```
 
 - Draw order: after the screen + scanline copy and the status bar, **before**
@@ -114,25 +114,24 @@ switches move the light. Existing tests stay green.
 New `ewm/src/led.rs`:
 
 ```rust
-pub const LED_STRIP_WIDTH: usize = 17;
-pub const LED_STRIP_HEIGHT: usize = 7;
+pub const LED_STRIP_WIDTH: usize = 13;
+pub const LED_STRIP_HEIGHT: usize = 5;
 
-/// Render the two-drive LED strip: a filled circle per drive, red when
+/// Render the two-drive LED strip: a filled square per drive, red when
 /// lit, grey when not, on a transparent background. The caller only
 /// renders the strip at all when at least one drive is lit.
 pub fn render_led_strip(lit: [bool; 2], layout: PixelLayout) -> Vec<u32>
 ```
 
-**Gate:** unit tests: buffer is `17*7`; background pixels have alpha 0;
-center pixel of each circle is red/grey per `lit`; corners of each 7×7
-cell stay transparent (it is a circle, not a square); both `PixelLayout`
-packings sanity-checked.
+**Gate:** unit tests: buffer is `13*5`; the gap between the squares has
+alpha 0; every pixel of each square is red/grey per `lit`; both
+`PixelLayout` packings sanity-checked.
 
 ### Phase 3 — frontend wiring *(S)*
 
 In `two::main`:
 
-1. Create `led_texture` (streaming, 17×7, `BlendMode::Blend`,
+1. Create `led_texture` (streaming, 13×5, `BlendMode::Blend`,
    `ScaleMode::Nearest`) next to the other textures.
 2. In the render block, after the status bar copy:
 
@@ -156,7 +155,7 @@ palette, and stay put in fullscreen (letterboxed logical coordinates).
 
 ## Out of scope / future work
 
-- **Hard drive LED** — a third circle for the slot 7 HDD, driven by a
+- **Hard drive LED** — a third square for the slot 7 HDD, driven by a
   last-access cycle stamp (no motor to observe). Trivial to add once the
   strip renderer exists (make the strip width a function of LED count).
 - **Palette toggle** — a "Drive LEDs: on/off" command palette entry if the
