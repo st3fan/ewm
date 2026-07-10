@@ -312,6 +312,15 @@ Notes that cut across all of them:
   the missing piece is a frame-buffer → RFB/WebSocket bridge plus keyboard
   injection (which the control socket above provides). "Virtual Apple //e
   hosting" — shareable, embeddable, demo-able.
+- **WebAssembly build — EWM in the browser** (L) — compile the emulator to
+  WASM and run it entirely client-side: a canvas for the 560-wide frame,
+  Web Audio for the speaker, keyboard/gamepad events in, no server at all.
+  The cleanest "try EWM in one click", an embeddable widget for blog posts
+  ("here, *play* the bug I'm describing"), the no-install path on mobile
+  Safari, and the zero-ops sibling of the hosted instances above. *(infra:
+  the `ewm-core` / frontend crate split already isolates SDL; the pure
+  `Scr` renderer and headless machines are WASM-ready as-is — the work is
+  a `wasm32` frontend crate and asset/file plumbing.)*
 
 ## AI
 
@@ -342,13 +351,9 @@ keyboard injection, and save states (once landed) as perfect episode resets.
 
 ## Cloud & web
 
-Extends "Hosted / virtual Apple //e" under Distribution.
+Extends "Hosted / virtual Apple //e" under Distribution; the client-side,
+no-server counterpart is the **WebAssembly build** there.
 
-- **WebAssembly build** (L) — compile the emulator to WASM and run it
-  client-side in the browser: canvas for the 560-wide frame, no server at
-  all. The cleanest "try EWM in one click" and an embeddable widget for
-  blog posts ("here, *play* the bug I'm describing"). The `ewm-core` /
-  frontend crate split already isolates the SDL dependency.
 - **Cloud disk library & save-state sync** (M) — the disk library and
   quit-&-resume states in S3/iCloud; start a game on the desk, resume it
   anywhere. Pairs with the Archive.org fetcher.
