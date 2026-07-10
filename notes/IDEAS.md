@@ -30,10 +30,10 @@ deterministic golden-BMP test culture.
   software can "dial" modern telnet BBSes. AppleWin and Virtual ][ do this.
 - **AppleMouse card** (M) — unlocks MousePaint, Dazzle Draw menus, GEOS.
   Natural fit: we already have SDL mouse events in the frame loop.
-- **RamWorks III aux-slot memory** (M) — banked aux memory beyond 128K (up
-  to 8–16MB in AppleWin/izapple2). AppleWorks and RAM-disk software love it.
-  *(infra: `IouE` already owns the aux bank; RamWorks generalizes it to N
-  banks selected at `$C073`.)*
+- ~~**RamWorks III aux-slot memory**~~ — **landed**: `--aux
+  ramworksiii[:SIZE]` (64K..8MB, bank register `$C073`), built on a new
+  `AuxCard` trait (`ewm/src/aux/`) that also brought the plain 1K
+  80-Column Text Card; the aux slot is now swappable per card file.
 - **Z80 SoftCard → CP/M** (L) — a second CPU core (Z80) sharing the bus;
   boots CP/M, WordStar, Turbo Pascal. MAME/AppleWin/izapple2 have it. Big,
   self-contained, very fun.

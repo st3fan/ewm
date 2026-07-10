@@ -6,6 +6,7 @@
 //! (quirk #3).
 
 use crate::alc::Alc;
+use crate::aux::{AuxCard, Ext80Col, LcRegion};
 use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
@@ -428,7 +429,10 @@ struct IouE {
     /// of `$0200-$BFFF` follow RAMRD, writes follow RAMWRT. Zero page and the
     /// stack (`$0000-$01FF`) follow ALTZP (Phase 4b).
     main: Vec<u8>,
-    aux: Vec<u8>,
+    /// The card in the auxiliary slot: the aux 48K body, the aux language
+    /// card, and the 80STORE/video display pages all answer from it (see
+    /// `crate::aux` — Extended 80-Column, plain 1K 80-Column, RamWorks III).
+    aux: Box<dyn AuxCard>,
 
     // --- Phase 4b: the built-in language card ($D000-$FFFF) ---
     // On the //e the language card is soldered onto the board and wired to the
@@ -438,11 +442,11 @@ struct IouE {
     /// The 12K banked ROM at `$D000-$FFFF` (the fall-through when card RAM is
     /// not read-enabled).
     lc_rom: Vec<u8>,
-    /// The two `$D000` banks (4K each) and the `$E000` bank (8K), in main and
-    /// aux. `[bank][main=0/aux=1]`: `d[0]`/`d[1]` are the `$D000` RAM1/RAM2.
-    lc_d1: [Vec<u8>; 2],
-    lc_d2: [Vec<u8>; 2],
-    lc_e: [Vec<u8>; 2],
+    /// The main-side card RAM: two `$D000` banks (4K each) and the `$E000`
+    /// bank (8K). The ALTZP-selected aux copies live on the aux card.
+    lc_d1: Vec<u8>,
+    lc_d2: Vec<u8>,
+    lc_e: Vec<u8>,
     /// Card state, as in `Alc`.
     lc_active: bool,
     lc_bank1: bool,
@@ -452,7 +456,7 @@ struct IouE {
 }
 
 impl IouE {
-    fn new() -> IouE {
+    fn new(aux: Box<dyn AuxCard>) -> IouE {
         IouE {
             key: 0,
             debug: false,
@@ -482,13 +486,13 @@ impl IouE {
             screen_dirty: true,
             speaker_toggles: Vec::new(),
             main: vec![0; 0xc000],
-            aux: vec![0; 0xc000],
+            aux,
             // The banked $D000-$FFFF ROM: the CD half's upper 4K plus the EF
             // half, the same image the ][+ hands to `Alc`.
             lc_rom: [&ROM_IIE_CD[0x1000..0x2000], ROM_IIE_EF].concat(),
-            lc_d1: [vec![0; 0x1000], vec![0; 0x1000]],
-            lc_d2: [vec![0; 0x1000], vec![0; 0x1000]],
-            lc_e: [vec![0; 0x2000], vec![0; 0x2000]],
+            lc_d1: vec![0; 0x1000],
+            lc_d2: vec![0; 0x1000],
+            lc_e: vec![0; 0x2000],
             lc_active: false,
             lc_bank1: false,
             lc_read: false,
@@ -502,7 +506,7 @@ impl IouE {
     }
 
     fn aux_bank(&self) -> &[u8] {
-        &self.aux
+        self.aux.video_ram()
     }
 
     /// Read `$0000-$BFFF`: zero page and the stack (`$0000-$01FF`) follow
@@ -526,27 +530,40 @@ impl IouE {
     /// unless the 80STORE display-page override claims the address.
     fn read_ram(&self, addr: u16) -> u8 {
         let i = addr as usize;
-        let aux = if addr < 0x0200 {
-            self.altzp
-        } else {
-            self.store80_aux(addr).unwrap_or(self.ramrd)
-        };
-        if aux { self.aux[i] } else { self.main[i] }
+        if addr < 0x0200 {
+            return if self.altzp {
+                self.aux.read(addr)
+            } else {
+                self.main[i]
+            };
+        }
+        match self.store80_aux(addr) {
+            // The 80STORE display pages go to the card's video memory
+            // (bank 0 on RamWorks; the 1K page on the plain 80-col card).
+            Some(true) => self.aux.video_read(addr),
+            Some(false) => self.main[i],
+            None if self.ramrd => self.aux.read(addr),
+            None => self.main[i],
+        }
     }
 
     /// Write `$0000-$BFFF`: `$0000-$01FF` follows ALTZP, `$0200-$BFFF` RAMWRT —
     /// unless the 80STORE display-page override claims the address.
     fn write_ram(&mut self, addr: u16, b: u8) {
         let i = addr as usize;
-        let aux = if addr < 0x0200 {
-            self.altzp
-        } else {
-            self.store80_aux(addr).unwrap_or(self.ramwrt)
-        };
-        if aux {
-            self.aux[i] = b;
-        } else {
-            self.main[i] = b;
+        if addr < 0x0200 {
+            if self.altzp {
+                self.aux.write(addr, b);
+            } else {
+                self.main[i] = b;
+            }
+            return;
+        }
+        match self.store80_aux(addr) {
+            Some(true) => self.aux.video_write(addr, b),
+            Some(false) => self.main[i] = b,
+            None if self.ramwrt => self.aux.write(addr, b),
+            None => self.main[i] = b,
         }
     }
 
@@ -617,21 +634,37 @@ impl IouE {
     /// else the banked ROM.
     fn lc_read(&self, addr: u16) -> u8 {
         if self.lc_active && self.lc_read {
-            let z = self.altzp as usize;
-            match addr {
-                0xd000..=0xdfff => {
-                    let bank = if self.lc_bank1 {
-                        &self.lc_d1[z]
-                    } else {
-                        &self.lc_d2[z]
-                    };
-                    return bank[(addr - 0xd000) as usize];
-                }
-                0xe000..=0xffff => return self.lc_e[z][(addr - 0xe000) as usize],
-                _ => {}
-            }
+            let (region, offset) = self.lc_region(addr);
+            return if self.altzp {
+                self.aux.lc_read(region, offset)
+            } else {
+                self.lc_main(region)[offset]
+            };
         }
         self.lc_rom[(addr - 0xd000) as usize]
+    }
+
+    /// Resolve a `$D000-$FFFF` address to a language-card region + offset,
+    /// using the current `$D000` bank selection.
+    fn lc_region(&self, addr: u16) -> (LcRegion, usize) {
+        if addr < 0xe000 {
+            let region = if self.lc_bank1 {
+                LcRegion::Bank1
+            } else {
+                LcRegion::Bank2
+            };
+            (region, (addr - 0xd000) as usize)
+        } else {
+            (LcRegion::High, (addr - 0xe000) as usize)
+        }
+    }
+
+    fn lc_main(&self, region: LcRegion) -> &[u8] {
+        match region {
+            LcRegion::Bank1 => &self.lc_d1,
+            LcRegion::Bank2 => &self.lc_d2,
+            LcRegion::High => &self.lc_e,
+        }
     }
 
     /// `$D000-$FFFF` write: to the ALTZP-selected card RAM bank when
@@ -640,18 +673,15 @@ impl IouE {
         if !self.lc_active || !self.lc_write {
             return;
         }
-        let z = self.altzp as usize;
-        match addr {
-            0xd000..=0xdfff => {
-                let bank = if self.lc_bank1 {
-                    &mut self.lc_d1[z]
-                } else {
-                    &mut self.lc_d2[z]
-                };
-                bank[(addr - 0xd000) as usize] = b;
+        let (region, offset) = self.lc_region(addr);
+        if self.altzp {
+            self.aux.lc_write(region, offset, b);
+        } else {
+            match region {
+                LcRegion::Bank1 => self.lc_d1[offset] = b,
+                LcRegion::Bank2 => self.lc_d2[offset] = b,
+                LcRegion::High => self.lc_e[offset] = b,
             }
-            0xe000..=0xffff => self.lc_e[z][(addr - 0xe000) as usize] = b,
-            _ => {}
         }
     }
 
@@ -875,6 +905,10 @@ impl Device for IouE {
             // DHIRES ($C05E/$C05F). ($C07E/$C07F are inert — no IOUDIS on the //e.)
             SS_DHIRES_ON | SS_DHIRES_OFF => self.access_dhires(addr),
 
+            // Aux-slot-visible register writes: the card decodes its own
+            // (RamWorks III: the $C073 bank select).
+            0xc070..=0xc07f => self.aux.io_write(addr, b),
+
             // $C100-$CFFF is ROM (writes swallowed); other $C0xx are 2c/later.
             _ => {
                 if self.debug && (0xc000..=0xc07f).contains(&addr) {
@@ -1045,9 +1079,26 @@ impl Two {
     /// Enhanced //e is the Phase 2 bring-up. The original NMOS Apple ][
     /// remains unsupported (quirk #4 in REWRITE.md).
     pub fn new(two_type: TwoType) -> Result<Two, String> {
+        Two::new_with_aux(two_type, None)
+    }
+
+    /// Construct a machine with an explicit auxiliary-slot card (the //e
+    /// only; `None` = the default Extended 80-Column Text Card). The ][+
+    /// has no auxiliary slot, so requesting a card there is an error.
+    pub fn new_with_aux(two_type: TwoType, aux: Option<Box<dyn AuxCard>>) -> Result<Two, String> {
         match two_type {
-            TwoType::Apple2Plus => Ok(Two::new_2plus()),
-            TwoType::Apple2E => Ok(Two::new_2e()),
+            TwoType::Apple2Plus => {
+                if let Some(card) = aux {
+                    return Err(format!(
+                        "the Apple ][+ has no auxiliary slot (--aux {})",
+                        card.label()
+                    ));
+                }
+                Ok(Two::new_2plus())
+            }
+            TwoType::Apple2E => Ok(Two::new_2e(
+                aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
+            )),
             TwoType::Apple2 => Err(format!("unsupported machine type {two_type:?}")),
         }
     }
@@ -1095,7 +1146,7 @@ impl Two {
     /// internal-vs-slot ROM arbitration, and (Phase 4a) auxiliary memory. All
     /// RAM below `$C000` lives in the `IouE`, so `Memory` is built with no
     /// base-RAM fast path.
-    fn new_2e() -> Two {
+    fn new_2e(aux: Box<dyn AuxCard>) -> Two {
         assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
 
@@ -1108,7 +1159,7 @@ impl Two {
         // ALTZP, ROM held internally), and the $C100-$CFFF ROM arbitration
         // (internal firmware vs the peripheral-slot ROMs it holds). The Disk II
         // / clock I/O devices stay separate below; the //e does not use `Alc`.
-        let mut iou = IouE::new();
+        let mut iou = IouE::new(aux);
         iou.set_slot_rom(1, &CLK_ROM); // slot 1 Thunderclock Plus
         iou.set_slot_rom(6, &DSK_ROM); // slot 6 Disk II boot ROM
         let io = mem.add_device(0xc000, 0xc07f, iou);
@@ -1531,6 +1582,8 @@ struct Options {
     hdd: Option<String>,
     monitor: MonitorStyle,
     scanlines: Scanlines,
+    /// The //e auxiliary-slot card (None = the default extended 80-col card).
+    aux: Option<Box<dyn AuxCard>>,
     /// Seconds to hold the machine before it starts executing (the window is
     /// up and rendering) — for debugging and video recording.
     boot_delay: f64,
@@ -1587,6 +1640,18 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     })
                     .unwrap_or(Scanlines::Light);
             }
+            "--aux" => match it.next().map(|v| crate::aux::parse(v)) {
+                Some(Ok(card)) => options.aux = Some(card),
+                Some(Err(e)) => {
+                    eprintln!("{e}");
+                    usage();
+                    return Err(1);
+                }
+                None => {
+                    usage();
+                    return Err(1);
+                }
+            },
             "--boot-delay" => {
                 options.boot_delay = it
                     .next()
@@ -1672,7 +1737,7 @@ fn pixels_to_bytes(pixels: &[u32]) -> Vec<u8> {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    let options = match parse_options(args) {
+    let mut options = match parse_options(args) {
         Ok(options) => options,
         Err(code) => return code,
     };
@@ -1757,7 +1822,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Create and configure the Apple II
 
-    let mut two = match Two::new(options.model) {
+    let mut two = match Two::new_with_aux(options.model, options.aux.take()) {
         Ok(two) => two,
         Err(e) => {
             eprintln!("[TWO] Could not create the machine: {e}");
