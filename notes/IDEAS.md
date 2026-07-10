@@ -241,10 +241,49 @@ Everything in this section serves that goal.
 
 ## Automation & scripting
 
-- **Lua scripting via `mlua`** (M/L) — the original C EWM had Lua hooks
+- **Embedded scripting** (M/L) — the original C EWM had Lua hooks
   (dropped in the Rust port, listed as REWRITE future work): per-instruction
   and soft-switch callbacks, machine control from scripts. Virtual ][ ships
-  AppleScript automation for the same reasons — scripted dev environments.
+  AppleScript automation for the same reasons. Candidate runtimes below —
+  the owner is open to Lua but prefers something more static (TinyGo-ish).
+
+### Embedded scripting: runtime options
+
+Whatever the language, the real design work is the **hook API**, and it is
+shared across all options: machine control (boot/reset/insert/key/screen),
+memory peek/poke, soft-switch and I/O-access callbacks, and per-instruction
+hooks (perf-sensitive — see the note below the table).
+
+| Option | Crate | Typing | Notes |
+|---|---|---|---|
+| **Lua 5.4** | `mlua` | dynamic | The incumbent — closest to the original C EWM scripts. Mature bindings, tiny runtime, instant iteration (edit + rerun). |
+| **Luau** | `mlua` (feature flag) | **gradual** | Roblox's typed Lua: type annotations + a real type checker, sandboxed by design, faster than stock Lua. The strongest "Lua, but more static" answer — same `mlua` API either way, so this choice can even be deferred. |
+| **Rhai** | `rhai` | dynamic | Pure-Rust embedded language built exactly for this; zero C deps, painless `#[derive]`-style API binding, no `unsafe`. Weakest typing story. |
+| **Rune** | `rune` | dynamic | Pure-Rust, Rust-flavored syntax, async-friendly. Similar trade to Rhai with nicer syntax, smaller ecosystem. |
+| **Starlark** | `starlark` (Meta's) | dynamic, **hermetic** | Python-ish and *deterministic by construction* (no ambient I/O, reproducible) — a striking match for EWM's deterministic-test culture. Optional type annotations in the Meta implementation. |
+| **WASM plugins** | `wasmtime` | **static — any language** | The TinyGo answer: EWM embeds a WASM runtime and defines a host API; scripts are compiled `.wasm` written in **TinyGo**, Rust, Zig, C, AssemblyScript… Real type systems and toolchains, strong sandboxing, near-native hook performance. Cost: a compile step per iteration (no REPL feel) and the host-API/ABI design (WIT or hand-rolled hostcalls), plus the heaviest runtime dependency of the table. |
+| **TypeScript / JS** | `rustyscript` (deno_core) or `rquickjs` | static *authoring* (TS) | Typed developer experience, huge ecosystem. deno_core is a heavy dependency; QuickJS is light but plain JS. |
+| **Gluon** | `gluon` | **static** (ML-family) | A genuinely statically-typed embeddable language — but a niche syntax and quiet maintenance make it a risky bet. |
+
+Notes that cut across all of them:
+
+- **Per-instruction hooks are the perf cliff.** At ~1M instructions/second,
+  calling into *any* scripting runtime per instruction hurts (WASM least,
+  interpreted Lua most). Mitigate in the host API: hooks register address
+  ranges / soft-switch filters and the emulator only calls out on matches —
+  the debugger's breakpoint machinery and this filter can be the same code.
+- **Determinism:** scripts become part of a run's behavior; hermetic
+  runtimes (Starlark, WASM without WASI) keep scripted runs reproducible
+  and CI-able, which is very EWM.
+- **They compose:** a plausible endgame is *two* tiers sharing one hook
+  API — Luau (or Rhai) for interactive poking, WASM for serious typed
+  plugins (a TinyGo-written debugger extension, a protection analyzer).
+- **Recommendation shape:** if the old Lua feel matters, **Luau via
+  `mlua`** is the best of both (types + Lua compatibility + one crate). If
+  the static preference wins, **`wasmtime` + TinyGo/Rust plugins** — and
+  since the MCP server / control socket / expect-driver (above) already
+  demand the same host API, building that API first keeps every option
+  open.
 - **Expect-style headless driver** (S/M) — our own tests already do
   "boot, wait for text, type line, assert screen" (`two_dos.rs`,
   `two_woz.rs`). Exposing that as `ewm two --script <file>` (type/wait/
