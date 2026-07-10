@@ -10,7 +10,10 @@ use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
-use crate::scr::{MonitorStyle, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scr, encode_bmp, frame_width};
+use crate::scr::{
+    MonitorStyle, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scanlines, Scr, encode_bmp, frame_width,
+    scanline_overlay,
+};
 use crate::sdl;
 use crate::snd::Snd;
 use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
@@ -1362,8 +1365,17 @@ struct TwoCtx<'a> {
     snd: &'a mut Option<Snd>,
     /// The monitor style; the loop applies changes to the renderer.
     monitor: &'a mut MonitorStyle,
-    /// Set by "Monitor Style: …" to reopen the palette as the style submenu.
-    open_monitor_menu: &'a mut bool,
+    /// The scanline effect; the loop rebuilds the overlay texture on change.
+    scanlines: &'a mut Scanlines,
+    /// Set by a "…: choice" row to reopen the palette as that submenu.
+    open_submenu: &'a mut Option<Submenu>,
+}
+
+/// The palette's choice submenus (VS Code quick-pick style).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Submenu {
+    MonitorStyle,
+    Scanlines,
 }
 
 type TwoAction = fn(&mut TwoCtx);
@@ -1383,6 +1395,22 @@ fn choice_label(text: &str, active: bool) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// Register the scanline submenu: one row per level, the active one checked.
+fn add_scanline_commands(palette: &mut Palette<TwoAction>, scanlines: Scanlines) {
+    palette.add_command(
+        choice_label("Off", scanlines == Scanlines::Off),
+        (|ctx| *ctx.scanlines = Scanlines::Off) as TwoAction,
+    );
+    palette.add_command(
+        choice_label("Light", scanlines == Scanlines::Light),
+        (|ctx| *ctx.scanlines = Scanlines::Light) as TwoAction,
+    );
+    palette.add_command(
+        choice_label("Heavy", scanlines == Scanlines::Heavy),
+        (|ctx| *ctx.scanlines = Scanlines::Heavy) as TwoAction,
+    );
 }
 
 /// Register the monitor-style submenu: one row per style, the active one
@@ -1453,6 +1481,7 @@ struct Options {
     drive2: Option<String>,
     hdd: Option<String>,
     monitor: MonitorStyle,
+    scanlines: Scanlines,
     /// Seconds to hold the machine before it starts executing (the window is
     /// up and rendering) — for debugging and video recording.
     boot_delay: f64,
@@ -1498,6 +1527,16 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                         it.next();
                     })
                     .unwrap_or(MonitorStyle::Rgb);
+            }
+            // Same optional-value convention: bare --scanlines means light.
+            "--scanlines" => {
+                options.scanlines = it
+                    .peek()
+                    .and_then(|v| Scanlines::parse(v))
+                    .inspect(|_| {
+                        it.next();
+                    })
+                    .unwrap_or(Scanlines::Light);
             }
             "--boot-delay" => {
                 options.boot_delay = it
@@ -1769,6 +1808,24 @@ pub fn main(args: &[String]) -> i32 {
         .expect("Failed to create palette texture");
     palette_texture.set_scale_mode(ScaleMode::Nearest);
 
+    // The scanline overlay: multiplied over the screen rect (dstRGB =
+    // srcRGB * dstRGB), rebuilt only when the setting changes. White rows
+    // pass the image through; every third row is dimmed.
+    let mut scanline_texture = texture_creator
+        .create_texture_streaming(format, SCR_WIDTH as u32 * 3, SCR_HEIGHT as u32 * 3)
+        .expect("Failed to create scanline texture");
+    scanline_texture.set_blend_mode(BlendMode::Mod);
+    scanline_texture.set_scale_mode(ScaleMode::Nearest);
+    let fill_scanline_texture = |texture: &mut sdl3::render::Texture, setting: Scanlines| {
+        let overlay = scanline_overlay(SCR_WIDTH * 3, SCR_HEIGHT * 3, setting, layout);
+        texture
+            .update(None, &pixels_to_bytes(&overlay), SCR_WIDTH * 3 * 4)
+            .expect("Failed to update scanline texture");
+    };
+    if options.scanlines != Scanlines::Off {
+        fill_scanline_texture(&mut scanline_texture, options.scanlines);
+    }
+
     let mut event_pump = context.event_pump().expect("Failed to get event pump");
     let frame_ms = (1000 / fps) as u64;
     let mut next_frame = sdl3::timer::ticks() + frame_ms;
@@ -1787,6 +1844,8 @@ pub fn main(args: &[String]) -> i32 {
     // Monitor style, switchable from the command palette; the renderer was
     // seeded from --color above.
     let mut monitor_style = options.monitor;
+    // Scanline effect, switchable from the command palette.
+    let mut scanlines = options.scanlines;
 
     let mut counter = two.cpu.counter;
     let mut mhz = 1.0f64;
@@ -1846,8 +1905,9 @@ pub fn main(args: &[String]) -> i32 {
                             PaletteAction::Dismiss => palette_visible = false,
                             PaletteAction::Execute(run) => {
                                 palette_visible = false;
-                                let mut open_monitor_menu = false;
-                                let before = monitor_style;
+                                let mut open_submenu = None;
+                                let monitor_before = monitor_style;
+                                let scanlines_before = scanlines;
                                 let mut ctx = TwoCtx {
                                     two: &mut two,
                                     paused: &mut paused,
@@ -1855,18 +1915,32 @@ pub fn main(args: &[String]) -> i32 {
                                     speed: &mut speed,
                                     snd: &mut snd,
                                     monitor: &mut monitor_style,
-                                    open_monitor_menu: &mut open_monitor_menu,
+                                    scanlines: &mut scanlines,
+                                    open_submenu: &mut open_submenu,
                                 };
                                 run(&mut ctx);
-                                if monitor_style != before {
+                                if monitor_style != monitor_before {
                                     scr.set_monitor_style(monitor_style);
                                     two.set_screen_dirty(true);
                                 }
-                                if open_monitor_menu {
-                                    // Reopen as the style submenu — a VS
-                                    // Code-style choice quick-pick.
+                                if scanlines != scanlines_before {
+                                    if scanlines != Scanlines::Off {
+                                        fill_scanline_texture(&mut scanline_texture, scanlines);
+                                    }
+                                    two.set_screen_dirty(true);
+                                }
+                                // Reopen as a choice submenu — a VS Code-style
+                                // quick-pick.
+                                if let Some(submenu) = open_submenu {
                                     palette.open();
-                                    add_monitor_style_commands(&mut palette, monitor_style);
+                                    match submenu {
+                                        Submenu::MonitorStyle => {
+                                            add_monitor_style_commands(&mut palette, monitor_style)
+                                        }
+                                        Submenu::Scanlines => {
+                                            add_scanline_commands(&mut palette, scanlines)
+                                        }
+                                    }
                                     palette_visible = true;
                                 }
                             }
@@ -1942,11 +2016,17 @@ pub fn main(args: &[String]) -> i32 {
                                         let _ = ctx.window.set_fullscreen(!on);
                                     },
                                 );
-                                // The monitor style opens a choice submenu,
-                                // like a VS Code quick-pick.
+                                // Choice rows open submenus, like VS Code
+                                // quick-picks.
                                 palette.add_submenu_command(
                                     format!("Monitor Style: {}", monitor_style.label()),
-                                    (|ctx| *ctx.open_monitor_menu = true) as TwoAction,
+                                    (|ctx| *ctx.open_submenu = Some(Submenu::MonitorStyle))
+                                        as TwoAction,
+                                );
+                                palette.add_submenu_command(
+                                    format!("Scanlines: {}", scanlines.label()),
+                                    (|ctx| *ctx.open_submenu = Some(Submenu::Scanlines))
+                                        as TwoAction,
                                 );
                                 // Speed choices; the active one carries a check.
                                 palette.add_command(
@@ -2071,6 +2151,9 @@ pub fn main(args: &[String]) -> i32 {
                 canvas
                     .copy(&texture, None, screen_dst)
                     .expect("Failed to copy texture");
+                if scanlines != Scanlines::Off {
+                    let _ = canvas.copy(&scanline_texture, None, screen_dst);
+                }
 
                 if status_bar_visible {
                     let bar = render_status_bar(scr.chr(), &two, mhz, layout);
@@ -2187,6 +2270,19 @@ mod tests {
         // Bare --color followed by another flag: the flag is not consumed.
         let o = opts(&["--color", "--drive1", "game.dsk"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
+        assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
+    }
+
+    #[test]
+    fn scanlines_flag_selects_the_effect() {
+        assert_eq!(opts(&[]).scanlines, Scanlines::Off);
+        // Bare --scanlines means the light effect.
+        assert_eq!(opts(&["--scanlines"]).scanlines, Scanlines::Light);
+        assert_eq!(opts(&["--scanlines", "heavy"]).scanlines, Scanlines::Heavy);
+        assert_eq!(opts(&["--scanlines", "off"]).scanlines, Scanlines::Off);
+        // Bare --scanlines followed by another flag: the flag is not consumed.
+        let o = opts(&["--scanlines", "--drive1", "game.dsk"]);
+        assert_eq!(o.scanlines, Scanlines::Light);
         assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
     }
 

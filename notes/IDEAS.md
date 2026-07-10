@@ -98,8 +98,9 @@ deterministic golden-BMP test culture.
 - ~~**Monitor styles**~~ — **landed**: green / amber / white monochrome and
   color via `--color [green|amber|white|rgb]` and the palette's
   "Monitor Style" choice submenu.
-- **Scanlines / CRT flavor** (S/M) — optional scanline dimming or a simple
-  CRT bloom for the 3× window; every mainstream emulator offers some.
+- ~~**Scanlines**~~ — **landed**: `--scanlines [off|light|heavy]` + the
+  palette's "Scanlines" choice submenu (a multiply-blend overlay). A real
+  **CRT bloom** stays open — it needs shader/render-target work.
 - **Video recording** (M) — capture the frame buffer to animated GIF or
   MP4; pairs with the deterministic emulation for perfectly reproducible
   demo captures. *(infra: `encode_bmp` + the `--screenshot` plumbing.)*
