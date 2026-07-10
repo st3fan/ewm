@@ -84,6 +84,9 @@ cargo run --release -- two --color --drive1 "disks/woz/WOZ 1.0/Commando - Disk 1
 # Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
 cargo run --release -- two --model 2e --color --drive1 disks/DOS33-SystemMaster.dsk
 
+# Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
+cargo run --release -- two --model 2e --aux ramworksiii --drive1 disks/DOS33-SystemMaster.dsk
+
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
 

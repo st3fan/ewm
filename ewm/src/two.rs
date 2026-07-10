@@ -1564,9 +1564,13 @@ fn usage() {
     eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
     eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
+    eprintln!("  --aux <card>      //e aux-slot card: 80col, ext80col (default) or");
+    eprintln!("                    ramworksiii[:SIZE] with SIZE 64k..8m (default 8m)");
     eprintln!(
         "  --color [green|amber|white|rgb]  monitor style (bare --color = rgb; default green)"
     );
+    eprintln!("  --scanlines [off|light|heavy]  scanline effect (bare = light; default off)");
+    eprintln!("  --boot-delay <seconds>  hold the machine at power-on (debugging/recording)");
     eprintln!("  --fps <fps>       set fps for display (default: 30)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --trace <file>    trace cpu to file");
