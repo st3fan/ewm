@@ -26,7 +26,7 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | A | `--config` + schema + serde types; today's layout expressible | M | **Done** |
-| B | Real slot flexibility: any slot, multiple Disk ][ controllers, empty slots | M/L | Not started |
+| B | Real slot flexibility: any slot, multiple Disk ][ controllers, empty slots | M/L | **Done** |
 | C | "Save current setup" from the palette; `.ewmachine` integration | M | Not started |
 
 ## Phase A decisions (recorded as built)
@@ -51,20 +51,96 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 - **Slot rulings**: slot 7 `"empty"` is accepted (just no HDD attached);
   `"empty"` in slots 1 and 6 is *rejected* with the Phase B message — the
   machine builders hard-wire the Thunderclock and Disk II today, so "no
-  card there" is real slot flexibility.
+  card there" is real slot flexibility. *(Superseded by Phase B: any card
+  in any slot.)*
 - **Memory addresses are strings**, hex (`"0xd000"`) or decimal
   (`"53248"`); the CLI `--memory` flag stays decimal-only.
 - `cpu.speed` and `input.controller` exist only in the config (no new CLI
   flags), wiring to the palette's speed constants and a preferred-name
   gamepad scan at startup.
 
+## Phase B decisions (recorded as built)
+
+- **`Two::new_with_slots(model, aux, &BTreeMap<u8, SlotDevice>)`** is the
+  table-driven constructor; `Two::new`/`new_with_aux` delegate with the
+  default table (Thunderclock@1, Disk II@6), so the whole pre-Phase-B test
+  suite runs unchanged. The machine table carries **card kinds only** —
+  media inserts afterwards (`load_disk_at(slot, drive, path)`,
+  `attach_hdd_at(slot, path)`; the hard drive attaches post-construction
+  because `Hdd::new` needs its image up front).
+- **Devices decode only the DEVSEL low nibble** (`addr & 0x0f`); each is
+  registered over its slot's 16-byte range, so one implementation serves
+  any slot. `DSK_ROM` is naturally slot-agnostic (the P5 ROM derives its
+  slot from the return address); the clock and hard-disk firmware are
+  generated per slot (`clk_rom(slot)`, `hdd_rom(slot)`), with golden tests
+  pinning the slot-1/slot-7 images byte-for-byte to the pre-generator
+  statics.
+- **Boot controller = highest slot with a Disk II**; `load_disk`, the
+  drag-drop handler, and `dsk()` target it. No config boot hint — the real
+  Autostart ROM scan (7→1) picks the boot device, exactly as on hardware
+  (proved by the boot-scan tests in `ewm/tests/two_slots.rs`).
+- **Empty slots read `0x00`** (owner's decision), the pre-existing
+  unmapped-read behavior on both models — it fails the Autostart boot
+  signature just as safely as the floating/`0xFF` this plan originally
+  sketched.
+- **Multiplicity**: at most three Disk ][ controllers (the classic
+  maximum) and one Thunderclock (ProDOS installs a single clock driver);
+  **hard drives are unlimited** (owner's decision) — `Two` keeps them in a
+  slot-keyed map like the controllers.
+- **Absent `machine.slots` = the default layout**; a *present* `slots`
+  object (even `{}`) is literal — absent keys inside it are empty slots.
+  This keeps `{"machine": {"model": "2plus"}}` equal to bare `ewm two`
+  while honoring "an absent slot key means empty". *(The `--drive1`/
+  `--drive2`/`--hdd` sugar this section originally described was replaced
+  by `--set`; see the CLI overrides decisions below.)*
+- **Drive lights are OR'ed across controllers** — the status bar and LED
+  strip keep their two-light layout; at any moment at most one controller
+  spins, so the pair reads as the active controller's drives.
+
+## CLI overrides (`--set`) decisions (recorded as built)
+
+- **`--set <key>=<value>`** overrides one config value by colon-separated
+  key path (`--set machine:slots:6:drive1=game.dsk`, `--set
+  display:monitor=amber`). A **separate flag** (owner's decision — not
+  overloaded onto `--config`), and the `--drive1`/`--drive2`/`--hdd`
+  sugar flags are **removed** (owner's decision); the boo launcher and
+  docs speak `--set`.
+- **One config document, sources layered left-to-right**: `--config`
+  files load through the typed path (per-file validation and relative-path
+  resolution intact) and are serialized back to JSON (`serde::Serialize`
+  on the config types — fronting Phase C); `--set` mutates the document
+  directly. One typed conversion + validation at the end
+  (`config::from_document`). Consequence: multiple `--config` files now
+  **deep-merge** instead of a later file's slots table replacing
+  wholesale. The remaining convenience flags (`--model`, `--color`, …)
+  still override the finished document, per the Phase A precedence design.
+- **Merge rules** (`config::merge_documents`): objects merge recursively;
+  `null` and empty-array overlays are no-ops (a source that doesn't set a
+  field must not clear it); two objects whose `"card"` discriminators
+  differ replace wholesale (merging a diskii's drives into an `"empty"`
+  card would fail validation). `apply_set` mirrors the card rule: setting
+  a different `card` resets the object's other fields.
+- **Slots materialization**: a `--set` entering `machine:slots` on a
+  document without one materializes the default table first, so `--set
+  machine:slots:6:drive1=x` on a bare command line extends the default
+  machine exactly like the removed `--drive1` did.
+- **Value typing**: a `--set` value that parses as JSON is used as JSON
+  (numbers, booleans, quoted strings, whole objects — `--set
+  'machine:slots:7={"card":"harddrive","image":"tr.hdv"}'` is the one-line
+  `--hdd` replacement); anything else is a plain string. Escape hatch for
+  values that accidentally parse as JSON (a file named `123`): quote them
+  (`--set 'machine:slots:6:drive1="123"'`). `--set` path values stay
+  as-given (CWD-relative), like the flags they replace; file paths keep
+  resolving against their config's directory.
+- **Array paths are rejected** (`machine:memory:0:path`) — memory regions
+  come from `--memory`.
+
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
 |---|---|---|
 | CLI | `--model` | `2plus`, `2e` |
-| CLI | `--drive1` / `--drive2` | floppy image paths (slot 6) |
-| CLI | `--hdd` | ProDOS block image (slot 7) |
+| CLI | `--set <key>=<value>` | any config key by colon path (drives, slots, display, …) |
 | CLI | `--aux` | `80col`, `ext80col`, `ramworksiii[:SIZE]` (//e only) |
 | CLI + palette | monitor style | `green`, `amber`, `white`, `rgb` |
 | CLI + palette | scanlines | `off`, `light`, `heavy` |
@@ -111,9 +187,11 @@ Schema rules:
 - **`slots`**: object keyed `"1"`–`"7"`; each value is a card object
   discriminated by `"card"`: `"diskii"` (`drive1`/`drive2` image paths,
   both optional), `"harddrive"` (`image`), `"thunderclock"`, `"empty"`.
-  An **absent slot key means empty** — `"empty"` exists to say it
-  explicitly. Multiple `"diskii"` entries are legal in the schema (Phase B
-  makes them real).
+  When the whole `slots` object is **absent** the machine gets the default
+  layout (clock in 1, Disk II in 6); when **present** it is literal — an
+  absent slot key means empty, and `"empty"` says it explicitly. Up to
+  three `"diskii"` entries, one `"thunderclock"`, any number of
+  `"harddrive"` cards (Phase B).
 - `machine.aux`: `{ "card": "80col" | "ext80col" | "ramworksiii", "size":
   "64k".."8m" }` — `size` only valid with `ramworksiii`; whole `aux` object
   only valid with `"model": "2e"` (enforced in code; the schema documents
@@ -163,22 +241,26 @@ Schema rules:
 - **Docs**: README `--config` section + an example; `MAC_APP.md` Phase 3
   rewritten TOML→JSON pointing here; IDEAS.md config bullet → planned.
 
-### Phase B — real slot flexibility (M/L)
+### Phase B — real slot flexibility (M/L) — done
 
-The machine builders currently hard-wire the card set. This phase makes
-`Two::new_*` construct from the slot table:
+The machine builders used to hard-wire the card set; `Two::new_*` now
+constructs from the slot table (decisions above):
 
 - **Multiple Disk ][ controllers**: `Dsk` instances at `$C080 + slot*16`,
   each with its own P5 boot ROM at `$Cn00` — up to three controllers / six
   drives (the classic maximum). The boot scan order follows the //e/][+
   autostart convention (highest slot first).
-- **Empty slots**: no Thunderclock, no Disk II — floating/`0xFF` reads at
-  the vacated soft-switch and ROM ranges.
-- Card moves (Disk II in slot 4, clock in slot 2, …) fall out of the same
-  table-driven construction.
-- **Tests**: two controllers with distinct disks both readable (bus-level
-  RWTS probes at both slots' addresses); empty slot 6 floats; boot-scan
-  order; the whole existing suite green with the default table.
+- **Empty slots**: no Thunderclock, no Disk II — the vacated soft-switch
+  and ROM ranges read `$00` (not the floating/`$FF` originally sketched;
+  see the Phase B decisions).
+- Card moves (Disk II in slot 4, clock in slot 2, …) and multiple hard
+  drives fall out of the same table-driven construction.
+- **Tests** (`ewm/tests/two_slots.rs`): two controllers with distinct
+  state and disks both readable (bus-level probes at both slots'
+  addresses); empty slot 6 reads `$00` and the machine falls through to
+  BASIC; boot-scan order; a clock moved to slot 2 (through a full ProDOS
+  boot); hard drives in two slots; the whole existing suite green with
+  the default table, untouched.
 
 ### Phase C — round-tripping (M)
 
@@ -193,10 +275,9 @@ The machine builders currently hard-wire the card set. This phase makes
 - **`.po` in `slots`**: the floppy/hard-drive ambiguity does not exist
   here — the slot's card type says which is meant. (The drag-drop size
   heuristic in `media.rs` stays for pathless opens.)
-- **Boot order with multiple controllers**: autostart scans slot 7 → 1;
-  Phase B must decide whether `--drive1`-style "boot this" semantics need
-  a `boot` hint in the config. Working assumption: highest populated slot
-  wins, as on hardware.
+- **Boot order with multiple controllers** *(resolved in Phase B)*: the
+  Autostart scan (slot 7 → 1) picks the boot device — highest populated
+  slot wins, as on hardware. No `boot` hint in the config.
 - **Palette state vs config**: monitor/scanlines/speed change at runtime;
   the config sets the *initial* state only (Phase C's save captures the
   current one).

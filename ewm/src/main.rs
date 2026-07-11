@@ -16,7 +16,9 @@ fn usage() {
     eprintln!();
     eprintln!("If no command is specified, the 'bootloader' will be run, which");
     eprintln!("allows the user to interactively select what emulator to start.");
-    eprintln!("\nSuggestion: to get started, try 'ewm two --color --drive1 <disk file>'");
+    eprintln!(
+        "\nSuggestion: to get started, try 'ewm two --color --set machine:slots:6:drive1=<disk file>'"
+    );
 }
 
 fn run_boo(args: &[String]) -> i32 {
@@ -26,12 +28,18 @@ fn run_boo(args: &[String]) -> i32 {
         boo::BooChoice::BootApple2Plus => two::main(&[]),
         // A dropped or Finder-opened disk image boots the ][+ with it (the
         // default model until machine configs exist; see notes/MAC_APP.md).
-        boo::BooChoice::BootDroppedMedia(path, MediaKind::Floppy) => {
-            two::main(&["--drive1".to_string(), path])
-        }
-        boo::BooChoice::BootDroppedMedia(path, MediaKind::HardDrive) => {
-            two::main(&["--hdd".to_string(), path])
-        }
+        // Paths travel as argv strings, so no quoting is needed in the
+        // --set values.
+        boo::BooChoice::BootDroppedMedia(path, MediaKind::Floppy) => two::main(&[
+            "--set".to_string(),
+            format!("machine:slots:6:drive1={path}"),
+        ]),
+        boo::BooChoice::BootDroppedMedia(path, MediaKind::HardDrive) => two::main(&[
+            "--set".to_string(),
+            "machine:slots:7:card=harddrive".to_string(),
+            "--set".to_string(),
+            format!("machine:slots:7:image={path}"),
+        ]),
         boo::BooChoice::Quit => 0,
     }
 }

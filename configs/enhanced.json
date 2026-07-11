@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}

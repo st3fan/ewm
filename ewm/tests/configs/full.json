@@ -5,7 +5,7 @@
     "slots": {
       "1": { "card": "thunderclock" },
       "6": { "card": "diskii", "drive1": "../../../disks/DOS33-SystemMaster.dsk", "drive2": "../../../disks/DOS33-SamplePrograms.dsk" },
-      "7": { "card": "harddrive", "image": "../../../disks/Total Replay v6.0.1.hdv" }
+      "7": { "card": "harddrive", "image": "../../../disks/ProDOS_2_4_3.po" }
     },
     "memory": [
       { "type": "rom", "address": "0xd000", "path": "custom.bin" }

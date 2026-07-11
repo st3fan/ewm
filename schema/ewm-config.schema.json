@@ -14,23 +14,42 @@
     },
     "boot": {
       "description": "Boot behavior.",
-      "$ref": "#/$defs/Boot"
+      "$ref": "#/$defs/Boot",
+      "default": {
+        "delay": null
+      }
     },
     "cpu": {
       "description": "CPU speed and emulation-strictness settings.",
-      "$ref": "#/$defs/Cpu"
+      "$ref": "#/$defs/Cpu",
+      "default": {
+        "speed": null,
+        "strict": null
+      }
     },
     "debug": {
       "description": "Debugging aids.",
-      "$ref": "#/$defs/Debug"
+      "$ref": "#/$defs/Debug",
+      "default": {
+        "enabled": null,
+        "trace": null
+      }
     },
     "display": {
       "description": "Monitor and rendering settings.",
-      "$ref": "#/$defs/Display"
+      "$ref": "#/$defs/Display",
+      "default": {
+        "fps": null,
+        "monitor": null,
+        "scanlines": null
+      }
     },
     "input": {
       "description": "Input-device preferences.",
-      "$ref": "#/$defs/Input"
+      "$ref": "#/$defs/Input",
+      "default": {
+        "controller": null
+      }
     },
     "machine": {
       "description": "The machine's physical build: model, aux card, slots, and any extra\nmemory regions.",
@@ -234,6 +253,7 @@
         "memory": {
           "description": "Extra RAM or ROM regions loaded from files at startup.",
           "type": "array",
+          "default": [],
           "items": {
             "$ref": "#/$defs/MemoryRegion"
           }
@@ -243,8 +263,11 @@
           "$ref": "#/$defs/Model"
         },
         "slots": {
-          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. An\nabsent slot means empty; `\"empty\"` exists to say it explicitly.",
-          "type": "object",
+          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. When\nthe whole `slots` object is absent the machine gets the classic\ndefault layout (a Thunderclock in slot 1, a Disk II in slot 6); when\npresent it is taken literally — an absent slot key means that slot\nis empty, and `\"empty\"` exists to say it explicitly.",
+          "type": [
+            "object",
+            "null"
+          ],
           "additionalProperties": {
             "$ref": "#/$defs/SlotCard"
           }

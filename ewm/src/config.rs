@@ -16,7 +16,7 @@ use crate::two::TwoType;
 /// A complete EWM machine configuration, for `ewm two --config file.json`.
 /// Only `machine` is required; every other setting defaults to what a bare
 /// `ewm two` would do. Explicitly given command-line flags override the file.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -45,7 +45,7 @@ pub struct Config {
 }
 
 /// The machine's physical build.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
@@ -54,17 +54,19 @@ pub struct Machine {
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
-    /// The card in each peripheral slot, keyed `"1"` through `"7"`. An
-    /// absent slot means empty; `"empty"` exists to say it explicitly.
-    #[serde(default)]
-    pub slots: BTreeMap<String, SlotCard>,
+    /// The card in each peripheral slot, keyed `"1"` through `"7"`. When
+    /// the whole `slots` object is absent the machine gets the classic
+    /// default layout (a Thunderclock in slot 1, a Disk II in slot 6); when
+    /// present it is taken literally — an absent slot key means that slot
+    /// is empty, and `"empty"` exists to say it explicitly.
+    pub slots: Option<BTreeMap<String, SlotCard>>,
     /// Extra RAM or ROM regions loaded from files at startup.
     #[serde(default)]
     pub memory: Vec<MemoryRegion>,
 }
 
 /// Which Apple II model to emulate.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Model {
     /// The Apple ][+.
@@ -85,7 +87,7 @@ impl Model {
 }
 
 /// The //e auxiliary-slot card.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Aux {
@@ -98,7 +100,7 @@ pub struct Aux {
 }
 
 /// The auxiliary-card types.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum AuxKind {
     /// The 1K Apple 80-Column Text Card.
@@ -125,7 +127,7 @@ impl AuxKind {
 }
 
 /// A peripheral card, discriminated by `"card"`.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "card", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SlotCard {
@@ -161,7 +163,7 @@ impl SlotCard {
 
 /// An extra RAM or ROM region loaded from a file at startup (the config
 /// equivalent of the `--memory` flag).
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct MemoryRegion {
@@ -175,7 +177,7 @@ pub struct MemoryRegion {
 }
 
 /// Whether a memory region is RAM or ROM.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryKind {
@@ -202,7 +204,7 @@ impl MemoryRegion {
 }
 
 /// Monitor and rendering settings.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Display {
@@ -215,7 +217,7 @@ pub struct Display {
 }
 
 /// Monitor styles.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Monitor {
@@ -241,7 +243,7 @@ impl Monitor {
 }
 
 /// Scanline darkening levels.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ScanlinesSetting {
@@ -264,7 +266,7 @@ impl ScanlinesSetting {
 }
 
 /// CPU speed and emulation-strictness settings.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Cpu {
@@ -275,7 +277,7 @@ pub struct Cpu {
 }
 
 /// The classic accelerator speed steps.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum CpuSpeed {
     /// 1.023 MHz — a stock machine.
@@ -290,7 +292,7 @@ pub enum CpuSpeed {
 }
 
 /// Input-device preferences.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Input {
@@ -300,7 +302,7 @@ pub struct Input {
 }
 
 /// Boot behavior.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Boot {
@@ -310,7 +312,7 @@ pub struct Boot {
 }
 
 /// Debugging aids.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Debug {
@@ -327,6 +329,154 @@ pub fn load(path: &str) -> Result<Config, String> {
         std::fs::read_to_string(path).map_err(|e| format!("cannot read config {path}: {e}"))?;
     let base = Path::new(path).parent().unwrap_or(Path::new("."));
     from_str_resolved(&text, path, base)
+}
+
+/// Load a config file as a JSON document: the full typed path (parse,
+/// semantic validation, relative paths resolved against the file's
+/// directory), then back to JSON — ready to layer with other sources
+/// (`merge_documents`, `apply_set`) before the final `from_document`.
+pub fn load_document(path: &str) -> Result<serde_json::Value, String> {
+    let config = load(path)?;
+    serde_json::to_value(config).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Deep-merge `overlay` into `doc`, the layering rule for config sources
+/// (later `--config` files and `--set` overrides win, key by key):
+///
+/// - objects merge recursively;
+/// - a `null` overlay value is a no-op — a source that doesn't set a field
+///   must not clear it (`Option` fields serialize to `null`);
+/// - an *empty array* overlay is likewise a no-op (`machine.memory`
+///   serializes to `[]` when a file has no regions);
+/// - two objects whose `"card"` discriminators differ replace wholesale —
+///   merging a diskii's drives into an `"empty"` card would fail
+///   validation;
+/// - everything else replaces.
+pub fn merge_documents(doc: &mut serde_json::Value, overlay: serde_json::Value) {
+    use serde_json::Value;
+    // A source that doesn't set a field must not clear it: None fields
+    // serialize to null, an empty machine.memory to [].
+    fn is_noop(value: &Value) -> bool {
+        value.is_null() || matches!(value, Value::Array(entries) if entries.is_empty())
+    }
+    if is_noop(&overlay) {
+        return;
+    }
+    if let (Value::Object(base), Value::Object(overlay_map)) = (&mut *doc, &overlay) {
+        let card_differs = matches!(
+            (base.get("card"), overlay_map.get("card")),
+            (Some(a), Some(b)) if a != b
+        );
+        if !card_differs {
+            let Value::Object(overlay_map) = overlay else {
+                unreachable!("matched as an object above");
+            };
+            for (key, value) in overlay_map {
+                match base.get_mut(&key) {
+                    Some(slot) => merge_documents(slot, value),
+                    None if is_noop(&value) => {}
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+            return;
+        }
+    }
+    *doc = overlay;
+}
+
+/// The JSON form of the default slot table (`two::default_slots()` is the
+/// machine-level equivalent), materialized when a `--set` override enters
+/// `machine:slots` on a document that has none — so overrides extend the
+/// default machine instead of accidentally creating a literal one-slot
+/// table.
+fn default_slots_value() -> serde_json::Value {
+    serde_json::json!({
+        "1": { "card": "thunderclock" },
+        "6": { "card": "diskii" },
+    })
+}
+
+/// Apply one `--set <key>=<value>` override to the document. The key path
+/// is colon-separated (`machine:slots:6:drive1`); the value is parsed as
+/// JSON when it *is* valid JSON — numbers, booleans, quoted strings, whole
+/// objects like `machine:slots:7={"card":"harddrive","image":"x.hdv"}` —
+/// and taken as a plain string otherwise.
+pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> {
+    use serde_json::Value;
+    let Some((key, value)) = expr.split_once('=') else {
+        return Err(format!("--set {expr}: expected <key>=<value>"));
+    };
+    let segments: Vec<&str> = key.split(':').collect();
+    if segments.iter().any(|s| s.is_empty()) {
+        return Err(format!("--set {expr}: empty segment in key {key:?}"));
+    }
+
+    // Entering machine:slots on a document without one would create a
+    // literal (near-empty) table; materialize the default layout first so
+    // overrides extend the default machine.
+    if segments.first() == Some(&"machine") && segments.get(1) == Some(&"slots") {
+        let machine = doc
+            .as_object_mut()
+            .ok_or_else(|| format!("--set {expr}: the config document is not an object"))?
+            .entry("machine")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(machine) = machine.as_object_mut()
+            && machine.get("slots").is_none_or(|s| s.is_null())
+        {
+            machine.insert("slots".to_string(), default_slots_value());
+        }
+    }
+
+    let mut parsed = Some(
+        serde_json::from_str::<Value>(value).unwrap_or_else(|_| Value::String(value.to_string())),
+    );
+    let mut node = &mut *doc;
+    for (i, segment) in segments.iter().enumerate() {
+        let map = match node {
+            Value::Array(_) => {
+                return Err(format!(
+                    "--set {expr}: cannot index into the {:?} array (memory regions come from --memory)",
+                    segments[..i].join(":")
+                ));
+            }
+            Value::Object(map) => map,
+            _ => {
+                return Err(format!(
+                    "--set {expr}: {:?} is not an object",
+                    segments[..i].join(":")
+                ));
+            }
+        };
+        if i == segments.len() - 1 {
+            let value = parsed.take().expect("value used once");
+            // Changing a "card" discriminator invalidates the object's other
+            // fields (a harddrive has no drive1) — reset the object to just
+            // the new card, mirroring merge_documents' replace rule.
+            if *segment == "card" && map.get("card").is_some_and(|card| *card != value) {
+                map.clear();
+            }
+            map.insert(segment.to_string(), value);
+            return Ok(());
+        }
+        node = map
+            .entry(segment.to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    }
+    // The key has at least one non-empty segment, so the loop always
+    // returns from its last iteration.
+    Ok(())
+}
+
+/// Convert a layered config document (files + `--set` overrides) into a
+/// validated `Config`. No path resolution happens here: file-sourced paths
+/// were resolved per file by `load_document`, and `--set` values stay as
+/// given (relative to the working directory, like the flags they replace).
+pub fn from_document(doc: serde_json::Value) -> Result<Config, String> {
+    let config: Config = serde_json::from_value(doc).map_err(|e| format!("config: {e}"))?;
+    validate(&config).map_err(|e| format!("config: {e}"))?;
+    Ok(config)
 }
 
 /// The testable core of `load`: `origin` names the file in error messages,
@@ -351,27 +501,28 @@ fn validate(config: &Config) -> Result<(), String> {
             crate::aux::parse_size(size).map_err(|e| format!("machine.aux.size: {e}"))?;
         }
     }
-    for (key, card) in &config.machine.slots {
-        if !matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7") {
-            return Err(format!(
-                "machine.slots: no such slot {key:?} (slots are \"1\" through \"7\")"
-            ));
+    if let Some(slots) = &config.machine.slots {
+        for key in slots.keys() {
+            if !matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7") {
+                return Err(format!(
+                    "machine.slots: no such slot {key:?} (slots are \"1\" through \"7\")"
+                ));
+            }
         }
-        // Phase A only accepts the layout the machine builders can
-        // construct today; anything else is Phase B (slot-table-driven
-        // construction). Slot 7 may be empty — just don't attach the HDD.
-        let buildable = matches!(
-            (key.as_str(), card),
-            ("1", SlotCard::Thunderclock)
-                | ("6", SlotCard::Diskii { .. })
-                | ("7", SlotCard::Harddrive { .. } | SlotCard::Empty)
-                | ("2" | "3" | "4" | "5", SlotCard::Empty)
-        );
-        if !buildable {
-            return Err(format!(
-                "slot {key} {card}: not supported yet (see notes/JSON_CONFIG.md Phase B)",
-                card = card.card_name()
-            ));
+        // Any card can go in any slot; the multiplicity limits are the
+        // classic three-controller maximum and the single clock driver
+        // ProDOS installs.
+        let count = |wanted: &str| {
+            slots
+                .values()
+                .filter(|card| card.card_name() == wanted)
+                .count()
+        };
+        if count("diskii") > 3 {
+            return Err("machine.slots: at most three Disk ][ controllers".into());
+        }
+        if count("thunderclock") > 1 {
+            return Err("machine.slots: at most one Thunderclock".into());
         }
     }
     for (i, region) in config.machine.memory.iter().enumerate() {
@@ -393,7 +544,7 @@ fn validate(config: &Config) -> Result<(), String> {
 /// Rewrite every relative path-valued field to be relative to `base` — the
 /// config file's directory — so a config works regardless of the CWD.
 fn resolve_paths(config: &mut Config, base: &Path) {
-    for card in config.machine.slots.values_mut() {
+    for card in config.machine.slots.iter_mut().flat_map(|s| s.values_mut()) {
         match card {
             SlotCard::Diskii { drive1, drive2 } => {
                 if let Some(p) = drive1 {
@@ -467,7 +618,7 @@ mod tests {
         let config = parse(r#"{"machine": {"model": "2plus"}}"#).expect("minimal config");
         assert_eq!(config.machine.model, Model::TwoPlus);
         assert!(config.machine.aux.is_none());
-        assert!(config.machine.slots.is_empty());
+        assert!(config.machine.slots.is_none());
         assert!(config.machine.memory.is_empty());
         assert_eq!(config.display, Display::default());
         assert_eq!(config.cpu, Cpu::default());
@@ -510,32 +661,63 @@ mod tests {
     }
 
     #[test]
-    fn phase_a_layout_gate() {
+    fn slot_rules() {
         let slot = |n: &str, card: &str| {
             parse(&format!(
                 r#"{{"machine": {{"model": "2plus", "slots": {{"{n}": {card}}}}}}}"#
             ))
         };
 
-        let err = slot("5", r#"{"card": "diskii", "drive1": "x.dsk"}"#).unwrap_err();
-        assert_eq!(
-            err,
-            "test.json: slot 5 diskii: not supported yet (see notes/JSON_CONFIG.md Phase B)"
-        );
-        assert!(slot("6", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_err());
-        assert!(slot("1", r#"{"card": "empty"}"#).is_err());
-        assert!(slot("2", r#"{"card": "thunderclock"}"#).is_err());
-
+        // Any card in any slot (Phase B): the Phase A layout gate is gone.
+        assert!(slot("5", r#"{"card": "diskii", "drive1": "x.dsk"}"#).is_ok());
+        assert!(slot("6", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_ok());
+        assert!(slot("1", r#"{"card": "empty"}"#).is_ok());
+        assert!(slot("2", r#"{"card": "thunderclock"}"#).is_ok());
         assert!(slot("1", r#"{"card": "thunderclock"}"#).is_ok());
         assert!(slot("6", r#"{"card": "diskii"}"#).is_ok());
         assert!(slot("7", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_ok());
         assert!(slot("7", r#"{"card": "empty"}"#).is_ok());
         assert!(slot("3", r#"{"card": "empty"}"#).is_ok());
 
+        // Slot keys stay range-checked.
         let err = slot("8", r#"{"card": "empty"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "8""#), "{err}");
         let err = slot("01", r#"{"card": "thunderclock"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "01""#), "{err}");
+
+        // Multiplicity: at most three Disk ][ controllers, one Thunderclock.
+        let err = parse(
+            r#"{"machine": {"model": "2plus", "slots": {
+                "3": {"card": "diskii"}, "4": {"card": "diskii"},
+                "5": {"card": "diskii"}, "6": {"card": "diskii"}}}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            "test.json: machine.slots: at most three Disk ][ controllers"
+        );
+        let err = parse(
+            r#"{"machine": {"model": "2plus", "slots": {
+                "1": {"card": "thunderclock"}, "2": {"card": "thunderclock"}}}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(err, "test.json: machine.slots: at most one Thunderclock");
+
+        // Three controllers and two hard drives are fine.
+        assert!(
+            parse(
+                r#"{"machine": {"model": "2plus", "slots": {
+                    "4": {"card": "diskii"}, "5": {"card": "diskii"},
+                    "6": {"card": "diskii"}, "2": {"card": "harddrive", "image": "a.hdv"},
+                    "7": {"card": "harddrive", "image": "b.hdv"}}}}"#,
+            )
+            .is_ok()
+        );
+
+        // A present-but-empty table is a bare machine, distinct from an
+        // absent one (the default layout).
+        let config = parse(r#"{"machine": {"model": "2plus", "slots": {}}}"#).expect("empty");
+        assert_eq!(config.machine.slots, Some(BTreeMap::new()));
     }
 
     #[test]
@@ -570,12 +752,13 @@ mod tests {
                 "debug": {"trace": "trace.txt"}}"#,
         )
         .expect("valid config");
-        let SlotCard::Diskii { drive1, drive2 } = &config.machine.slots["6"] else {
+        let slots = config.machine.slots.as_ref().expect("slots present");
+        let SlotCard::Diskii { drive1, drive2 } = &slots["6"] else {
             panic!("slot 6 should be a diskii");
         };
         assert_eq!(drive1.as_deref(), Some("/cfg/disks/a.dsk"));
         assert_eq!(drive2.as_deref(), Some("/abs/b.dsk"));
-        let SlotCard::Harddrive { image } = &config.machine.slots["7"] else {
+        let SlotCard::Harddrive { image } = &slots["7"] else {
             panic!("slot 7 should be a harddrive");
         };
         assert_eq!(image, "/cfg/hd.hdv");
@@ -595,5 +778,139 @@ mod tests {
         assert!(region("0x10000").address_value().is_err());
         assert!(region("d000").address_value().is_err());
         assert!(region("").address_value().is_err());
+    }
+
+    #[test]
+    fn merge_layers_objects_and_skips_nulls() {
+        let mut doc = serde_json::json!({
+            "machine": {"model": "2plus", "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}}},
+            "display": {"monitor": "green"},
+        });
+        merge_documents(
+            &mut doc,
+            serde_json::json!({
+                "machine": {"model": "2e", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
+                "display": {"monitor": null, "fps": 30},
+            }),
+        );
+        assert_eq!(
+            doc,
+            serde_json::json!({
+                "machine": {"model": "2e", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
+                "display": {"monitor": "green", "fps": 30},
+            })
+        );
+    }
+
+    #[test]
+    fn merge_replaces_an_object_whose_card_changes() {
+        let mut doc = serde_json::json!({"card": "diskii", "drive1": "a.dsk"});
+        merge_documents(&mut doc, serde_json::json!({"card": "empty"}));
+        assert_eq!(doc, serde_json::json!({"card": "empty"}));
+    }
+
+    #[test]
+    fn set_types_values_as_json_or_string() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "display:fps=30").unwrap();
+        apply_set(&mut doc, "cpu:strict=true").unwrap();
+        apply_set(&mut doc, "display:monitor=amber").unwrap();
+        apply_set(&mut doc, r#"input:controller="8BitDo Pro 2""#).unwrap();
+        assert_eq!(doc["display"]["fps"], serde_json::json!(30));
+        assert_eq!(doc["cpu"]["strict"], serde_json::json!(true));
+        assert_eq!(doc["display"]["monitor"], serde_json::json!("amber"));
+        assert_eq!(
+            doc["input"]["controller"],
+            serde_json::json!("8BitDo Pro 2")
+        );
+    }
+
+    #[test]
+    fn set_materializes_the_default_slots_once() {
+        // Entering machine:slots on a slotless document brings in the
+        // default table, so the override extends the default machine.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({
+                "1": {"card": "thunderclock"},
+                "6": {"card": "diskii", "drive1": "x.dsk"},
+            })
+        );
+        // A document that already has a slots table is taken literally.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus", "slots": {}}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({"6": {"drive1": "x.dsk"}})
+        );
+    }
+
+    #[test]
+    fn set_replaces_a_slot_whose_card_changes() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        apply_set(&mut doc, "machine:slots:6:card=harddrive").unwrap();
+        apply_set(&mut doc, "machine:slots:6:image=x.hdv").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"]["6"],
+            serde_json::json!({"card": "harddrive", "image": "x.hdv"})
+        );
+        // A whole-object value replaces the slot in one go.
+        apply_set(
+            &mut doc,
+            r#"machine:slots:7={"card":"harddrive","image":"y.hdv"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            doc["machine"]["slots"]["7"],
+            serde_json::json!({"card": "harddrive", "image": "y.hdv"})
+        );
+    }
+
+    #[test]
+    fn set_rejects_bad_expressions() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let err = apply_set(&mut doc, "display:monitor").unwrap_err();
+        assert!(err.contains("expected <key>=<value>"), "{err}");
+        let err = apply_set(&mut doc, "display::monitor=amber").unwrap_err();
+        assert!(err.contains("empty segment"), "{err}");
+        let err = apply_set(&mut doc, "machine:model:x=1").unwrap_err();
+        assert!(err.contains(r#""machine:model" is not an object"#), "{err}");
+        doc["machine"]["memory"] = serde_json::json!([{"type": "rom"}]);
+        let err = apply_set(&mut doc, "machine:memory:0:path=x.bin").unwrap_err();
+        assert!(err.contains("cannot index into"), "{err}");
+    }
+
+    #[test]
+    fn from_document_validates_and_names_unknown_fields() {
+        let doc = serde_json::json!({"machine": {"model": "2plus"}, "disply": {}});
+        let err = from_document(doc).unwrap_err();
+        assert!(err.starts_with("config:"), "{err}");
+        assert!(err.contains("unknown field `disply`"), "{err}");
+
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "display:fps=0").unwrap();
+        let err = from_document(doc).unwrap_err();
+        assert!(err.contains("display.fps"), "{err}");
+    }
+
+    #[test]
+    fn documents_round_trip_through_serialize() {
+        // load_document(file) == what from_document accepts: the resolved
+        // typed config survives the Value round trip intact.
+        let doc = load_document(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/configs/full.json"
+        ))
+        .expect("full.json must load");
+        let via_document = from_document(doc).expect("round trip");
+        let direct = load(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/configs/full.json"
+        ))
+        .expect("direct load");
+        assert_eq!(via_document, direct);
     }
 }
