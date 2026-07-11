@@ -8,7 +8,7 @@ gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
 `cargo test`) after every phase.**
 
 > **Branch strategy:** each phase is independently useful and lands as its
-> own branch + PR into `master` (no long-lived integration branch needed).
+> own branch + PR into `main` (no long-lived integration branch needed).
 
 ## The two shapes (owner's framing)
 
