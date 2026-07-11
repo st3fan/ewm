@@ -119,6 +119,16 @@ cargo run --release -- two --config myiie.json
 }
 ```
 
+Ready-made configs for the classic machines live in `configs/` — an
+Apple ][+ with a green monitor (`plus.json`) and an Enhanced //e with
+the extended 80-column card and a color monitor (`enhanced.json`).
+Neither names a disk, so pair them with the drive flags, which merge
+into the config's slot 6 card:
+
+```
+cargo run --release -- two --config configs/enhanced.json --drive1 disks/DOS33-SystemMaster.dsk
+```
+
 The machine's physical layout lives in `slots`: any card in any slot,
 up to three Disk ][ controllers (six drives), multiple hard drives,
 empty slots — the Autostart scan boots the highest populated slot, as
