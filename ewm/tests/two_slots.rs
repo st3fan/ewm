@@ -22,16 +22,44 @@ fn plus_with(entries: &[(u8, SlotDevice)]) -> Two {
     Two::new_with_slots(TwoType::Apple2Plus, None, &slots(entries)).expect("must construct")
 }
 
-/// Step until the predicate holds, with a cycle cap.
+/// Step until the predicate holds, with a cycle cap. The predicate is
+/// checked every ~50K cycles — predicates like "the screen contains X"
+/// are far too expensive to evaluate per instruction.
 fn step_until(two: &mut Two, cap: u64, what: &str, pred: impl Fn(&Two) -> bool) {
     let mut cycles = 0u64;
     while !pred(two) {
-        cycles += two.cpu.step() as u64;
         assert!(
             cycles < cap,
             "gave up waiting for {what} after {cycles} cycles; screen was:\n{}",
             two.text_screen()
         );
+        let target = cycles + 50_000;
+        while cycles < target {
+            cycles += two.cpu.step() as u64;
+        }
+    }
+}
+
+/// Type a line through the keyboard latch, waiting for the strobe to be
+/// consumed after each key (the two_boot.rs/two_dos.rs pattern).
+fn type_line(two: &mut Two, line: &str) {
+    for &b in line.as_bytes() {
+        two.key(b);
+        step_until(two, 2_000_000, "key strobe", |two| {
+            two.key_register() & 0x80 == 0
+        });
+    }
+    two.key(0x0d);
+    step_until(two, 2_000_000, "return strobe", |two| {
+        two.key_register() & 0x80 == 0
+    });
+}
+
+/// Step a fixed number of cycles.
+fn step(two: &mut Two, cycles: u64) {
+    let mut done = 0u64;
+    while done < cycles {
+        done += two.cpu.step() as u64;
     }
 }
 
@@ -147,6 +175,72 @@ fn higher_slot_with_a_disk_boots_before_a_lower_one() {
         let text = two.text_screen();
         text.contains("DOS VERSION 3.3") && text.contains(']')
     });
+}
+
+#[test]
+fn three_controllers_catalog_every_drive() {
+    // The full three-controller / six-drive maximum, with the DOS 3.3
+    // System Master in every drive.
+    let mut two = plus_with(&[
+        (4, SlotDevice::DiskII),
+        (5, SlotDevice::DiskII),
+        (6, SlotDevice::DiskII),
+    ]);
+    for slot in [4, 5, 6] {
+        for drive in [0, 1] {
+            two.load_disk_at(slot, drive, DOS33)
+                .unwrap_or_else(|e| panic!("load slot {slot} drive {drive}: {e}"));
+        }
+    }
+    two.cpu.reset();
+
+    // The Autostart scan boots from S6,D1 (the highest slot; drive 1 is
+    // the boot drive).
+    step_until(&mut two, 400_000_000, "the DOS banner", |two| {
+        let text = two.text_screen();
+        text.contains("DOS VERSION 3.3") && text.contains(']')
+    });
+    // Proof it was slot 6: the scan never ran the lower slots' boot ROMs,
+    // so their heads have not moved, while slot 6 booted from drive 1.
+    assert_eq!(two.dsk_at(4).unwrap().half_track(), 0, "slot 4 untouched");
+    assert_eq!(two.dsk_at(5).unwrap().half_track(), 0, "slot 5 untouched");
+    assert_eq!(two.dsk_at(6).unwrap().active_drive(), 0, "booted from D1");
+
+    // CATALOG every slot/drive combination. DOS pauses a long listing when
+    // the screen fills, so before each command a bare Return releases any
+    // pending pause (a harmless empty line when DOS is already at the
+    // prompt) and HOME clears the screen so each header check is fresh.
+    for slot in [4u8, 5, 6] {
+        for drive in [1u8, 2] {
+            two.key(0x0d);
+            step_until(&mut two, 2_000_000, "release strobe", |two| {
+                two.key_register() & 0x80 == 0
+            });
+            step(&mut two, 8_000_000); // let a paused listing finish
+            type_line(&mut two, "HOME");
+            step(&mut two, 1_000_000);
+            assert!(
+                !two.text_screen().contains("DISK VOLUME"),
+                "screen must be clear before CATALOG,S{slot},D{drive}"
+            );
+
+            type_line(&mut two, &format!("CATALOG,S{slot},D{drive}"));
+            step_until(
+                &mut two,
+                60_000_000,
+                &format!("the S{slot},D{drive} catalog"),
+                |two| {
+                    let text = two.text_screen();
+                    text.contains("DISK VOLUME 254") && text.contains("HELLO")
+                },
+            );
+            // The targeted controller did the work: the named drive is
+            // selected with its head on the catalog track (17).
+            let dsk = two.dsk_at(slot).unwrap();
+            assert_eq!(dsk.active_drive(), drive as usize - 1, "S{slot},D{drive}");
+            assert_eq!(dsk.half_track(), 34, "S{slot},D{drive} head on track 17");
+        }
+    }
 }
 
 // --- Empty slots -------------------------------------------------------------

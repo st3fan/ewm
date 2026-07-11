@@ -368,7 +368,12 @@ impl Dsk {
             0xa => self.select_drive(DSK_DRIVE1, cycles),
             0xb => self.select_drive(DSK_DRIVE2, cycles),
 
-            // READMODE
+            // READMODE. Nibbles only stream while the motor runs (spin-down
+            // included) — with the disk still, the latch is quiet. RWTS
+            // depends on this when switching slots: it waits for the *old*
+            // controller's latch to stop changing before starting the new
+            // drive, and a latch that streams forever hangs it. (WOZ media
+            // models the motor itself.)
             0xe => {
                 self.mode = Mode::Read;
                 let d = self.drive;
@@ -376,8 +381,10 @@ impl Dsk {
                     let wp = if self.drives[d].readonly { 0x80 } else { 0x00 };
                     let r = if let Media::Woz(w) = &mut self.drives[d].media {
                         w.read(cycles, motor, false)
-                    } else {
+                    } else if motor {
                         self.read_next()
+                    } else {
+                        0x00
                     };
                     result = (r & 0x7f) | wp;
                 }
@@ -385,14 +392,16 @@ impl Dsk {
             // WRITEMODE
             0xf => self.mode = Mode::Write,
 
-            // READ
+            // READ (motor gating as above)
             0xc => {
                 let d = self.drive;
                 if self.drives[d].loaded {
                     result = if let Media::Woz(w) = &mut self.drives[d].media {
                         w.read(cycles, motor, true)
-                    } else {
+                    } else if motor {
                         self.read_next()
+                    } else {
+                        0x00
                     };
                 }
             }
@@ -701,6 +710,12 @@ mod tests {
         let image = vec![0x01u8; DSK_TRACKS * DSK_SECTORS * DSK_SECTOR_SIZE];
         dsk.set_disk_data(0, false, &image, DskType::Do).unwrap();
 
+        // With the motor off the latch is quiet (RWTS's slot-switch wait
+        // depends on it).
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
+        assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
+
+        dsk.io_read(0xc0e9, 0); // motor on
         // skip starts at 0: the first $C0EC read is skipped and returns 0.
         assert_eq!(dsk.io_read(0xc0ec, 0), 0x00);
         // The next three return real nibbles (gap bytes here).
