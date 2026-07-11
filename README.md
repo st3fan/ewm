@@ -109,6 +109,7 @@ cargo run --release -- two --config myiie.json
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },
+      "5": { "card": "diskii", "drive1": "disks/work.dsk" },
       "6": { "card": "diskii", "drive1": "disks/DOS33-SystemMaster.dsk" },
       "7": { "card": "harddrive", "image": "disks/Total Replay v6.0.1.hdv" }
     }
@@ -118,11 +119,14 @@ cargo run --release -- two --config myiie.json
 }
 ```
 
-Relative paths resolve against the config file's directory, so a config
-travels with its disks. The committed JSON Schema
-(`schema/ewm-config.schema.json`) gives editors validation and
+The machine's physical layout lives in `slots`: any card in any slot,
+up to three Disk ][ controllers (six drives), multiple hard drives,
+empty slots — the Autostart scan boots the highest populated slot, as
+on hardware. Relative paths resolve against the config file's
+directory, so a config travels with its disks. The committed JSON
+Schema (`schema/ewm-config.schema.json`) gives editors validation and
 autocomplete via the `$schema` key; `notes/JSON_CONFIG.md` has the full
-plan (configurable slot layouts beyond today's fixed one are Phase B).
+plan.
 
 Each subcommand accepts `--help` for all options. Useful keys while the
 emulator runs:

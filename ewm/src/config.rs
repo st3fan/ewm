@@ -54,10 +54,12 @@ pub struct Machine {
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
-    /// The card in each peripheral slot, keyed `"1"` through `"7"`. An
-    /// absent slot means empty; `"empty"` exists to say it explicitly.
-    #[serde(default)]
-    pub slots: BTreeMap<String, SlotCard>,
+    /// The card in each peripheral slot, keyed `"1"` through `"7"`. When
+    /// the whole `slots` object is absent the machine gets the classic
+    /// default layout (a Thunderclock in slot 1, a Disk II in slot 6); when
+    /// present it is taken literally — an absent slot key means that slot
+    /// is empty, and `"empty"` exists to say it explicitly.
+    pub slots: Option<BTreeMap<String, SlotCard>>,
     /// Extra RAM or ROM regions loaded from files at startup.
     #[serde(default)]
     pub memory: Vec<MemoryRegion>,
@@ -351,27 +353,28 @@ fn validate(config: &Config) -> Result<(), String> {
             crate::aux::parse_size(size).map_err(|e| format!("machine.aux.size: {e}"))?;
         }
     }
-    for (key, card) in &config.machine.slots {
-        if !matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7") {
-            return Err(format!(
-                "machine.slots: no such slot {key:?} (slots are \"1\" through \"7\")"
-            ));
+    if let Some(slots) = &config.machine.slots {
+        for key in slots.keys() {
+            if !matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7") {
+                return Err(format!(
+                    "machine.slots: no such slot {key:?} (slots are \"1\" through \"7\")"
+                ));
+            }
         }
-        // Phase A only accepts the layout the machine builders can
-        // construct today; anything else is Phase B (slot-table-driven
-        // construction). Slot 7 may be empty — just don't attach the HDD.
-        let buildable = matches!(
-            (key.as_str(), card),
-            ("1", SlotCard::Thunderclock)
-                | ("6", SlotCard::Diskii { .. })
-                | ("7", SlotCard::Harddrive { .. } | SlotCard::Empty)
-                | ("2" | "3" | "4" | "5", SlotCard::Empty)
-        );
-        if !buildable {
-            return Err(format!(
-                "slot {key} {card}: not supported yet (see notes/JSON_CONFIG.md Phase B)",
-                card = card.card_name()
-            ));
+        // Any card can go in any slot; the multiplicity limits are the
+        // classic three-controller maximum and the single clock driver
+        // ProDOS installs.
+        let count = |wanted: &str| {
+            slots
+                .values()
+                .filter(|card| card.card_name() == wanted)
+                .count()
+        };
+        if count("diskii") > 3 {
+            return Err("machine.slots: at most three Disk ][ controllers".into());
+        }
+        if count("thunderclock") > 1 {
+            return Err("machine.slots: at most one Thunderclock".into());
         }
     }
     for (i, region) in config.machine.memory.iter().enumerate() {
@@ -393,7 +396,7 @@ fn validate(config: &Config) -> Result<(), String> {
 /// Rewrite every relative path-valued field to be relative to `base` — the
 /// config file's directory — so a config works regardless of the CWD.
 fn resolve_paths(config: &mut Config, base: &Path) {
-    for card in config.machine.slots.values_mut() {
+    for card in config.machine.slots.iter_mut().flat_map(|s| s.values_mut()) {
         match card {
             SlotCard::Diskii { drive1, drive2 } => {
                 if let Some(p) = drive1 {
@@ -467,7 +470,7 @@ mod tests {
         let config = parse(r#"{"machine": {"model": "2plus"}}"#).expect("minimal config");
         assert_eq!(config.machine.model, Model::TwoPlus);
         assert!(config.machine.aux.is_none());
-        assert!(config.machine.slots.is_empty());
+        assert!(config.machine.slots.is_none());
         assert!(config.machine.memory.is_empty());
         assert_eq!(config.display, Display::default());
         assert_eq!(config.cpu, Cpu::default());
@@ -510,32 +513,63 @@ mod tests {
     }
 
     #[test]
-    fn phase_a_layout_gate() {
+    fn slot_rules() {
         let slot = |n: &str, card: &str| {
             parse(&format!(
                 r#"{{"machine": {{"model": "2plus", "slots": {{"{n}": {card}}}}}}}"#
             ))
         };
 
-        let err = slot("5", r#"{"card": "diskii", "drive1": "x.dsk"}"#).unwrap_err();
-        assert_eq!(
-            err,
-            "test.json: slot 5 diskii: not supported yet (see notes/JSON_CONFIG.md Phase B)"
-        );
-        assert!(slot("6", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_err());
-        assert!(slot("1", r#"{"card": "empty"}"#).is_err());
-        assert!(slot("2", r#"{"card": "thunderclock"}"#).is_err());
-
+        // Any card in any slot (Phase B): the Phase A layout gate is gone.
+        assert!(slot("5", r#"{"card": "diskii", "drive1": "x.dsk"}"#).is_ok());
+        assert!(slot("6", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_ok());
+        assert!(slot("1", r#"{"card": "empty"}"#).is_ok());
+        assert!(slot("2", r#"{"card": "thunderclock"}"#).is_ok());
         assert!(slot("1", r#"{"card": "thunderclock"}"#).is_ok());
         assert!(slot("6", r#"{"card": "diskii"}"#).is_ok());
         assert!(slot("7", r#"{"card": "harddrive", "image": "x.hdv"}"#).is_ok());
         assert!(slot("7", r#"{"card": "empty"}"#).is_ok());
         assert!(slot("3", r#"{"card": "empty"}"#).is_ok());
 
+        // Slot keys stay range-checked.
         let err = slot("8", r#"{"card": "empty"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "8""#), "{err}");
         let err = slot("01", r#"{"card": "thunderclock"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "01""#), "{err}");
+
+        // Multiplicity: at most three Disk ][ controllers, one Thunderclock.
+        let err = parse(
+            r#"{"machine": {"model": "2plus", "slots": {
+                "3": {"card": "diskii"}, "4": {"card": "diskii"},
+                "5": {"card": "diskii"}, "6": {"card": "diskii"}}}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(
+            err,
+            "test.json: machine.slots: at most three Disk ][ controllers"
+        );
+        let err = parse(
+            r#"{"machine": {"model": "2plus", "slots": {
+                "1": {"card": "thunderclock"}, "2": {"card": "thunderclock"}}}}"#,
+        )
+        .unwrap_err();
+        assert_eq!(err, "test.json: machine.slots: at most one Thunderclock");
+
+        // Three controllers and two hard drives are fine.
+        assert!(
+            parse(
+                r#"{"machine": {"model": "2plus", "slots": {
+                    "4": {"card": "diskii"}, "5": {"card": "diskii"},
+                    "6": {"card": "diskii"}, "2": {"card": "harddrive", "image": "a.hdv"},
+                    "7": {"card": "harddrive", "image": "b.hdv"}}}}"#,
+            )
+            .is_ok()
+        );
+
+        // A present-but-empty table is a bare machine, distinct from an
+        // absent one (the default layout).
+        let config = parse(r#"{"machine": {"model": "2plus", "slots": {}}}"#).expect("empty");
+        assert_eq!(config.machine.slots, Some(BTreeMap::new()));
     }
 
     #[test]
@@ -570,12 +604,13 @@ mod tests {
                 "debug": {"trace": "trace.txt"}}"#,
         )
         .expect("valid config");
-        let SlotCard::Diskii { drive1, drive2 } = &config.machine.slots["6"] else {
+        let slots = config.machine.slots.as_ref().expect("slots present");
+        let SlotCard::Diskii { drive1, drive2 } = &slots["6"] else {
             panic!("slot 6 should be a diskii");
         };
         assert_eq!(drive1.as_deref(), Some("/cfg/disks/a.dsk"));
         assert_eq!(drive2.as_deref(), Some("/abs/b.dsk"));
-        let SlotCard::Harddrive { image } = &config.machine.slots["7"] else {
+        let SlotCard::Harddrive { image } = &slots["7"] else {
             panic!("slot 7 should be a harddrive");
         };
         assert_eq!(image, "/cfg/hd.hdv");

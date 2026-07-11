@@ -1,7 +1,9 @@
-//! Disk ][ controller, port of `dsk.c`: a 16-sector controller fixed to
-//! slot 6 with two drives. Disk images are nibblized to GCR 6-and-2 tracks
-//! on load; writes only reach the in-memory nibble stream and are never
-//! written back to the image (quirk #2 in REWRITE.md).
+//! Disk ][ controller, port of `dsk.c`: a 16-sector controller with two
+//! drives, usable in any slot (the machine registers it over its slot's
+//! DEVSEL range; the device decodes only the low nibble). Disk images are
+//! nibblized to GCR 6-and-2 tracks on load; writes only reach the in-memory
+//! nibble stream and are never written back to the image (quirk #2 in
+//! REWRITE.md).
 //!
 //! Most of this code is based on Beneath Apple DOS and another open source
 //! emulator at <https://github.com/whscullin/apple2js> (comment from dsk.c).
@@ -21,7 +23,10 @@ pub const DSK_DRIVE2: usize = 1;
 /// Motor spin-down time after `$C0E8`, ~1 second of CPU cycles.
 const MOTOR_OFF_DELAY: u64 = 1_023_000;
 
-// The slot 6 boot ROM at $C600, embedded in dsk.c as dsk_rom[].
+// The P5 boot ROM at $Cn00, embedded in dsk.c as dsk_rom[]. Slot-agnostic:
+// it derives its own slot from the return address ($20 $58 $FF = JSR $FF58,
+// then reads $0100,X) and addresses the soft switches as $C08x,X — the same
+// bytes boot a controller in any slot.
 pub static DSK_ROM: [u8; 256] = [
     0xa2, 0x20, 0xa0, 0x00, 0xa2, 0x03, 0x86, 0x3c, 0x8a, 0x0a, 0x24, 0x3c, 0xf0, 0x10, 0x05, 0x3c,
     0x49, 0xff, 0x29, 0x7e, 0xb0, 0x08, 0x4a, 0xd0, 0xfb, 0x98, 0x9d, 0x56, 0x03, 0xc8, 0xe8, 0x10,
@@ -328,28 +333,30 @@ impl Dsk {
         }
     }
 
-    /// Port of `dsk_read` ($C0E0-$C0EF).
+    /// Port of `dsk_read`. The controller decodes only the low nibble of the
+    /// DEVSEL address ($C080 + slot*16 .. +$F), so the same device works in
+    /// any slot — the machine registers it over its slot's 16-byte range.
     pub fn io_read(&mut self, addr: u16, cycles: u64) -> u8 {
         let motor = self.motor_running(cycles);
         let mut result = 0x00;
-        match addr {
-            0xc0e0 => self.phase(0, false),
-            0xc0e1 => self.phase(0, true),
-            0xc0e2 => self.phase(1, false),
-            0xc0e3 => self.phase(1, true),
-            0xc0e4 => self.phase(2, false),
-            0xc0e5 => self.phase(2, true),
-            0xc0e6 => self.phase(3, false),
-            0xc0e7 => self.phase(3, true),
+        match addr & 0x0f {
+            0x0 => self.phase(0, false),
+            0x1 => self.phase(0, true),
+            0x2 => self.phase(1, false),
+            0x3 => self.phase(1, true),
+            0x4 => self.phase(2, false),
+            0x5 => self.phase(2, true),
+            0x6 => self.phase(3, false),
+            0x7 => self.phase(3, true),
 
             // MOTOROFF: the Disk II keeps spinning ~1 second (protections
             // read sectors during the spin-down).
-            0xc0e8 => {
+            0x8 => {
                 if self.on && self.off_at.is_none() {
                     self.off_at = Some(cycles + MOTOR_OFF_DELAY);
                 }
             }
-            0xc0e9 => {
+            0x9 => {
                 let d = self.drive;
                 if !motor && let Media::Woz(w) = &mut self.drives[d].media {
                     w.sync(cycles); // was stopped: no time accumulates
@@ -358,11 +365,11 @@ impl Dsk {
                 self.off_at = None;
             }
 
-            0xc0ea => self.select_drive(DSK_DRIVE1, cycles),
-            0xc0eb => self.select_drive(DSK_DRIVE2, cycles),
+            0xa => self.select_drive(DSK_DRIVE1, cycles),
+            0xb => self.select_drive(DSK_DRIVE2, cycles),
 
             // READMODE
-            0xc0ee => {
+            0xe => {
                 self.mode = Mode::Read;
                 let d = self.drive;
                 if self.drives[d].loaded {
@@ -376,10 +383,10 @@ impl Dsk {
                 }
             }
             // WRITEMODE
-            0xc0ef => self.mode = Mode::Write,
+            0xf => self.mode = Mode::Write,
 
             // READ
-            0xc0ec => {
+            0xc => {
                 let d = self.drive;
                 if self.drives[d].loaded {
                     result = if let Media::Woz(w) = &mut self.drives[d].media {
@@ -392,41 +399,38 @@ impl Dsk {
             // WRITE - Called by code, but doesn't do anything? (comment from
             // dsk.c). On WOZ media a $C08D read resets the sequencer and
             // clears the latch (the E7 protection depends on it).
-            0xc0ed => {
+            _ => {
                 let d = self.drive;
                 if let Media::Woz(w) = &mut self.drives[d].media {
                     w.reset_sequencer();
                 }
             }
-
-            _ => {
-                eprintln!("[DSK] Got an unhandled read from ${addr:04X}");
-            }
         }
         result
     }
 
-    /// Port of `dsk_write` ($C0E0-$C0EF). The controller decodes the address
-    /// regardless of read/write, so the stepper, motor and drive-select
-    /// switches respond to writes too — some loaders (found in the WOZ
-    /// compatibility sweep) step the head with `STA $C0E1,X`-style writes.
+    /// Port of `dsk_write`. The controller decodes the address regardless of
+    /// read/write, so the stepper, motor and drive-select switches respond to
+    /// writes too — some loaders (found in the WOZ compatibility sweep) step
+    /// the head with `STA $C0E1,X`-style writes. Like `io_read`, only the low
+    /// nibble is decoded.
     pub fn io_write(&mut self, addr: u16, b: u8, cycles: u64) {
         let motor = self.motor_running(cycles);
-        match addr {
-            0xc0e0 => self.phase(0, false),
-            0xc0e1 => self.phase(0, true),
-            0xc0e2 => self.phase(1, false),
-            0xc0e3 => self.phase(1, true),
-            0xc0e4 => self.phase(2, false),
-            0xc0e5 => self.phase(2, true),
-            0xc0e6 => self.phase(3, false),
-            0xc0e7 => self.phase(3, true),
-            0xc0e8 => {
+        match addr & 0x0f {
+            0x0 => self.phase(0, false),
+            0x1 => self.phase(0, true),
+            0x2 => self.phase(1, false),
+            0x3 => self.phase(1, true),
+            0x4 => self.phase(2, false),
+            0x5 => self.phase(2, true),
+            0x6 => self.phase(3, false),
+            0x7 => self.phase(3, true),
+            0x8 => {
                 if self.on && self.off_at.is_none() {
                     self.off_at = Some(cycles + MOTOR_OFF_DELAY);
                 }
             }
-            0xc0e9 => {
+            0x9 => {
                 let d = self.drive;
                 if !motor && let Media::Woz(w) = &mut self.drives[d].media {
                     w.sync(cycles);
@@ -434,15 +438,12 @@ impl Dsk {
                 self.on = true;
                 self.off_at = None;
             }
-            0xc0ea => self.select_drive(DSK_DRIVE1, cycles),
-            0xc0eb => self.select_drive(DSK_DRIVE2, cycles),
-            0xc0ec => {} // Q6L write: loads the write shifter on real hardware
-            0xc0ed => self.write_next(b),
-            0xc0ee => self.mode = Mode::Read,
-            0xc0ef => self.mode = Mode::Write,
-            _ => {
-                eprintln!("[DSK] Got an unhandled write to ${addr:04X}");
-            }
+            0xa => self.select_drive(DSK_DRIVE1, cycles),
+            0xb => self.select_drive(DSK_DRIVE2, cycles),
+            0xc => {} // Q6L write: loads the write shifter on real hardware
+            0xd => self.write_next(b),
+            0xe => self.mode = Mode::Read,
+            _ => self.mode = Mode::Write,
         }
     }
 }
@@ -453,8 +454,8 @@ impl Default for Dsk {
     }
 }
 
-/// The controller as an IO device at `$C0E0-$C0EF`, as `dsk.c` registered
-/// itself with `cpu_add_iom`. The slot ROM at `$C600` is a plain ROM region
+/// The controller as an IO device over its slot's 16-byte DEVSEL range, as
+/// `dsk.c` registered itself with `cpu_add_iom`. The slot ROM at `$Cn00` is
 /// added by the machine.
 impl Device for Dsk {
     fn read(&mut self, addr: u16, cycles: u64) -> u8 {

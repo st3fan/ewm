@@ -19,7 +19,7 @@ fn minimal_config_loads() {
     assert_eq!(config.machine.model, Model::TwoPlus);
     assert_eq!(config.machine.model.two_type(), TwoType::Apple2Plus);
     assert!(config.machine.aux.is_none());
-    assert!(config.machine.slots.is_empty());
+    assert!(config.machine.slots.is_none());
     assert!(config.machine.memory.is_empty());
 }
 
@@ -32,7 +32,8 @@ fn full_config_loads_with_resolved_paths() {
     assert_eq!(aux.card, AuxKind::RamWorksIII);
     assert_eq!(aux.size.as_deref(), Some("1m"));
 
-    let SlotCard::Diskii { drive1, drive2 } = &config.machine.slots["6"] else {
+    let slots = config.machine.slots.as_ref().expect("slots present");
+    let SlotCard::Diskii { drive1, drive2 } = &slots["6"] else {
         panic!("slot 6 should be a diskii");
     };
     // Relative image paths come back anchored to the config's directory.
@@ -44,7 +45,7 @@ fn full_config_loads_with_resolved_paths() {
         drive2.as_deref(),
         Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
     );
-    let SlotCard::Harddrive { image } = &config.machine.slots["7"] else {
+    let SlotCard::Harddrive { image } = &slots["7"] else {
         panic!("slot 7 should be a harddrive");
     };
     assert_eq!(image, fixture!("../../../disks/Total Replay v6.0.1.hdv"));
@@ -60,21 +61,33 @@ fn full_config_loads_with_resolved_paths() {
 }
 
 #[test]
-fn missing_file_and_unsupported_layout_error() {
+fn two_controller_config_loads() {
+    // Phase B: arbitrary slot layouts load — two Disk ][ controllers here.
+    let config = config::load(fixture!("two-controllers.json")).expect("must load");
+    let slots = config.machine.slots.as_ref().expect("slots present");
+    assert_eq!(slots.len(), 3);
+    assert!(matches!(slots["5"], SlotCard::Diskii { .. }));
+    assert!(matches!(slots["6"], SlotCard::Diskii { .. }));
+}
+
+#[test]
+fn missing_file_and_bad_multiplicity_error() {
     let err = config::load(fixture!("does-not-exist.json")).unwrap_err();
     assert!(err.starts_with("cannot read config"), "{err}");
 
     let dir = std::env::temp_dir().join("ewm-config-test");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = dir.join("slot5.json");
+    let path = dir.join("four-controllers.json");
     std::fs::write(
         &path,
-        r#"{"machine": {"model": "2plus", "slots": {"5": {"card": "diskii"}}}}"#,
+        r#"{"machine": {"model": "2plus", "slots": {
+            "3": {"card": "diskii"}, "4": {"card": "diskii"},
+            "5": {"card": "diskii"}, "6": {"card": "diskii"}}}}"#,
     )
     .expect("write temp config");
     let err = config::load(path.to_str().unwrap()).unwrap_err();
     assert!(
-        err.ends_with("slot 5 diskii: not supported yet (see notes/JSON_CONFIG.md Phase B)"),
+        err.ends_with("machine.slots: at most three Disk ][ controllers"),
         "{err}"
     );
 }

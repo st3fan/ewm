@@ -1,14 +1,15 @@
-//! Slot 1 Thunderclock Plus real-time clock. Like the slot-7 hard disk this
-//! is virtual hardware, not a uPD1990AC chip simulation: a 256-byte firmware
-//! ROM at $C100 speaks the small protocol the ProDOS built-in clock driver
-//! expects, and pulls the host's local time byte-by-byte through two I/O
-//! ports in the slot 1 DEVSEL range ($C090-$C09F).
+//! Thunderclock Plus real-time clock (slot 1 by default, usable in any
+//! slot). Like the hard disk this is virtual hardware, not a uPD1990AC chip
+//! simulation: a 256-byte firmware ROM at $Cn00 speaks the small protocol
+//! the ProDOS built-in clock driver expects, and pulls the host's local
+//! time byte-by-byte through two I/O ports in the slot's DEVSEL range
+//! ($C080 + slot*16).
 //!
 //! ProDOS recognizes a clock card by the ID bytes $Cn00=$08, $Cn02=$28,
 //! $Cn04=$58, $Cn06=$70. When it finds one it installs a JMP at $BF06 to the
-//! built-in Thunderclock driver, which — for a card in slot 1 — calls
-//! `JSR $C10B` (with A = '#'|$80, the numeric-format command) then
-//! `JSR $C108` (read). The read must deposit an ASCII string at $0200 of the
+//! built-in Thunderclock driver, which — for a card in slot n — calls
+//! `JSR $Cn0B` (with A = '#'|$80, the numeric-format command) then
+//! `JSR $Cn08` (read). The read must deposit an ASCII string at $0200 of the
 //! form `MO,DW,DT,HH,MM,SS` — two digits per field, day-of-week 00(Sun)..
 //! 06(Sat) — with the *ones* digit of every field carrying the high bit
 //! ($B0-$B9), which is how the driver's `... SBC #$B0` recovers the value.
@@ -25,10 +26,12 @@
 
 use ewm_core::mem::Device;
 
-// The slot 1 firmware. Hand-assembled; the listing below is the source of
-// truth for the bytes. The ID bytes at the even offsets double as harmless
-// opcodes, as they do on the real card; $C101=$78 (not $20) is what keeps the
-// Autostart slot scan from mistaking this ROM for a bootable Disk II card.
+// The firmware for a card in slot `n`. Hand-assembled; the listing below is
+// the source of truth for the bytes (shown for slot 1 — the three
+// slot-dependent operands are computed from `slot`). The ID bytes at the
+// even offsets double as harmless opcodes, as they do on the real card;
+// $Cn01=$78 (not $20) is what keeps the Autostart slot scan from mistaking
+// this ROM for a bootable Disk II card.
 //
 //   ; ID bytes / opcodes
 //   C100: 08        PHP            ; ID $Cn00 = $08
@@ -39,35 +42,47 @@ use ewm_core::mem::Device;
 //   C105: EA        NOP
 //   C106: 70 08     BVS $C110      ; ID $Cn06 = $70
 //   ; ProDOS entry points
-//   C108: 4C 10 C1  JMP $C110      ; READ: deposit the time string at $0200
+//   C108: 4C 10 C1  JMP $Cn10      ; READ: deposit the time string at $0200
 //   C10B: 60        RTS            ; WRITE: format commands acknowledged, ignored
 //   C10C: EA EA EA EA              ; pad
 //   ; READ: latch the host clock, copy the pre-formatted string to $0200
-//   C110: 8D 90 C0  STA $C090      ; latch local time + reset index (value ignored)
+//   C110: 8D 90 C0  STA $C090+s    ; latch local time + reset index (value ignored)
 //   C113: A0 00     LDY #$00
-//   C115: AD 91 C0  LDA $C091      ; next string byte; $00 = end
+//   C115: AD 91 C0  LDA $C091+s    ; next string byte; $00 = end
 //   C118: F0 06     BEQ $C120
 //   C11A: 99 00 02  STA $0200,Y
 //   C11D: C8        INY
 //   C11E: D0 F5     BNE $C115
 //   C120: 60        RTS
-pub static CLK_ROM: [u8; 256] = {
+pub fn clk_rom(slot: u8) -> [u8; 256] {
+    let n = 0xc0 + slot; // the $Cn page the ROM lives in
+    let latch = 0x80 + slot * 16; // low byte of the DEVSEL latch port
+    let data = latch + 1; // low byte of the DEVSEL data port
     let mut rom = [0u8; 256];
     let code: [u8; 33] = [
-        0x08, 0x78, 0x28, 0x18, 0x58, 0xea, 0x70, 0x08, 0x4c, 0x10, 0xc1, 0x60, 0xea, 0xea, 0xea,
-        0xea, 0x8d, 0x90, 0xc0, 0xa0, 0x00, 0xad, 0x91, 0xc0, 0xf0, 0x06, 0x99, 0x00, 0x02, 0xc8,
-        0xd0, 0xf5, 0x60,
+        0x08, 0x78, 0x28, 0x18, 0x58, 0xea, 0x70, 0x08, // ID bytes / opcodes
+        0x4c, 0x10, n, // JMP $Cn10
+        0x60, 0xea, 0xea, 0xea, 0xea, // RTS + pad
+        0x8d, latch, 0xc0, // STA $C0xx (latch)
+        0xa0, 0x00, // LDY #$00
+        0xad, data, 0xc0, // LDA $C0xx (data)
+        0xf0, 0x06, // BEQ +6
+        0x99, 0x00, 0x02, // STA $0200,Y
+        0xc8, // INY
+        0xd0, 0xf5, // BNE -11
+        0x60, // RTS
     ];
-    let mut i = 0;
-    while i < code.len() {
-        rom[i] = code[i];
-        i += 1;
-    }
+    rom[..code.len()].copy_from_slice(&code);
     rom
-};
+}
 
-/// The ProDOS read entry point within the slot ROM ($C100 + $08).
-pub const CLK_READ_ENTRY: u16 = 0xc108;
+/// The ProDOS read entry point within the slot ROM ($Cn00 + $08).
+pub const fn clk_read_entry(slot: u8) -> u16 {
+    ((0xc0 + slot as u16) << 8) | 0x08
+}
+
+/// The ProDOS read entry point for the default slot-1 card.
+pub const CLK_READ_ENTRY: u16 = clk_read_entry(1);
 
 /// The 18-byte string the card serves: `MO,DW,DT,HH,MM,SS` + CR, every byte
 /// high-bit set (the real card emits GETLN-style high ASCII).
@@ -168,13 +183,15 @@ impl Default for Clk {
     }
 }
 
+/// The card as an IO device over its slot's 16-byte DEVSEL range; only the
+/// low nibble is decoded, so the same device works in any slot.
 impl Device for Clk {
     fn read(&mut self, addr: u16, _cycles: u64) -> u8 {
-        match addr {
+        match addr & 0x0f {
             // Data port: next string byte, auto-incrementing. Once the string
             // is spent this falls through to $00 (every real byte has the high
             // bit set, so the firmware reads that as its terminator).
-            0xc091 if self.index < STRING_LEN => {
+            0x1 if self.index < STRING_LEN => {
                 let b = self.buf[self.index];
                 self.index += 1;
                 b
@@ -185,7 +202,7 @@ impl Device for Clk {
 
     fn write(&mut self, addr: u16, _b: u8, _cycles: u64) {
         // Latch port: sample the clock and rewind to the start of the string.
-        if addr == 0xc090 {
+        if addr & 0x0f == 0x0 {
             self.latch();
         }
     }
@@ -194,6 +211,39 @@ impl Device for Clk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The generator reproduces the original hand-assembled slot-1 firmware
+    /// byte-for-byte (the literal below is the pre-generator static).
+    #[test]
+    fn slot_1_rom_matches_the_original_bytes() {
+        let golden: [u8; 33] = [
+            0x08, 0x78, 0x28, 0x18, 0x58, 0xea, 0x70, 0x08, 0x4c, 0x10, 0xc1, 0x60, 0xea, 0xea,
+            0xea, 0xea, 0x8d, 0x90, 0xc0, 0xa0, 0x00, 0xad, 0x91, 0xc0, 0xf0, 0x06, 0x99, 0x00,
+            0x02, 0xc8, 0xd0, 0xf5, 0x60,
+        ];
+        let rom = clk_rom(1);
+        assert_eq!(rom[..golden.len()], golden);
+        assert!(rom[golden.len()..].iter().all(|&b| b == 0));
+        assert_eq!(clk_read_entry(1), 0xc108);
+    }
+
+    /// A moved card patches exactly the page and port operands.
+    #[test]
+    fn moved_rom_patches_the_slot_operands() {
+        let rom = clk_rom(2);
+        assert_eq!(rom[0x0a], 0xc2); // JMP $C210
+        assert_eq!(rom[0x11], 0xa0); // STA $C0A0
+        assert_eq!(rom[0x16], 0xa1); // LDA $C0A1
+        assert_eq!(rom[0x01], 0x78, "must not look bootable");
+        assert_eq!(clk_read_entry(2), 0xc208);
+        // Everything else identical to the slot-1 image.
+        let base = clk_rom(1);
+        for (i, (&a, &b)) in base.iter().zip(rom.iter()).enumerate() {
+            if ![0x0a, 0x11, 0x16].contains(&i) {
+                assert_eq!(a, b, "unexpected difference at offset {i:#04x}");
+            }
+        }
+    }
 
     fn sample() -> ClockTime {
         // Monday 2026-07-06 10:30:59.

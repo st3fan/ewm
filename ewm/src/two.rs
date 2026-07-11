@@ -5,12 +5,14 @@
 //! runs fixed-step frames with the fake ≈1.023 MHz display preserved
 //! (quirk #3).
 
+use std::collections::BTreeMap;
+
 use crate::alc::Alc;
 use crate::aux::{AuxCard, Ext80Col, LcRegion};
-use crate::clk::{CLK_ROM, Clk};
+use crate::clk::{Clk, clk_rom};
 use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
-use crate::hdd::{HDD_ROM, Hdd};
+use crate::hdd::{Hdd, hdd_rom};
 use crate::led::{LED_STRIP_HEIGHT, LED_STRIP_WIDTH, render_led_strip};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::scr::{
@@ -370,8 +372,9 @@ struct IouE {
     /// Internal `$C100-$CFFF` firmware (the CD ROM half, offset `$100`).
     internal_rom: &'static [u8],
     /// Peripheral card ROM at `$Cn00-$CnFF`, indexed by slot `1..=7`
-    /// (slot 0 unused); `None` when no card occupies the slot.
-    slot_rom: [Option<&'static [u8]>; 8],
+    /// (slot 0 unused); `None` when no card occupies the slot. Owned copies
+    /// so per-slot generated firmware (clock, hard disk) can be installed.
+    slot_rom: [Option<[u8; 256]>; 8],
 
     // --- Phase 2c: $C000-$C00F memory switches (state only; the aux-memory
     // routing they describe arrives in Phase 4) ---
@@ -688,8 +691,8 @@ impl IouE {
     }
 
     /// Install a peripheral card's `$Cn00-$CnFF` ROM image for slot `slot`.
-    fn set_slot_rom(&mut self, slot: usize, rom: &'static [u8]) {
-        self.slot_rom[slot] = Some(rom);
+    fn set_slot_rom(&mut self, slot: usize, rom: &[u8; 256]) {
+        self.slot_rom[slot] = Some(*rom);
     }
 
     /// Set a display soft switch. On the //e the `$C050-$C057` switches toggle
@@ -854,7 +857,9 @@ impl IouE {
             }
             0xc100..=0xc7ff => {
                 let slot = ((addr >> 8) & 0x0f) as usize; // $Cn -> n
-                self.slot_rom[slot].map_or(0, |rom| rom[(addr & 0xff) as usize])
+                self.slot_rom[slot]
+                    .as_ref()
+                    .map_or(0, |rom| rom[(addr & 0xff) as usize])
             }
             _ => 0,
         }
@@ -1067,27 +1072,79 @@ enum MachineIo {
     E(DeviceHandle<IouE>),
 }
 
+/// What occupies a peripheral slot at construction time. Media (disk and
+/// block images) is inserted afterwards, per slot — see `Two::load_disk_at`
+/// and `Two::attach_hdd_at` (the hard-drive card is not listed here because
+/// `Hdd::new` needs its image up front).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SlotDevice {
+    DiskII,
+    Thunderclock,
+}
+
+/// The classic layout the machine ships with when no slot table is given:
+/// a Thunderclock Plus in slot 1 and a Disk II controller in slot 6.
+pub fn default_slots() -> BTreeMap<u8, SlotDevice> {
+    BTreeMap::from([(1, SlotDevice::Thunderclock), (6, SlotDevice::DiskII)])
+}
+
+/// A slot's 16-byte DEVSEL I/O range starts here ($C080 + slot*16).
+fn slot_io_base(slot: u8) -> u16 {
+    0xc080 + slot as u16 * 16
+}
+
+/// A slot's 256-byte firmware ROM page ($Cn00).
+fn slot_rom_base(slot: u8) -> u16 {
+    (0xc0 + slot as u16) << 8
+}
+
 pub struct Two {
     pub cpu: Cpu,
     model: TwoType,
     io: MachineIo,
-    dsk: DeviceHandle<Dsk>,
-    hdd: Option<DeviceHandle<Hdd>>,
-    clk: DeviceHandle<Clk>,
+    /// Disk II controllers by slot; the highest slot is the boot controller
+    /// (the Autostart scan runs 7 down to 1, as on hardware).
+    dsks: BTreeMap<u8, DeviceHandle<Dsk>>,
+    /// Hard-drive cards by slot.
+    hdds: BTreeMap<u8, DeviceHandle<Hdd>>,
+    clk: Option<(u8, DeviceHandle<Clk>)>,
 }
 
 impl Two {
-    /// Construct a machine. The Apple ][+ is the `ewm_two_init` port; the
-    /// Enhanced //e is the Phase 2 bring-up. The original NMOS Apple ][
-    /// remains unsupported (quirk #4 in REWRITE.md).
+    /// Construct a machine with the default slot table. The Apple ][+ is the
+    /// `ewm_two_init` port; the Enhanced //e is the Phase 2 bring-up. The
+    /// original NMOS Apple ][ remains unsupported (quirk #4 in REWRITE.md).
     pub fn new(two_type: TwoType) -> Result<Two, String> {
         Two::new_with_aux(two_type, None)
     }
 
     /// Construct a machine with an explicit auxiliary-slot card (the //e
-    /// only; `None` = the default Extended 80-Column Text Card). The ][+
-    /// has no auxiliary slot, so requesting a card there is an error.
+    /// only; `None` = the default Extended 80-Column Text Card) and the
+    /// default slot table.
     pub fn new_with_aux(two_type: TwoType, aux: Option<Box<dyn AuxCard>>) -> Result<Two, String> {
+        Two::new_with_slots(two_type, aux, &default_slots())
+    }
+
+    /// Construct a machine from a slot table: each entry puts that card's
+    /// I/O device in its slot's DEVSEL range and its firmware ROM at $Cn00;
+    /// slots absent from the table stay empty (their ranges read $00, which
+    /// the Autostart slot scan skips). The ][+ has no auxiliary slot, so
+    /// requesting an aux card there is an error.
+    pub fn new_with_slots(
+        two_type: TwoType,
+        aux: Option<Box<dyn AuxCard>>,
+        slots: &BTreeMap<u8, SlotDevice>,
+    ) -> Result<Two, String> {
+        if let Some(slot) = slots.keys().find(|s| !(1..=7).contains(*s)) {
+            return Err(format!("no such slot {slot} (slots are 1 through 7)"));
+        }
+        let clocks = slots
+            .values()
+            .filter(|&&c| c == SlotDevice::Thunderclock)
+            .count();
+        if clocks > 1 {
+            return Err("at most one Thunderclock".to_string());
+        }
         match two_type {
             TwoType::Apple2Plus => {
                 if let Some(card) = aux {
@@ -1096,17 +1153,18 @@ impl Two {
                         card.label()
                     ));
                 }
-                Ok(Two::new_2plus())
+                Ok(Two::new_2plus(slots))
             }
             TwoType::Apple2E => Ok(Two::new_2e(
                 aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
+                slots,
             )),
             TwoType::Apple2 => Err(format!("unsupported machine type {two_type:?}")),
         }
     }
 
     /// Port of `ewm_two_init`: the Apple ][+.
-    fn new_2plus() -> Two {
+    fn new_2plus(slots: &BTreeMap<u8, SlotDevice>) -> Two {
         let mut rom = Vec::with_capacity(0x3000);
         for part in [
             ROM_341_0011,
@@ -1126,20 +1184,33 @@ impl Two {
         // covers both its switches and the whole $D000-$FFFF bank space.
         let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
         mem.map_device(alc, 0xd000, 0xffff);
-        let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
-        mem.add_rom(0xc600, DSK_ROM.to_vec()); // slot 6 boot ROM
 
-        // Slot 1 Thunderclock Plus: I/O ports plus its firmware ROM at $C100.
-        // ProDOS finds it by the ID bytes and shows the host's date and time.
-        let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
-        mem.add_rom(0xc100, CLK_ROM.to_vec());
+        // The peripheral cards: each slot's I/O device in its DEVSEL range,
+        // its firmware as a plain ROM region at $Cn00.
+        let mut dsks = BTreeMap::new();
+        let mut clk = None;
+        for (&slot, &card) in slots {
+            let base = slot_io_base(slot);
+            match card {
+                SlotDevice::DiskII => {
+                    dsks.insert(slot, mem.add_device(base, base + 0xf, Dsk::new()));
+                    mem.add_rom(slot_rom_base(slot), DSK_ROM.to_vec());
+                }
+                SlotDevice::Thunderclock => {
+                    // ProDOS finds the clock by its ID bytes and shows the
+                    // host's date and time.
+                    clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
+                    mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
+                }
+            }
+        }
 
         Two {
             cpu: Cpu::new(Model::M6502, mem),
             model: TwoType::Apple2Plus,
             io: MachineIo::Plus(io),
-            dsk,
-            hdd: None,
+            dsks,
+            hdds: BTreeMap::new(),
             clk,
         }
     }
@@ -1148,7 +1219,7 @@ impl Two {
     /// internal-vs-slot ROM arbitration, and (Phase 4a) auxiliary memory. All
     /// RAM below `$C000` lives in the `IouE`, so `Memory` is built with no
     /// base-RAM fast path.
-    fn new_2e(aux: Box<dyn AuxCard>) -> Two {
+    fn new_2e(aux: Box<dyn AuxCard>, slots: &BTreeMap<u8, SlotDevice>) -> Two {
         assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
 
@@ -1159,17 +1230,33 @@ impl Two {
         // main/aux RAM, the $C000-$C07F soft switches, the $C080-$C08F +
         // $D000-$FFFF built-in language card (RAM banked with an aux copy per
         // ALTZP, ROM held internally), and the $C100-$CFFF ROM arbitration
-        // (internal firmware vs the peripheral-slot ROMs it holds). The Disk II
-        // / clock I/O devices stay separate below; the //e does not use `Alc`.
+        // (internal firmware vs the peripheral-slot ROMs it holds). The
+        // peripheral I/O devices stay separate below; the //e does not use
+        // `Alc`.
         let mut iou = IouE::new(aux);
-        iou.set_slot_rom(1, &CLK_ROM); // slot 1 Thunderclock Plus
-        iou.set_slot_rom(6, &DSK_ROM); // slot 6 Disk II boot ROM
+        for (&slot, &card) in slots {
+            match card {
+                SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
+                SlotDevice::Thunderclock => iou.set_slot_rom(slot as usize, &clk_rom(slot)),
+            }
+        }
         let io = mem.add_device(0xc000, 0xc07f, iou);
         mem.map_device(io, 0xc080, 0xc08f); // language-card switches
         mem.map_device(io, 0xc100, 0xcfff); // $CX ROM
 
-        let dsk = mem.add_device(0xc0e0, 0xc0ef, Dsk::new());
-        let clk = mem.add_device(0xc090, 0xc09f, Clk::new());
+        let mut dsks = BTreeMap::new();
+        let mut clk = None;
+        for (&slot, &card) in slots {
+            let base = slot_io_base(slot);
+            match card {
+                SlotDevice::DiskII => {
+                    dsks.insert(slot, mem.add_device(base, base + 0xf, Dsk::new()));
+                }
+                SlotDevice::Thunderclock => {
+                    clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
+                }
+            }
+        }
 
         // Map the RAM and language-card ROM/RAM ranges last so the region walk
         // (newest-first) checks them first — zero page, the stack, the display
@@ -1181,8 +1268,8 @@ impl Two {
             cpu: Cpu::new(Model::M65C02, mem),
             model: TwoType::Apple2E,
             io: MachineIo::E(io),
-            dsk,
-            hdd: None,
+            dsks,
+            hdds: BTreeMap::new(),
             clk,
         }
     }
@@ -1192,24 +1279,55 @@ impl Two {
         self.model
     }
 
-    /// Mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive: the
-    /// card's I/O ports plus its boot/driver firmware ROM at $C700. The
+    /// Mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive. The
     /// Autostart slot scan runs 7 before 6, so an attached drive boots
     /// before the Disk II.
     pub fn attach_hdd(&mut self, path: &str) -> Result<(), String> {
+        self.attach_hdd_at(7, path)
+    }
+
+    /// Mount a ProDOS block image (.hdv/.po) as a hard drive in the given
+    /// slot: the card's I/O ports in its DEVSEL range plus its boot/driver
+    /// firmware ROM at $Cn00.
+    pub fn attach_hdd_at(&mut self, slot: u8, path: &str) -> Result<(), String> {
+        if !(1..=7).contains(&slot) {
+            return Err(format!("no such slot {slot} (slots are 1 through 7)"));
+        }
+        if self.slot_occupied(slot) {
+            return Err(format!("slot {slot} is already occupied"));
+        }
         let hdd = Hdd::new(path)?;
-        self.hdd = Some(self.cpu.mem.add_device(0xc0f0, 0xc0ff, hdd));
-        // The slot 7 boot/driver ROM at $C700 is a plain region on the ][+, but
-        // the //e routes $C100-$CFFF through the IouE's ROM arbitration.
+        let base = slot_io_base(slot);
+        let handle = self.cpu.mem.add_device(base, base + 0xf, hdd);
+        self.hdds.insert(slot, handle);
+        // The boot/driver ROM at $Cn00 is a plain region on the ][+, but the
+        // //e routes $C100-$CFFF through the IouE's ROM arbitration.
         match self.io {
-            MachineIo::Plus(_) => self.cpu.mem.add_rom(0xc700, HDD_ROM.to_vec()),
-            MachineIo::E(h) => self.cpu.mem.device_mut(h).set_slot_rom(7, &HDD_ROM),
+            MachineIo::Plus(_) => self
+                .cpu
+                .mem
+                .add_rom(slot_rom_base(slot), hdd_rom(slot).to_vec()),
+            MachineIo::E(h) => self
+                .cpu
+                .mem
+                .device_mut(h)
+                .set_slot_rom(slot as usize, &hdd_rom(slot)),
         }
         Ok(())
     }
 
+    fn slot_occupied(&self, slot: u8) -> bool {
+        self.dsks.contains_key(&slot)
+            || self.hdds.contains_key(&slot)
+            || self.clk.is_some_and(|(s, _)| s == slot)
+    }
+
+    /// The highest-slot hard drive, if any.
     pub fn hdd(&self) -> Option<&Hdd> {
-        self.hdd.map(|h| self.cpu.mem.device(h))
+        self.hdds
+            .values()
+            .next_back()
+            .map(|&h| self.cpu.mem.device(h))
     }
 
     /// The machine's soft-switch device as a `SoftSwitches` — the single point
@@ -1254,25 +1372,79 @@ impl Two {
         }
     }
 
+    /// The slot of the boot Disk II controller — the one the Autostart scan
+    /// reaches first (highest slot).
+    pub fn boot_disk_slot(&self) -> Option<u8> {
+        self.dsks.keys().next_back().copied()
+    }
+
+    /// The boot Disk II controller. Panics when the machine was built
+    /// without one — use `boot_disk_slot()` / `dsk_at()` on machines with
+    /// arbitrary slot tables.
     pub fn dsk(&self) -> &Dsk {
-        self.cpu.mem.device(self.dsk)
+        let (_, &h) = self
+            .dsks
+            .iter()
+            .next_back()
+            .expect("no Disk II controller in this machine");
+        self.cpu.mem.device(h)
     }
 
+    /// See `dsk()`.
     pub fn dsk_mut(&mut self) -> &mut Dsk {
-        self.cpu.mem.device_mut(self.dsk)
+        let (_, &h) = self
+            .dsks
+            .iter()
+            .next_back()
+            .expect("no Disk II controller in this machine");
+        self.cpu.mem.device_mut(h)
     }
 
+    /// The Disk II controller in the given slot, if any.
+    pub fn dsk_at(&self, slot: u8) -> Option<&Dsk> {
+        self.dsks.get(&slot).map(|&h| self.cpu.mem.device(h))
+    }
+
+    /// The Thunderclock. Panics when the machine was built without one.
     pub fn clk(&self) -> &Clk {
-        self.cpu.mem.device(self.clk)
+        let (_, h) = self.clk.expect("no Thunderclock in this machine");
+        self.cpu.mem.device(h)
     }
 
+    /// See `clk()`.
     pub fn clk_mut(&mut self) -> &mut Clk {
-        self.cpu.mem.device_mut(self.clk)
+        let (_, h) = self.clk.expect("no Thunderclock in this machine");
+        self.cpu.mem.device_mut(h)
     }
 
-    /// Port of `ewm_two_load_disk`.
+    /// Port of `ewm_two_load_disk`: insert a disk into the boot controller.
     pub fn load_disk(&mut self, drive: usize, path: &str) -> Result<(), String> {
-        self.dsk_mut().set_disk_file(drive, false, path)
+        let Some(slot) = self.boot_disk_slot() else {
+            return Err("no Disk II controller in this machine".to_string());
+        };
+        self.load_disk_at(slot, drive, path)
+    }
+
+    /// Insert a disk into the controller in the given slot.
+    pub fn load_disk_at(&mut self, slot: u8, drive: usize, path: &str) -> Result<(), String> {
+        let Some(&h) = self.dsks.get(&slot) else {
+            return Err(format!("no Disk II controller in slot {slot}"));
+        };
+        self.cpu.mem.device_mut(h).set_disk_file(drive, false, path)
+    }
+
+    /// The two drive lights, OR'ed across every Disk II controller — at any
+    /// moment at most one controller is spinning, so the pair reads as "the
+    /// active controller's drives". `[false; 2]` on a diskless machine.
+    pub fn drive_lights(&self, cycles: u64) -> [bool; 2] {
+        let mut lights = [false; 2];
+        for &h in self.dsks.values() {
+            let dsk: &Dsk = self.cpu.mem.device(h);
+            for (i, light) in lights.iter_mut().enumerate() {
+                *light |= dsk.drive_lit(i, cycles);
+            }
+        }
+        lights
     }
 
     /// Add an extra RAM region (`--memory ram:addr:path`). Like the C mem
@@ -1567,6 +1739,7 @@ fn usage() {
     eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
     eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
+    eprintln!("                    (other slot layouts come from --config)");
     eprintln!("  --aux <card>      //e aux-slot card: 80col, ext80col (default) or");
     eprintln!("                    ramworksiii[:SIZE] with SIZE 64k..8m (default 8m)");
     eprintln!(
@@ -1584,9 +1757,10 @@ fn usage() {
 #[derive(Default)]
 struct Options {
     model: TwoType,
-    drive1: Option<String>,
-    drive2: Option<String>,
-    hdd: Option<String>,
+    /// The machine's slot table, seeded with the default layout (clock in 1,
+    /// Disk II in 6). `--drive1`/`--drive2`/`--hdd` are slot 6/7 sugar that
+    /// merges into it; a config's `machine.slots` replaces it wholesale.
+    slots: BTreeMap<u8, config::SlotCard>,
     monitor: MonitorStyle,
     scanlines: Scanlines,
     /// The //e auxiliary-slot card (None = the default extended 80-col card).
@@ -1607,10 +1781,45 @@ struct Options {
     screenshot: Option<String>,
 }
 
+/// The default slot table in config terms: the classic layout with no media
+/// inserted (`default_slots()` is the machine-level equivalent).
+fn default_slot_cards() -> BTreeMap<u8, config::SlotCard> {
+    BTreeMap::from([
+        (1, config::SlotCard::Thunderclock),
+        (
+            6,
+            config::SlotCard::Diskii {
+                drive1: None,
+                drive2: None,
+            },
+        ),
+    ])
+}
+
+/// The `--drive1`/`--drive2` sugar: merge a floppy path into the slot 6
+/// Disk II, adding the controller (or replacing another card there) when
+/// the table has no Disk II in slot 6.
+fn set_slot6_drive(slots: &mut BTreeMap<u8, config::SlotCard>, drive: usize, path: String) {
+    let entry = slots.entry(6).or_insert(config::SlotCard::Diskii {
+        drive1: None,
+        drive2: None,
+    });
+    if !matches!(entry, config::SlotCard::Diskii { .. }) {
+        *entry = config::SlotCard::Diskii {
+            drive1: None,
+            drive2: None,
+        };
+    }
+    if let config::SlotCard::Diskii { drive1, drive2 } = entry {
+        *(if drive == 0 { drive1 } else { drive2 }) = Some(path);
+    }
+}
+
 fn parse_options(args: &[String]) -> Result<Options, i32> {
     let mut options = Options {
         fps: TWO_FPS_DEFAULT,
         speed: SPEED_NORMAL,
+        slots: default_slot_cards(),
         ..Options::default()
     };
     // Pass 1: config files seed the options, so that in pass 2 — the flag
@@ -1648,9 +1857,26 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     return Err(1);
                 }
             },
-            "--drive1" => options.drive1 = it.next().cloned(),
-            "--drive2" => options.drive2 = it.next().cloned(),
-            "--hdd" => options.hdd = it.next().cloned(),
+            "--drive1" => {
+                if let Some(path) = it.next() {
+                    set_slot6_drive(&mut options.slots, 0, path.clone());
+                }
+            }
+            "--drive2" => {
+                if let Some(path) = it.next() {
+                    set_slot6_drive(&mut options.slots, 1, path.clone());
+                }
+            }
+            "--hdd" => {
+                if let Some(path) = it.next() {
+                    options.slots.insert(
+                        7,
+                        config::SlotCard::Harddrive {
+                            image: path.clone(),
+                        },
+                    );
+                }
+            }
             // Bare --color keeps its historical meaning (an RGB color
             // monitor); an optional value picks a monochrome phosphor
             // instead. Peek-don't-consume so `--color --drive1 x` works.
@@ -1734,15 +1960,13 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         };
         options.aux = Some(crate::aux::parse(&token)?);
     }
-    for card in config.machine.slots.into_values() {
-        match card {
-            config::SlotCard::Diskii { drive1, drive2 } => {
-                options.drive1 = drive1;
-                options.drive2 = drive2;
-            }
-            config::SlotCard::Harddrive { image } => options.hdd = Some(image),
-            config::SlotCard::Thunderclock | config::SlotCard::Empty => {}
-        }
+    if let Some(slots) = config.machine.slots {
+        // A present slots object replaces the table wholesale (an absent one
+        // keeps the default layout); the keys were validated by load().
+        options.slots = slots
+            .into_iter()
+            .map(|(key, card)| (key.parse().expect("load() validated slot keys"), card))
+            .collect();
     }
     for region in config.machine.memory {
         options.memory.push(MemoryOption {
@@ -1785,6 +2009,45 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     Ok(())
 }
 
+/// Build the machine `main()` runs from the parsed options: construct from
+/// the slot table, then mount the media the table names. Also the machine
+/// half of the headless boot-gate test.
+fn build_machine(options: &mut Options) -> Result<Two, String> {
+    let table: BTreeMap<u8, SlotDevice> = options
+        .slots
+        .iter()
+        .filter_map(|(&slot, card)| match card {
+            config::SlotCard::Diskii { .. } => Some((slot, SlotDevice::DiskII)),
+            config::SlotCard::Thunderclock => Some((slot, SlotDevice::Thunderclock)),
+            // Hard drives attach below (their card needs the image up front).
+            config::SlotCard::Harddrive { .. } | config::SlotCard::Empty => None,
+        })
+        .collect();
+    let mut two = Two::new_with_slots(options.model, options.aux.take(), &table)?;
+    for (&slot, card) in &options.slots {
+        match card {
+            config::SlotCard::Diskii { drive1, drive2 } => {
+                for (drive, path) in [(0, drive1), (1, drive2)] {
+                    if let Some(path) = path {
+                        two.load_disk_at(slot, drive, path).map_err(|e| {
+                            format!(
+                                "cannot load slot {slot} drive {drive} with {path}: {e}",
+                                drive = drive + 1
+                            )
+                        })?;
+                    }
+                }
+            }
+            config::SlotCard::Harddrive { image } => {
+                two.attach_hdd_at(slot, image)
+                    .map_err(|e| format!("cannot mount slot {slot} hard drive {image}: {e}"))?;
+            }
+            config::SlotCard::Thunderclock | config::SlotCard::Empty => {}
+        }
+    }
+    Ok(two)
+}
+
 /// Render the status bar into a small pixel strip: the fake MHz display and
 /// the [1][2] drive lights, red text with the active drive in green — the
 /// pixel version of `ewm_two_update_status_bar`.
@@ -1806,8 +2069,9 @@ fn render_status_bar(
         let Some(glyph) = scr_chr.bitmap(code) else {
             continue;
         };
-        let drive1_active = i == 35 && two.dsk().drive_lit(0, two.cpu.counter);
-        let drive2_active = i == 38 && two.dsk().drive_lit(1, two.cpu.counter);
+        let lights = two.drive_lights(two.cpu.counter);
+        let drive1_active = i == 35 && lights[0];
+        let drive2_active = i == 38 && lights[1];
         let color = if drive1_active || drive2_active {
             green
         } else {
@@ -1930,7 +2194,7 @@ pub fn main(args: &[String]) -> i32 {
 
     // Create and configure the Apple II
 
-    let mut two = match Two::new_with_aux(options.model, options.aux.take()) {
+    let mut two = match build_machine(&mut options) {
         Ok(two) => two,
         Err(e) => {
             eprintln!("[TWO] Could not create the machine: {e}");
@@ -1964,25 +2228,6 @@ pub fn main(args: &[String]) -> i32 {
 
     let mut status_tty = Tty::new(sdl::green(&canvas));
     status_tty.cursor_enabled = false;
-
-    if let Some(path) = &options.drive1
-        && let Err(e) = two.load_disk(0, path)
-    {
-        eprintln!("[A2P] Cannot load Drive 1 with {path}: {e}");
-        return 1;
-    }
-    if let Some(path) = &options.drive2
-        && let Err(e) = two.load_disk(1, path)
-    {
-        eprintln!("[A2P] Cannot load Drive 2 with {path}: {e}");
-        return 1;
-    }
-    if let Some(path) = &options.hdd
-        && let Err(e) = two.attach_hdd(path)
-    {
-        eprintln!("[A2P] Cannot mount hard drive {path}: {e}");
-        return 1;
-    }
 
     for m in &options.memory {
         eprintln!(
@@ -2113,10 +2358,14 @@ pub fn main(args: &[String]) -> i32 {
                 Event::Window { .. } => two.set_screen_dirty(true),
 
                 // A disk image dropped on the running machine swaps drive 1
-                // (hard-drive images need a restart -- slot 7 mounts at boot).
+                // of the boot controller (hard-drive images need a restart --
+                // they mount at boot).
                 Event::DropFile { filename, .. } => match crate::media::classify(&filename) {
                     Some(crate::media::MediaKind::Floppy) => match two.load_disk(0, &filename) {
-                        Ok(()) => eprintln!("[TWO] Inserted in drive 1: {filename}"),
+                        Ok(()) => eprintln!(
+                            "[TWO] Inserted in slot {} drive 1: {filename}",
+                            two.boot_disk_slot().unwrap_or_default()
+                        ),
                         Err(e) => eprintln!("[TWO] Could not load {filename}: {e}"),
                     },
                     Some(crate::media::MediaKind::HardDrive) => {
@@ -2566,10 +2815,7 @@ pub fn main(args: &[String]) -> i32 {
                 // Disk activity LEDs in the lower-right corner: only drawn
                 // while the motor runs (spin-down included) — the selected
                 // drive red, the other grey; hidden entirely when idle.
-                let lit = [
-                    two.dsk().drive_lit(0, two.cpu.counter),
-                    two.dsk().drive_lit(1, two.cpu.counter),
-                ];
+                let lit = two.drive_lights(two.cpu.counter);
                 if lit[0] || lit[1] {
                     let strip = render_led_strip(lit, layout);
                     led_texture
@@ -2673,6 +2919,24 @@ mod tests {
         parse_options(&args).expect("options must parse")
     }
 
+    /// The drives of the slot 6 Disk II entry in an options table.
+    fn slot6_drives(o: &Options) -> (Option<&str>, Option<&str>) {
+        match o.slots.get(&6) {
+            Some(config::SlotCard::Diskii { drive1, drive2 }) => {
+                (drive1.as_deref(), drive2.as_deref())
+            }
+            other => panic!("slot 6 should be a diskii, got {other:?}"),
+        }
+    }
+
+    /// The image of a harddrive entry in an options table.
+    fn hdd_image(o: &Options, slot: u8) -> Option<&str> {
+        match o.slots.get(&slot) {
+            Some(config::SlotCard::Harddrive { image }) => Some(image.as_str()),
+            _ => None,
+        }
+    }
+
     #[test]
     fn color_flag_selects_the_monitor_style() {
         // No flag: the historical green-monochrome default.
@@ -2686,7 +2950,7 @@ mod tests {
         // Bare --color followed by another flag: the flag is not consumed.
         let o = opts(&["--color", "--drive1", "game.dsk"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
-        assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
+        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
     }
 
     #[test]
@@ -2699,7 +2963,7 @@ mod tests {
         // Bare --scanlines followed by another flag: the flag is not consumed.
         let o = opts(&["--scanlines", "--drive1", "game.dsk"]);
         assert_eq!(o.scanlines, Scanlines::Light);
-        assert_eq!(o.drive1.as_deref(), Some("game.dsk"));
+        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
     }
 
     #[test]
@@ -2724,18 +2988,20 @@ mod tests {
     fn config_populates_options() {
         let o = opts(&["--config", fixture!("full.json")]);
         assert_eq!(o.model, TwoType::Apple2E);
-        let aux = o.aux.expect("aux card from config");
+        let aux = o.aux.as_ref().expect("aux card from config");
         assert!(aux.label().contains("RamWorks III"), "{}", aux.label());
+        // The config's slot table replaced the default one.
+        assert_eq!(o.slots.len(), 3);
+        assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
         assert_eq!(
-            o.drive1.as_deref(),
-            Some(fixture!("../../../disks/DOS33-SystemMaster.dsk"))
+            slot6_drives(&o),
+            (
+                Some(fixture!("../../../disks/DOS33-SystemMaster.dsk")),
+                Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
+            )
         );
         assert_eq!(
-            o.drive2.as_deref(),
-            Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
-        );
-        assert_eq!(
-            o.hdd.as_deref(),
+            hdd_image(&o, 7),
             Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
         );
         assert_eq!(o.monitor, MonitorStyle::White);
@@ -2765,25 +3031,44 @@ mod tests {
         ]);
         // The explicitly given flags win...
         assert_eq!(o.monitor, MonitorStyle::Amber);
-        assert_eq!(o.drive1.as_deref(), Some("other.dsk"));
-        // ...while everything the command line left alone survives.
+        assert_eq!(slot6_drives(&o).0, Some("other.dsk"));
+        // ...while everything the command line left alone survives, including
+        // the config's drive 2 next to the overridden drive 1.
+        assert_eq!(
+            slot6_drives(&o).1,
+            Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
+        );
         assert_eq!(o.scanlines, Scanlines::Heavy);
         assert_eq!(o.speed, SPEED_FAST);
         assert_eq!(
-            o.hdd.as_deref(),
+            hdd_image(&o, 7),
             Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
         );
+    }
+
+    #[test]
+    fn drive_sugar_targets_slot_6() {
+        // The default table gains the floppy in slot 6 drive 1.
+        let o = opts(&["--drive1", "a.dsk", "--drive2", "b.dsk"]);
+        assert_eq!(slot6_drives(&o), (Some("a.dsk"), Some("b.dsk")));
+        assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
+        // --hdd puts the card in slot 7.
+        let o = opts(&["--hdd", "c.hdv"]);
+        assert_eq!(hdd_image(&o, 7), Some("c.hdv"));
+        // A config that empties slot 6 gets a Disk II back when --drive1
+        // insists on one.
+        let o = opts(&["--config", fixture!("bare.json"), "--drive1", "a.dsk"]);
+        assert_eq!(slot6_drives(&o), (Some("a.dsk"), None));
+        assert_eq!(o.slots.len(), 1, "the bare table only gains slot 6");
     }
 
     #[test]
     fn config_boots_dos33_like_drive1() {
         // The boot gate: a config naming the DOS 3.3 disk boots exactly like
         // --drive1 does (and its relative path resolves against the config's
-        // directory, not the CWD). Machine construction mirrors main().
+        // directory, not the CWD). build_machine is the same code main() runs.
         let mut o = opts(&["--config", fixture!("boot-dos33.json")]);
-        let mut two = Two::new_with_aux(o.model, o.aux.take()).expect("machine must construct");
-        two.load_disk(0, o.drive1.as_deref().expect("drive1 from config"))
-            .expect("cannot load the configured disk");
+        let mut two = build_machine(&mut o).expect("machine must construct");
         two.cpu.reset();
 
         let mut spent = 0u64;
@@ -2809,6 +3094,7 @@ mod tests {
         assert_eq!(o.speed, SPEED_NORMAL);
         assert!(o.controller.is_none());
         assert_eq!(o.fps, TWO_FPS_DEFAULT);
+        assert_eq!(o.slots, default_slot_cards());
     }
 
     #[test]

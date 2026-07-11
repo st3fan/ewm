@@ -243,8 +243,11 @@
           "$ref": "#/$defs/Model"
         },
         "slots": {
-          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. An\nabsent slot means empty; `\"empty\"` exists to say it explicitly.",
-          "type": "object",
+          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. When\nthe whole `slots` object is absent the machine gets the classic\ndefault layout (a Thunderclock in slot 1, a Disk II in slot 6); when\npresent it is taken literally — an absent slot key means that slot\nis empty, and `\"empty\"` exists to say it explicitly.",
+          "type": [
+            "object",
+            "null"
+          ],
           "additionalProperties": {
             "$ref": "#/$defs/SlotCard"
           }
