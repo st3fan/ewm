@@ -296,11 +296,10 @@ Notes that cut across all of them:
 
 ## Distribution & platforms
 
-- **Native macOS app** (M/L) — a real double-clickable `EWM.app`: bundle
-  (cargo-bundle or a hand-rolled bundle + `codesign`/notarization), icon,
-  and **file associations** so double-clicking a `.dsk`/`.woz` opens it in
-  drive 1. Virtual ][ is the native-feel benchmark. Pairs with zero-flag
-  startup — the app must be fully usable without a terminal.
+- **Native macOS app** (M/L) — **planned**: see `notes/MAC_APP.md` for the
+  four-phase plan (self-contained `EWM.app` with file associations →
+  signing/notarization → `.ewmachine` machine documents → a VMware-style
+  library app). Virtual ][ is the native-feel benchmark.
 - **Raspberry Pi boot image** (L) — flash a card, power on, and the Pi *is*
   an Apple ][+ / //e: a minimal Linux (or bare KMS/DRM console) image that
   boots straight into the boo menu, from which you pick the machine — the
