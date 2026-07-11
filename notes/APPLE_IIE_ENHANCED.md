@@ -720,12 +720,15 @@ renders to a golden 560-wide BMP.
 > (`two-e-dhgr.bmp`, 40 vertical 7-px stripes). Rendered and eyeballed: mono
 > stripes crisp, colour path yields the full 16-colour palette.
 >
-> **Colour convention (revisit candidate):** the colour path groups the bit
-> stream into **aligned 4-bit cells** (leftmost bit = LSB) selecting the 16
-> lo-res colours, drawn 4 px wide — the simple, deterministic choice the owner
-> approved as a starting point. We may switch to a **sliding 4-bit window**
-> (closer to NTSC fringing) after reviewing it against a known DHGR image. The
-> mono golden is unaffected by that choice.
+> **Colour convention — resolved (post-promotion):** the original aligned
+> 4-bit cells turned DHGR text into unreadable colour mottling — found in the
+> field on **Thexder's title screen via Total Replay**, exactly the
+> known-artwork review this note anticipated. The **sliding 4-bit window**
+> (per-pixel trailing window, phase-weighted) is now the default: white stays
+> white with thin composite-style edge fringes. Aligned remains available via
+> `Scr::set_dhgr_color_mode`; the mono golden was never affected. Gate:
+> `two_e_totalreplay.rs` (boots Total Replay on the //e, launches Thexder,
+> asserts DHGR engages; skips without the untracked image).
 >
 > **Deferred (with the 6a AN3 note):** the **AN3 falling-edge → double-res
 > latch** (IOUDIS-off enable path) — 6b gates DHGR purely on the DHIRES level

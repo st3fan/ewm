@@ -72,13 +72,15 @@ fn bit_zero_is_leftmost() {
 
 #[test]
 fn colour_cell_selects_the_palette() {
-    // A 4-bit cell of value 5 (bits 0 and 2 set) -> lo-res colour 5 (grey),
+    // The palette mapping, checked in the deterministic aligned mode: a
+    // 4-bit cell of value 5 (bits 0 and 2 set) -> lo-res colour 5 (grey),
     // drawn 4 px wide; the next cell (all clear) is black.
     let mut two = Two::new(TwoType::Apple2E).unwrap();
     enable_dhgr(&mut two);
     poke_aux(&mut two, HGR1, 0b0000_0101); // bits 0,2 -> cell 0 = 5
     let mut scr = Scr::new(LAYOUT);
     scr.set_color_scheme(ColorScheme::Color);
+    scr.set_dhgr_color_mode(ewm::scr::DhgrColorMode::Aligned);
     scr.update(&two, 0, 40);
     let f = scr.frame(TwoType::Apple2E);
     let grey = LAYOUT.pack(128, 128, 128, 255); // lo-res colour 5
@@ -87,6 +89,30 @@ fn colour_cell_selects_the_palette() {
     }
     // Cell 1 is colour 0 — palette black (opaque), not the mono off-pixel (0).
     assert_eq!(f[4], LAYOUT.pack(0, 0, 0, 255), "cell 1 = colour 0 (black)");
+}
+
+/// The default sliding window: at a cell-aligned position the window value
+/// equals the aligned cell, and the interior of a white run stays white
+/// (the composite look that keeps DHGR text readable — verified on
+/// Thexder's title screen via Total Replay).
+#[test]
+fn sliding_window_is_the_default_and_keeps_white_white() {
+    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    enable_dhgr(&mut two);
+    // aux byte 0 = $7F (7 ones) and main byte 0 = $7F: a 14-pixel white run.
+    poke_aux(&mut two, HGR1, 0x7f);
+    poke_main(&mut two, HGR1, 0x7f);
+    let mut scr = Scr::new(LAYOUT);
+    scr.set_color_scheme(ColorScheme::Color);
+    scr.update(&two, 0, 40); // default mode: Sliding
+    let f = scr.frame(TwoType::Apple2E);
+    let white = LAYOUT.pack(255, 255, 255, 255);
+    // After the 3-pixel lead-in fringe, the run is solid white.
+    for (x, &p) in f.iter().take(14).enumerate().skip(3) {
+        assert_eq!(p, white, "white run pixel {x} stays white");
+    }
+    // Past the run the window drains back to black within 4 cells.
+    assert_eq!(f[18], LAYOUT.pack(0, 0, 0, 255), "black after the run");
 }
 
 #[test]

@@ -70,6 +70,23 @@ impl MonitorStyle {
     }
 }
 
+/// How the DHGR colour path interprets the 560-bit stream. The sliding
+/// window won the visual comparison on real artwork (Thexder's title via
+/// Total Replay): aligned cells turn text into unreadable colour blocks,
+/// the window renders it white with composite-style edge fringes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DhgrColorMode {
+    /// 140 aligned 4-bit cells, each one lo-res colour drawn 4 px wide.
+    /// Simple and deterministic, but hard edges become 4-px colour blocks:
+    /// DHGR text reads as mottled noise (found via Thexder's title screen).
+    Aligned,
+    /// Per-pixel colour from the trailing 4-bit window, phase-weighted —
+    /// the composite-monitor look: white stays white with thin edge
+    /// fringes. The default.
+    #[default]
+    Sliding,
+}
+
 /// The optional scanline effect for the 3x window: every emulated row maps
 /// to three window rows, and the third is dimmed by multiplying it with a
 /// gray. Selected at startup with `--scanlines [off|light|heavy]` and at
@@ -240,6 +257,8 @@ pub struct Scr {
     /// The pixel layout colors are packed with (needed to repack the
     /// phosphor on a monitor-style change).
     layout: PixelLayout,
+    /// DHGR colour interpretation (defaults to aligned cells).
+    dhgr_color_mode: DhgrColorMode,
 }
 
 impl Scr {
@@ -287,7 +306,13 @@ impl Scr {
             hgr_colors2: pack4(&HGR_COLORS2),
             lores_palette,
             layout,
+            dhgr_color_mode: DhgrColorMode::default(),
         }
+    }
+
+    /// Select the DHGR colour interpretation.
+    pub fn set_dhgr_color_mode(&mut self, mode: DhgrColorMode) {
+        self.dhgr_color_mode = mode;
     }
 
     /// The character generator, shared with the status bar renderer.
@@ -646,16 +671,9 @@ impl Scr {
             }
             let row = SCR_WIDTH_E * line;
             if color {
-                for cell in 0..SCR_WIDTH_E / 4 {
-                    let x = cell * 4;
-                    let v = (bits[x] as usize)
-                        | (bits[x + 1] as usize) << 1
-                        | (bits[x + 2] as usize) << 2
-                        | (bits[x + 3] as usize) << 3;
-                    let c = self.lores_palette[v];
-                    for p in 0..4 {
-                        self.wide[row + x + p] = c;
-                    }
+                match self.dhgr_color_mode {
+                    DhgrColorMode::Aligned => self.render_dhgr_line_aligned(&bits, row),
+                    DhgrColorMode::Sliding => self.render_dhgr_line_sliding(&bits, row),
                 }
             } else {
                 for (x, &on) in bits.iter().enumerate() {
@@ -668,6 +686,39 @@ impl Scr {
             for (r, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
                 self.render_txt_row_80(main, aux, alt, r, line_offset, flash);
             }
+        }
+    }
+
+    /// Aligned 4-bit cells: 140 cells, each one lo-res colour drawn 4 px wide.
+    fn render_dhgr_line_aligned(&mut self, bits: &[bool; SCR_WIDTH_E], row: usize) {
+        for cell in 0..SCR_WIDTH_E / 4 {
+            let x = cell * 4;
+            let v = (bits[x] as usize)
+                | (bits[x + 1] as usize) << 1
+                | (bits[x + 2] as usize) << 2
+                | (bits[x + 3] as usize) << 3;
+            let c = self.lores_palette[v];
+            for p in 0..4 {
+                self.wide[row + x + p] = c;
+            }
+        }
+    }
+
+    /// Sliding 4-bit window: each pixel's colour comes from the last four
+    /// bits of the stream, each weighted by its NTSC colour phase
+    /// (`1 << (position & 3)`). At cell-aligned positions this reduces to
+    /// the aligned value, but edges crossing cell boundaries produce the
+    /// fringing a real composite monitor shows instead of 4-px blocks.
+    fn render_dhgr_line_sliding(&mut self, bits: &[bool; SCR_WIDTH_E], row: usize) {
+        for x in 0..SCR_WIDTH_E {
+            let lo = x.saturating_sub(3);
+            let mut v = 0usize;
+            for (p, &on) in bits[lo..=x].iter().enumerate().map(|(i, b)| (lo + i, b)) {
+                if on {
+                    v |= 1 << (p & 3);
+                }
+            }
+            self.wide[row + x] = self.lores_palette[v];
         }
     }
 

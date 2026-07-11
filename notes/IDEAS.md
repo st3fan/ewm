@@ -91,10 +91,11 @@ deterministic golden-BMP test culture.
 
 ## Video & display
 
-- **NTSC artifact color** (M/L) — a shader-quality composite model for HGR
-  (and the DHGR **sliding-window** color already prototyped on the
-  `iie/experiment-dhgr-color` branch — see `notes/DHGR_COLOR_EXPERIMENT.md`
-  for its promotion checklist). AppleWin's NTSC mode is the reference.
+- **NTSC artifact color** (M/L) — a shader-quality composite model for HGR.
+  (The DHGR **sliding-window** colour from the `iie/experiment-dhgr-color`
+  experiment **landed as the default** after Thexder's title exposed the
+  aligned-cell mottling; full NTSC filtering for HGR remains open, AppleWin's
+  NTSC mode is the reference.)
 - ~~**Monitor styles**~~ — **landed**: green / amber / white monochrome and
   color via `--color [green|amber|white|rgb]` and the palette's
   "Monitor Style" choice submenu.
