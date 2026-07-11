@@ -14,6 +14,7 @@ pub mod chr;
 pub mod clk;
 pub mod dsk;
 pub mod hdd;
+pub mod led;
 pub mod one;
 pub mod palette;
 pub mod pia;

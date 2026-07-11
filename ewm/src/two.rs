@@ -10,6 +10,7 @@ use crate::aux::{AuxCard, Ext80Col, LcRegion};
 use crate::clk::{CLK_ROM, Clk};
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
+use crate::led::{LED_STRIP_HEIGHT, LED_STRIP_WIDTH, render_led_strip};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::scr::{
     MonitorStyle, PixelLayout, SCR_HEIGHT, SCR_WIDTH, Scanlines, Scr, encode_bmp, frame_width,
@@ -1712,10 +1713,8 @@ fn render_status_bar(
         let Some(glyph) = scr_chr.bitmap(code) else {
             continue;
         };
-        let drive1_active =
-            two.dsk().motor_lit(two.cpu.counter) && i == 35 && two.dsk().active_drive() == 0;
-        let drive2_active =
-            two.dsk().motor_lit(two.cpu.counter) && i == 38 && two.dsk().active_drive() == 1;
+        let drive1_active = i == 35 && two.dsk().drive_lit(0, two.cpu.counter);
+        let drive2_active = i == 38 && two.dsk().drive_lit(1, two.cpu.counter);
         let color = if drive1_active || drive2_active {
             green
         } else {
@@ -1932,6 +1931,15 @@ pub fn main(args: &[String]) -> i32 {
         .expect("Failed to create tty texture");
     tty_texture.set_blend_mode(BlendMode::Blend);
     tty_texture.set_scale_mode(ScaleMode::Nearest);
+
+    // The disk activity LEDs, drawn over the lower-right corner of the
+    // screen while a drive's light is lit (the transparent background makes
+    // the rest of the strip invisible).
+    let mut led_texture = texture_creator
+        .create_texture_streaming(format, LED_STRIP_WIDTH as u32, LED_STRIP_HEIGHT as u32)
+        .expect("Failed to create led texture");
+    led_texture.set_blend_mode(BlendMode::Blend);
+    led_texture.set_scale_mode(ScaleMode::Nearest);
 
     // The command palette renders at window resolution, not the emulated 3x.
     let mut palette: Palette<TwoAction> = Palette::new(layout);
@@ -2425,6 +2433,28 @@ pub fn main(args: &[String]) -> i32 {
                         STATUS_BAR_HEIGHT * 3,
                     );
                     let _ = canvas.copy(&bar_texture, None, dst);
+                }
+
+                // Disk activity LEDs in the lower-right corner: only drawn
+                // while the motor runs (spin-down included) — the selected
+                // drive red, the other grey; hidden entirely when idle.
+                let lit = [
+                    two.dsk().drive_lit(0, two.cpu.counter),
+                    two.dsk().drive_lit(1, two.cpu.counter),
+                ];
+                if lit[0] || lit[1] {
+                    let strip = render_led_strip(lit, layout);
+                    led_texture
+                        .update(None, &pixels_to_bytes(&strip), LED_STRIP_WIDTH * 4)
+                        .expect("Failed to update led texture");
+                    let margin = 4; // logical pixels, scaled 3x like the screen
+                    let dst = Rect::new(
+                        pad as i32 + (SCR_WIDTH as i32 - margin - LED_STRIP_WIDTH as i32) * 3,
+                        pad as i32 + (SCR_HEIGHT as i32 - margin - LED_STRIP_HEIGHT as i32) * 3,
+                        LED_STRIP_WIDTH as u32 * 3,
+                        LED_STRIP_HEIGHT as u32 * 3,
+                    );
+                    let _ = canvas.copy(&led_texture, None, dst);
                 }
 
                 if paused {
