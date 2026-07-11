@@ -1,0 +1,438 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "A complete EWM machine configuration, for `ewm two --config file.json`.\nOnly `machine` is required; every other setting defaults to what a bare\n`ewm two` would do. Explicitly given command-line flags override the file.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "Optional reference to the JSON Schema, for editor validation and\nautocomplete.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "boot": {
+      "description": "Boot behavior.",
+      "$ref": "#/$defs/Boot"
+    },
+    "cpu": {
+      "description": "CPU speed and emulation-strictness settings.",
+      "$ref": "#/$defs/Cpu"
+    },
+    "debug": {
+      "description": "Debugging aids.",
+      "$ref": "#/$defs/Debug"
+    },
+    "display": {
+      "description": "Monitor and rendering settings.",
+      "$ref": "#/$defs/Display"
+    },
+    "input": {
+      "description": "Input-device preferences.",
+      "$ref": "#/$defs/Input"
+    },
+    "machine": {
+      "description": "The machine's physical build: model, aux card, slots, and any extra\nmemory regions.",
+      "$ref": "#/$defs/Machine"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "machine"
+  ],
+  "$defs": {
+    "Aux": {
+      "description": "The //e auxiliary-slot card.",
+      "type": "object",
+      "properties": {
+        "card": {
+          "description": "Which auxiliary card is installed.",
+          "$ref": "#/$defs/AuxKind"
+        },
+        "size": {
+          "description": "Memory size for the RamWorks III, e.g. `\"256k\"` or `\"1m\"` — a\nmultiple of 64K up to 8M. Only valid with `\"card\": \"ramworksiii\"`\n(which defaults to the full 8M when the size is omitted).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "card"
+      ]
+    },
+    "AuxKind": {
+      "description": "The auxiliary-card types.",
+      "oneOf": [
+        {
+          "description": "The 1K Apple 80-Column Text Card.",
+          "type": "string",
+          "const": "80col"
+        },
+        {
+          "description": "The Extended 80-Column Text Card (64K) — the default card.",
+          "type": "string",
+          "const": "ext80col"
+        },
+        {
+          "description": "The Applied Engineering RamWorks III (64K–8M, see `size`).",
+          "type": "string",
+          "const": "ramworksiii"
+        }
+      ]
+    },
+    "Boot": {
+      "description": "Boot behavior.",
+      "type": "object",
+      "properties": {
+        "delay": {
+          "description": "Seconds to hold the machine before it starts executing (the window\nis up and rendering) — for debugging and video recording.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Cpu": {
+      "description": "CPU speed and emulation-strictness settings.",
+      "type": "object",
+      "properties": {
+        "speed": {
+          "description": "Emulated CPU speed — the classic accelerator steps.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CpuSpeed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "strict": {
+          "description": "Treat unimplemented opcodes as fatal.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "CpuSpeed": {
+      "description": "The classic accelerator speed steps.",
+      "oneOf": [
+        {
+          "description": "1.023 MHz — a stock machine.",
+          "type": "string",
+          "const": "normal"
+        },
+        {
+          "description": "3.58 MHz.",
+          "type": "string",
+          "const": "3.58mhz"
+        },
+        {
+          "description": "7.16 MHz.",
+          "type": "string",
+          "const": "7.16mhz"
+        }
+      ]
+    },
+    "Debug": {
+      "description": "Debugging aids.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Enable the debug overlay.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "trace": {
+          "description": "Write a CPU trace to this file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Display": {
+      "description": "Monitor and rendering settings.",
+      "type": "object",
+      "properties": {
+        "fps": {
+          "description": "Display refresh rate in frames per second.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "monitor": {
+          "description": "Monitor style: a monochrome phosphor or an RGB color monitor.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Monitor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scanlines": {
+          "description": "Scanline darkening between the doubled scanlines.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScanlinesSetting"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Input": {
+      "description": "Input-device preferences.",
+      "type": "object",
+      "properties": {
+        "controller": {
+          "description": "Preferred game controller, by the exact name the Command Palette\nlists. Hot-plug still applies when absent or unmatched.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "Machine": {
+      "description": "The machine's physical build.",
+      "type": "object",
+      "properties": {
+        "aux": {
+          "description": "The //e auxiliary-slot card. Only valid with `\"model\": \"2e\"`; when\nabsent the //e gets the standard Extended 80-Column Text Card.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Aux"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "memory": {
+          "description": "Extra RAM or ROM regions loaded from files at startup.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MemoryRegion"
+          }
+        },
+        "model": {
+          "description": "Which Apple II model to emulate.",
+          "$ref": "#/$defs/Model"
+        },
+        "slots": {
+          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. An\nabsent slot means empty; `\"empty\"` exists to say it explicitly.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SlotCard"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "model"
+      ]
+    },
+    "MemoryKind": {
+      "description": "Whether a memory region is RAM or ROM.",
+      "oneOf": [
+        {
+          "description": "Writable memory.",
+          "type": "string",
+          "const": "ram"
+        },
+        {
+          "description": "Read-only memory.",
+          "type": "string",
+          "const": "rom"
+        }
+      ]
+    },
+    "MemoryRegion": {
+      "description": "An extra RAM or ROM region loaded from a file at startup (the config\nequivalent of the `--memory` flag).",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Load address, hex (`\"0xd000\"`) or decimal (`\"53248\"`).",
+          "type": "string"
+        },
+        "path": {
+          "description": "File whose contents fill the region.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Whether the region is writable RAM or read-only ROM.",
+          "$ref": "#/$defs/MemoryKind"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "address",
+        "path"
+      ]
+    },
+    "Model": {
+      "description": "Which Apple II model to emulate.",
+      "oneOf": [
+        {
+          "description": "The Apple ][+.",
+          "type": "string",
+          "const": "2plus"
+        },
+        {
+          "description": "The Apple //e.",
+          "type": "string",
+          "const": "2e"
+        }
+      ]
+    },
+    "Monitor": {
+      "description": "Monitor styles.",
+      "oneOf": [
+        {
+          "description": "Green phosphor.",
+          "type": "string",
+          "const": "green"
+        },
+        {
+          "description": "Amber phosphor.",
+          "type": "string",
+          "const": "amber"
+        },
+        {
+          "description": "White phosphor.",
+          "type": "string",
+          "const": "white"
+        },
+        {
+          "description": "An RGB color monitor.",
+          "type": "string",
+          "const": "rgb"
+        }
+      ]
+    },
+    "ScanlinesSetting": {
+      "description": "Scanline darkening levels.",
+      "oneOf": [
+        {
+          "description": "No scanline effect.",
+          "type": "string",
+          "const": "off"
+        },
+        {
+          "description": "Slight darkening.",
+          "type": "string",
+          "const": "light"
+        },
+        {
+          "description": "Strong darkening.",
+          "type": "string",
+          "const": "heavy"
+        }
+      ]
+    },
+    "SlotCard": {
+      "description": "A peripheral card, discriminated by `\"card\"`.",
+      "oneOf": [
+        {
+          "description": "A Disk ][ controller with up to two drives.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "diskii"
+            },
+            "drive1": {
+              "description": "Floppy image for drive 1 (`.dsk`, `.do`, `.po`, `.nib`, `.woz`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "drive2": {
+              "description": "Floppy image for drive 2.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
+          "description": "A ProDOS-compatible hard-drive controller.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "harddrive"
+            },
+            "image": {
+              "description": "Block image (`.hdv`, `.po`).",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card",
+            "image"
+          ]
+        },
+        {
+          "description": "A Thunderclock Plus real-time clock.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "thunderclock"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
+          "description": "Explicitly nothing in this slot.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "empty"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        }
+      ]
+    }
+  }
+}

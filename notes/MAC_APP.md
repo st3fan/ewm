@@ -25,7 +25,7 @@ launch plumbing, file associations, machine configs) that 2 orchestrates.
 |---|---|---|---|
 | 1 | `EWM.app`: self-contained bundle, icon, file associations, drag-drop | M | **Done** (PR pending) |
 | 2 | Distribution: Developer ID signing, notarization, DMG, CI artifacts | M | Not started |
-| 3 | Machine documents: `--config` TOML + the `.ewmachine` bundle | M | Not started |
+| 3 | Machine documents: `--config` JSON (landed; see `notes/JSON_CONFIG.md`) + the `.ewmachine` bundle | M | Not started |
 | 4 | The library app: browse machines, spawn each as its own app instance | L | Not started |
 
 ## Grounded facts (verified against the tree)
@@ -137,6 +137,7 @@ per running machine). By this point it is pure orchestration over Phases
 - **Phase 1 deviation:** no `EWM.icns` binary is committed — the script
   regenerates it from `examples/icon.rs` on every build (same
   reproducibility, no binary artifact in the repo).
-- **`.ewmachine` layout** (Phase 3): folder bundle vs single TOML with
+- **`.ewmachine` layout** (Phase 3): folder bundle vs single JSON file with
   relative paths — decide when reached; folder bundle is the working
-  assumption.
+  assumption. (`--config` already resolves relative paths against the
+  config's directory, so both layouts are portable.)

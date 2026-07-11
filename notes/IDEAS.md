@@ -194,11 +194,12 @@ The north star: **start `ewm` with no command-line options and fully use it
 from there** — boot to the menu, configure a machine, insert disks, play.
 Everything in this section serves that goal.
 
-- **Machine config files** (M) — **planned**: see `notes/JSON_CONFIG.md` —
-  JSON (owner's decision, over YAML/TOML), a committed JSON Schema covering
-  every CLI and palette setting, configurable slots (multiple Disk ][
-  controllers, aux cards, empty slots), `ewm two --config myiie.json`.
-  Virtual ]['s configurable virtual machines remain the reference.
+- **Machine config files** (M) — **in progress**: see `notes/JSON_CONFIG.md`
+  — Phase A landed: `ewm two --config myiie.json`, the committed
+  `schema/ewm-config.schema.json` covering every CLI and palette setting,
+  today's layout expressible in slot syntax. Real slot flexibility
+  (multiple Disk ][ controllers, empty slots, cards in any slot) is
+  Phase B. Virtual ]['s configurable virtual machines remain the reference.
 - **Disk management** (M) — the full story, not just palette entries:
   start with **no disks mounted**, then insert/eject/swap floppies and
   mount HD volumes on the HDD card at runtime from the Command Palette
