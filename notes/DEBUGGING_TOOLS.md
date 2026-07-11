@@ -10,9 +10,29 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 1 | CPU breakpoints + the WozBug command core (library, used by tests) | S/M | Not started |
+| 1 | CPU breakpoints + the WozBug command core (library, used by tests) | S/M | **Done** |
 | 2 | The `--wozbug` line server + `--break` flag + device commands | M | Not started |
 | 3 | Watchpoints, runtime trace toggle, disassembly, symbol table | M | Not started |
+
+## Phase 1 decisions (recorded as built)
+
+- **Breakpoint overhead is zero, as theorized**: the Dormann suite
+  (release) runs in 0.19s both before and after the `step()` breakpoint
+  check — the empty-`Vec` branch is unmeasurable, so breakpoints live in
+  the normal build unconditionally. No debug-build split exists.
+- **Stopped semantics**: a hit (or `Cpu::stop()`) makes `step()` return 0
+  without executing; `resume()` clears it and skips the breakpoint at the
+  current PC once, so resume-then-step makes progress. **Burst loops must
+  check `stopped()`** or they spin on the 0-cycle steps.
+- **`wozbug::WozBug::execute(&mut Two, &str) -> String`** is the whole
+  core; the only session state is the dot address. `G` clears the stopped
+  state and leaves running to the caller.
+- **Bus-honest dumps**: memory reads go through the bus, soft-switch side
+  effects included — authentic, documented in `?` help. A side-effect-free
+  peek is a Phase 3+ question if it ever bites.
+- The #253 retrofit is `ewm/tests/wozbug.rs`: boot DOS, `B RWTS` (by
+  symbol), CATALOG lands on the breakpoint, `R` names `PC=BD00 (RWTS)`,
+  `DSK` shows the controller, Y/A → IOB checked, `S`/`G` resume cleanly.
 
 ## The motivating case (what PR #253 actually took)
 

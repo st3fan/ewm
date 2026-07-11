@@ -49,6 +49,17 @@ pub struct Cpu {
     /// dead code); the Rust build makes `--trace` functional using the
     /// fmt.c formatters — a documented divergence.
     pub trace: Option<Box<dyn std::io::Write>>,
+    /// PC breakpoints (WozBug, notes/DEBUGGING_TOOLS.md). Empty in normal
+    /// operation: `step()` pays one always-false branch per instruction,
+    /// measured as noise against the Dormann suite.
+    breakpoints: Vec<u16>,
+    /// Set when a breakpoint hits (or `stop()` is called): `step()` becomes
+    /// a no-op returning 0 cycles until `resume()`. Burst loops must check
+    /// `stopped()` or they will spin.
+    stopped: bool,
+    /// After `resume()`, the address whose breakpoint is skipped once — so
+    /// resuming from a hit executes the instruction instead of re-breaking.
+    skip_breakpoint: Option<u16>,
     pub(crate) instructions: &'static [Instruction; 256],
 }
 
@@ -73,6 +84,9 @@ impl Cpu {
             extra_cycles: 0,
             strict: false,
             trace: None,
+            breakpoints: Vec::new(),
+            stopped: false,
+            skip_breakpoint: None,
             instructions: match model {
                 Model::M6502 => &INSTRUCTIONS_6502,
                 Model::M65C02 => instructions_65c02(),
@@ -174,9 +188,58 @@ impl Cpu {
         Ok(())
     }
 
+    /// Add a PC breakpoint (idempotent).
+    pub fn add_breakpoint(&mut self, addr: u16) {
+        if !self.breakpoints.contains(&addr) {
+            self.breakpoints.push(addr);
+        }
+    }
+
+    /// Remove a PC breakpoint.
+    pub fn remove_breakpoint(&mut self, addr: u16) {
+        self.breakpoints.retain(|&a| a != addr);
+    }
+
+    /// The current breakpoints, in the order they were set.
+    pub fn breakpoints(&self) -> &[u16] {
+        &self.breakpoints
+    }
+
+    /// True after a breakpoint hit or `stop()`: `step()` is a no-op until
+    /// `resume()`.
+    pub fn stopped(&self) -> bool {
+        self.stopped
+    }
+
+    /// Halt the CPU as if a breakpoint had hit (the debugger's STOP).
+    pub fn stop(&mut self) {
+        self.stopped = true;
+    }
+
+    /// Clear the stopped state. The instruction at the current PC executes
+    /// even if a breakpoint is set there, so `resume()` + `step()` makes
+    /// progress instead of immediately re-breaking.
+    pub fn resume(&mut self) {
+        self.stopped = false;
+        self.skip_breakpoint = Some(self.pc);
+    }
+
     /// Execute one instruction and return the cycles it took (the fixed
     /// per-opcode count from the table, as in `cpu_execute_instruction`).
+    /// Returns 0 without executing when stopped on a breakpoint — burst
+    /// loops that accumulate cycles must check `stopped()`.
     pub fn step(&mut self) -> u32 {
+        if self.stopped {
+            return 0;
+        }
+        if !self.breakpoints.is_empty() {
+            if self.skip_breakpoint != Some(self.pc) && self.breakpoints.contains(&self.pc) {
+                self.stopped = true;
+                return 0;
+            }
+            self.skip_breakpoint = None;
+        }
+
         // Stamp the cycle counter into the memory system so device handlers
         // can read it, the way the C handlers read cpu->counter.
         self.mem.cycles = self.counter;
@@ -229,6 +292,58 @@ mod tests {
     fn test_cpu(model: Model) -> Cpu {
         // A flat 64K of RAM, as cpu_test.c sets up.
         Cpu::new(model, Memory::new(0x10000))
+    }
+
+    #[test]
+    fn breakpoints_stop_and_resume_makes_progress() {
+        let mut cpu = test_cpu(Model::M6502);
+        cpu.mem.load(0x0400, &[0xea, 0xea, 0xea, 0xea]); // NOPs
+        cpu.reset();
+        cpu.pc = 0x0400;
+        cpu.add_breakpoint(0x0402);
+
+        // Runs freely until the breakpoint address is reached.
+        assert!(cpu.step() > 0);
+        assert!(!cpu.stopped());
+        assert_eq!(cpu.pc, 0x0401);
+        assert!(cpu.step() > 0);
+        // The instruction at $0402 has NOT executed: the hit is before it.
+        assert_eq!(cpu.step(), 0);
+        assert!(cpu.stopped());
+        assert_eq!(cpu.pc, 0x0402);
+        // Stopped: further steps are no-ops.
+        assert_eq!(cpu.step(), 0);
+        assert_eq!(cpu.pc, 0x0402);
+
+        // Resume executes the instruction under the breakpoint instead of
+        // immediately re-breaking.
+        cpu.resume();
+        assert!(cpu.step() > 0);
+        assert_eq!(cpu.pc, 0x0403);
+
+        // A loop back to the breakpoint hits again.
+        cpu.pc = 0x0402;
+        assert_eq!(cpu.step(), 0);
+        assert!(cpu.stopped());
+
+        // Removing it lets execution pass.
+        cpu.resume();
+        cpu.remove_breakpoint(0x0402);
+        assert!(cpu.breakpoints().is_empty());
+        cpu.pc = 0x0402;
+        assert!(cpu.step() > 0);
+    }
+
+    #[test]
+    fn stop_halts_like_a_breakpoint() {
+        let mut cpu = test_cpu(Model::M6502);
+        cpu.mem.load(0x0400, &[0xea]);
+        cpu.reset();
+        cpu.pc = 0x0400;
+        cpu.stop();
+        assert_eq!(cpu.step(), 0);
+        cpu.resume();
+        assert!(cpu.step() > 0);
     }
 
     #[test]

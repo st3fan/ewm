@@ -1330,6 +1330,16 @@ impl Two {
             .map(|&h| self.cpu.mem.device(h))
     }
 
+    /// The hard drive in the given slot, if any.
+    pub fn hdd_at(&self, slot: u8) -> Option<&Hdd> {
+        self.hdds.get(&slot).map(|&h| self.cpu.mem.device(h))
+    }
+
+    /// The slot holding the Thunderclock, if any.
+    pub fn clock_slot(&self) -> Option<u8> {
+        self.clk.map(|(slot, _)| slot)
+    }
+
     /// The machine's soft-switch device as a `SoftSwitches` — the single point
     /// where the model dispatch lives, so the accessors below don't repeat it.
     fn switches(&self) -> &dyn SoftSwitches {
