@@ -8,6 +8,7 @@
 use crate::alc::Alc;
 use crate::aux::{AuxCard, Ext80Col, LcRegion};
 use crate::clk::{CLK_ROM, Clk};
+use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{HDD_ROM, Hdd};
 use crate::led::{LED_STRIP_HEIGHT, LED_STRIP_WIDTH, render_led_strip};
@@ -1561,6 +1562,7 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
 
 fn usage() {
     eprintln!("Usage: ewm two [options]");
+    eprintln!("  --config <path>   configure the machine from a JSON file (flags override it)");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
     eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
     eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
@@ -1594,6 +1596,11 @@ struct Options {
     boot_delay: f64,
     fps: u32,
     memory: Vec<MemoryOption>,
+    /// Emulated CPU cycles per second at startup (config-only; the command
+    /// palette switches it at runtime).
+    speed: u32,
+    /// Preferred game-controller name (config-only); hot-plug still applies.
+    controller: Option<String>,
     trace_path: Option<String>,
     strict: bool,
     debug: bool,
@@ -1603,14 +1610,35 @@ struct Options {
 fn parse_options(args: &[String]) -> Result<Options, i32> {
     let mut options = Options {
         fps: TWO_FPS_DEFAULT,
+        speed: SPEED_NORMAL,
         ..Options::default()
     };
+    // Pass 1: config files seed the options, so that in pass 2 — the flag
+    // loop, which only assigns a field when its flag is present — anything
+    // given explicitly on the command line overrides the file.
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        if arg == "--config" {
+            let Some(path) = it.next() else {
+                usage();
+                return Err(1);
+            };
+            if let Err(e) = crate::config::load(path).and_then(|c| apply_config(&mut options, c)) {
+                eprintln!("{e}");
+                return Err(1);
+            }
+        }
+    }
     let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--help" => {
                 usage();
                 return Err(0);
+            }
+            "--config" => {
+                // Applied in pass 1.
+                it.next();
             }
             "--model" => match it.next().map(String::as_str) {
                 Some("2plus" | "2+" | "][+" | "2") => options.model = TwoType::Apple2Plus,
@@ -1690,6 +1718,71 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         }
     }
     Ok(options)
+}
+
+/// Seed `Options` from a loaded config file (pass 1 of `parse_options`).
+/// `config::load` already validated the layout and resolved relative paths,
+/// so slot placement can be trusted here.
+fn apply_config(options: &mut Options, config: config::Config) -> Result<(), String> {
+    options.model = config.machine.model.two_type();
+    if let Some(aux) = &config.machine.aux {
+        // Rebuild the --aux flag token so config and CLI share one card
+        // construction path.
+        let token = match &aux.size {
+            Some(size) => format!("{}:{size}", aux.card.flag_token()),
+            None => aux.card.flag_token().to_string(),
+        };
+        options.aux = Some(crate::aux::parse(&token)?);
+    }
+    for card in config.machine.slots.into_values() {
+        match card {
+            config::SlotCard::Diskii { drive1, drive2 } => {
+                options.drive1 = drive1;
+                options.drive2 = drive2;
+            }
+            config::SlotCard::Harddrive { image } => options.hdd = Some(image),
+            config::SlotCard::Thunderclock | config::SlotCard::Empty => {}
+        }
+    }
+    for region in config.machine.memory {
+        options.memory.push(MemoryOption {
+            rom: region.kind == config::MemoryKind::Rom,
+            address: region.address_value()?,
+            path: region.path,
+        });
+    }
+    if let Some(monitor) = config.display.monitor {
+        options.monitor = monitor.style();
+    }
+    if let Some(scanlines) = config.display.scanlines {
+        options.scanlines = scanlines.scanlines();
+    }
+    if let Some(fps) = config.display.fps {
+        options.fps = fps;
+    }
+    if let Some(speed) = config.cpu.speed {
+        options.speed = match speed {
+            config::CpuSpeed::Normal => SPEED_NORMAL,
+            config::CpuSpeed::Fast => SPEED_FAST,
+            config::CpuSpeed::Faster => SPEED_FASTER,
+        };
+    }
+    if let Some(strict) = config.cpu.strict {
+        options.strict = strict;
+    }
+    if config.input.controller.is_some() {
+        options.controller = config.input.controller;
+    }
+    if let Some(delay) = config.boot.delay {
+        options.boot_delay = delay;
+    }
+    if config.debug.trace.is_some() {
+        options.trace_path = config.debug.trace;
+    }
+    if let Some(enabled) = config.debug.enabled {
+        options.debug = enabled;
+    }
+    Ok(())
 }
 
 /// Render the status bar into a small pixel strip: the fake MHz display and
@@ -1815,11 +1908,23 @@ pub fn main(args: &[String]) -> i32 {
             None
         }
     };
+    // The config's input.controller names a preferred pad (the exact name
+    // the palette lists); unmatched or absent falls back to the first one.
     let mut controller = controller_subsystem.as_ref().and_then(|subsystem| {
-        subsystem
-            .gamepads()
-            .ok()
-            .and_then(|ids| ids.first().copied())
+        let ids = subsystem.gamepads().unwrap_or_default();
+        let preferred = options.controller.as_deref().and_then(|want| {
+            ids.iter()
+                .copied()
+                .find(|&id| subsystem.name_for_id(id).is_ok_and(|name| name == want))
+        });
+        if let Some(want) = &options.controller
+            && preferred.is_none()
+            && !ids.is_empty()
+        {
+            eprintln!("[SDL] Preferred controller {want:?} not connected; using the first one");
+        }
+        preferred
+            .or_else(|| ids.first().copied())
             .and_then(|id| open_controller(subsystem, id))
     });
 
@@ -1849,6 +1954,13 @@ pub fn main(args: &[String]) -> i32 {
             None
         }
     });
+    // A config-set CPU speed must rescale the audio's cycle→sample mapping
+    // from frame one, the same pairing set_speed() maintains at runtime.
+    if options.speed != SPEED_NORMAL
+        && let Some(snd) = snd.as_mut()
+    {
+        snd.set_cpu_frequency(options.speed as u64);
+    }
 
     let mut status_tty = Tty::new(sdl::green(&canvas));
     status_tty.cursor_enabled = false;
@@ -1980,8 +2092,9 @@ pub fn main(args: &[String]) -> i32 {
     let mut paused = false;
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
-    // Emulated CPU speed, switchable from the command palette.
-    let mut speed: u32 = SPEED_NORMAL;
+    // Emulated CPU speed, seeded from the config (if any) and switchable
+    // from the command palette.
+    let mut speed: u32 = options.speed;
     // Monitor style, switchable from the command palette; the renderer was
     // seeded from --color above.
     let mut monitor_style = options.monitor;
@@ -2598,5 +2711,112 @@ mod tests {
         assert_eq!(opts(&["--boot-delay", "soon"]).boot_delay, 0.0);
         // Negative delays clamp to zero.
         assert_eq!(opts(&["--boot-delay", "-2"]).boot_delay, 0.0);
+    }
+
+    /// A fixture path under ewm/tests/configs/.
+    macro_rules! fixture {
+        ($name:literal) => {
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/configs/", $name)
+        };
+    }
+
+    #[test]
+    fn config_populates_options() {
+        let o = opts(&["--config", fixture!("full.json")]);
+        assert_eq!(o.model, TwoType::Apple2E);
+        let aux = o.aux.expect("aux card from config");
+        assert!(aux.label().contains("RamWorks III"), "{}", aux.label());
+        assert_eq!(
+            o.drive1.as_deref(),
+            Some(fixture!("../../../disks/DOS33-SystemMaster.dsk"))
+        );
+        assert_eq!(
+            o.drive2.as_deref(),
+            Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
+        );
+        assert_eq!(
+            o.hdd.as_deref(),
+            Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
+        );
+        assert_eq!(o.monitor, MonitorStyle::White);
+        assert_eq!(o.scanlines, Scanlines::Heavy);
+        assert_eq!(o.fps, 30);
+        assert_eq!(o.speed, SPEED_FAST);
+        assert!(o.strict);
+        assert_eq!(o.controller.as_deref(), Some("Xbox Wireless Controller"));
+        assert_eq!(o.boot_delay, 1.5);
+        assert_eq!(o.trace_path.as_deref(), Some(fixture!("trace.txt")));
+        assert!(o.debug);
+        assert_eq!(o.memory.len(), 1);
+        assert!(o.memory[0].rom);
+        assert_eq!(o.memory[0].address, 0xd000);
+        assert_eq!(o.memory[0].path, fixture!("custom.bin"));
+    }
+
+    #[test]
+    fn cli_flags_override_config() {
+        let o = opts(&[
+            "--config",
+            fixture!("full.json"),
+            "--color",
+            "amber",
+            "--drive1",
+            "other.dsk",
+        ]);
+        // The explicitly given flags win...
+        assert_eq!(o.monitor, MonitorStyle::Amber);
+        assert_eq!(o.drive1.as_deref(), Some("other.dsk"));
+        // ...while everything the command line left alone survives.
+        assert_eq!(o.scanlines, Scanlines::Heavy);
+        assert_eq!(o.speed, SPEED_FAST);
+        assert_eq!(
+            o.hdd.as_deref(),
+            Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
+        );
+    }
+
+    #[test]
+    fn config_boots_dos33_like_drive1() {
+        // The boot gate: a config naming the DOS 3.3 disk boots exactly like
+        // --drive1 does (and its relative path resolves against the config's
+        // directory, not the CWD). Machine construction mirrors main().
+        let mut o = opts(&["--config", fixture!("boot-dos33.json")]);
+        let mut two = Two::new_with_aux(o.model, o.aux.take()).expect("machine must construct");
+        two.load_disk(0, o.drive1.as_deref().expect("drive1 from config"))
+            .expect("cannot load the configured disk");
+        two.cpu.reset();
+
+        let mut spent = 0u64;
+        loop {
+            let text = two.text_screen();
+            if text.contains("DOS VERSION 3.3") && text.contains(']') {
+                break;
+            }
+            assert!(
+                spent < 400_000_000,
+                "gave up waiting for the ] prompt after {spent} cycles; screen was:\n{text}"
+            );
+            let target = spent + 100_000;
+            while spent < target {
+                spent += two.cpu.step() as u64;
+            }
+        }
+    }
+
+    #[test]
+    fn defaults_without_config_unchanged() {
+        let o = opts(&[]);
+        assert_eq!(o.speed, SPEED_NORMAL);
+        assert!(o.controller.is_none());
+        assert_eq!(o.fps, TWO_FPS_DEFAULT);
+    }
+
+    #[test]
+    fn config_flag_rejects_missing_value_and_missing_file() {
+        let missing_value: Vec<String> = vec!["--config".to_string()];
+        assert!(matches!(parse_options(&missing_value), Err(1)));
+        let missing_file: Vec<String> =
+            vec!["--config".to_string(), "does-not-exist.json".to_string()];
+        assert!(matches!(parse_options(&missing_file), Err(1)));
     }
 }

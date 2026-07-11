@@ -123,7 +123,7 @@ pub fn parse(s: &str) -> Result<Box<dyn AuxCard>, String> {
 
 /// Parse a memory size like `256k`, `1m` or `8m` into bytes; must be a
 /// multiple of 64K between 64K and 8M (the RamWorks III maximum).
-fn parse_size(s: &str) -> Result<usize, String> {
+pub(crate) fn parse_size(s: &str) -> Result<usize, String> {
     let lower = s.to_lowercase();
     let (digits, unit) = lower.split_at(lower.len().saturating_sub(1));
     let multiplier = match unit {

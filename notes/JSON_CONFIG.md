@@ -25,9 +25,38 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| A | `--config` + schema + serde types; today's layout expressible | M | Not started |
+| A | `--config` + schema + serde types; today's layout expressible | M | **Done** |
 | B | Real slot flexibility: any slot, multiple Disk ][ controllers, empty slots | M/L | Not started |
 | C | "Save current setup" from the palette; `.ewmachine` integration | M | Not started |
+
+## Phase A decisions (recorded as built)
+
+- **Precedence is structural, not tracked**: `parse_options` runs two
+  passes — pass 1 loads `--config` files into `Options`, pass 2 is the
+  unchanged flag loop, which only assigns a field when its flag is present.
+  CLI-overrides-config falls out without per-flag "was it given" state.
+  Multiple `--config` flags apply in order; config and CLI `--memory`
+  regions are additive.
+- **schemars is a dev-dependency only** (owner's decision): the derive is
+  gated `#[cfg_attr(test, derive(schemars::JsonSchema))]`, keeping schemars
+  out of release builds. Consequence: **no `#[schemars(...)]` attributes on
+  the config structs, ever** — doc comments become the schema descriptions.
+  Promote it to a plain dependency if an attribute is genuinely needed.
+- **Schema regeneration**: the golden-file test keeps
+  `schema/ewm-config.schema.json` byte-for-byte in sync; regenerate with
+  `EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed`.
+- **serde caveat resolved**: `deny_unknown_fields` on the internally tagged
+  `SlotCard` enum *does* reject typo'd keys with current serde (the
+  `unknown_slot_card_key_is_rejected` canary test pins this).
+- **Slot rulings**: slot 7 `"empty"` is accepted (just no HDD attached);
+  `"empty"` in slots 1 and 6 is *rejected* with the Phase B message — the
+  machine builders hard-wire the Thunderclock and Disk II today, so "no
+  card there" is real slot flexibility.
+- **Memory addresses are strings**, hex (`"0xd000"`) or decimal
+  (`"53248"`); the CLI `--memory` flag stays decimal-only.
+- `cpu.speed` and `input.controller` exist only in the config (no new CLI
+  flags), wiring to the palette's speed constants and a preferred-name
+  gamepad scan at startup.
 
 ## What is configurable today (the schema inventory)
 

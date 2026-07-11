@@ -94,6 +94,36 @@ cargo run --release -- one --model replica1
 cargo run --release -- one --model apple1
 ```
 
+A whole machine can also be described in a JSON file and started with
+`--config` (explicitly given flags override the file):
+
+```
+cargo run --release -- two --config myiie.json
+```
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ramworksiii", "size": "1m" },
+    "slots": {
+      "1": { "card": "thunderclock" },
+      "6": { "card": "diskii", "drive1": "disks/DOS33-SystemMaster.dsk" },
+      "7": { "card": "harddrive", "image": "disks/Total Replay v6.0.1.hdv" }
+    }
+  },
+  "display": { "monitor": "green", "scanlines": "light" },
+  "cpu": { "speed": "normal" }
+}
+```
+
+Relative paths resolve against the config file's directory, so a config
+travels with its disks. The committed JSON Schema
+(`schema/ewm-config.schema.json`) gives editors validation and
+autocomplete via the `$schema` key; `notes/JSON_CONFIG.md` has the full
+plan (configurable slot layouts beyond today's fixed one are Phase B).
+
 Each subcommand accepts `--help` for all options. Useful keys while the
 emulator runs:
 

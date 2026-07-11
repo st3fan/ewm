@@ -1,0 +1,19 @@
+{
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ramworksiii", "size": "1m" },
+    "slots": {
+      "1": { "card": "thunderclock" },
+      "6": { "card": "diskii", "drive1": "../../../disks/DOS33-SystemMaster.dsk", "drive2": "../../../disks/DOS33-SamplePrograms.dsk" },
+      "7": { "card": "harddrive", "image": "../../../disks/Total Replay v6.0.1.hdv" }
+    },
+    "memory": [
+      { "type": "rom", "address": "0xd000", "path": "custom.bin" }
+    ]
+  },
+  "display": { "monitor": "white", "scanlines": "heavy", "fps": 30 },
+  "cpu": { "speed": "3.58mhz", "strict": true },
+  "input": { "controller": "Xbox Wireless Controller" },
+  "boot": { "delay": 1.5 },
+  "debug": { "trace": "trace.txt", "enabled": true }
+}
