@@ -194,13 +194,11 @@ The north star: **start `ewm` with no command-line options and fully use it
 from there** — boot to the menu, configure a machine, insert disks, play.
 Everything in this section serves that goal.
 
-- **Machine config files** (M) — describe a machine in YAML or TOML: model,
-  CPU, memory size, cards per slot, display/color options, mounted images.
-  `ewm --config myiie.toml` boots it; the boo menu could list saved
-  configs. Virtual ]['s configurable virtual machines are the reference;
-  this also becomes the natural home for choices we currently spread across
-  flags (`--color`, `--fps`, `--model`, `--drive1`, …). *(infra: hand-rolled
-  flag parsing stays; the config file populates the same `Options`.)*
+- **Machine config files** (M) — **planned**: see `notes/JSON_CONFIG.md` —
+  JSON (owner's decision, over YAML/TOML), a committed JSON Schema covering
+  every CLI and palette setting, configurable slots (multiple Disk ][
+  controllers, aux cards, empty slots), `ewm two --config myiie.json`.
+  Virtual ]['s configurable virtual machines remain the reference.
 - **Disk management** (M) — the full story, not just palette entries:
   start with **no disks mounted**, then insert/eject/swap floppies and
   mount HD volumes on the HDD card at runtime from the Command Palette

@@ -96,10 +96,11 @@ never seen Homebrew, with no Gatekeeper override.
 **Goal:** a machine as a file you can double-click.
 
 **Scope:**
-- The backlog's **config-file idea**: `ewm --config machine.toml` — model,
-  aux card, monitor style, scanlines, mounted images, etc., populating the
-  same `Options` the flags do.
-- An **`.ewmachine` document**: a folder bundle holding `machine.toml` plus
+- The backlog's **config-file idea**: `ewm two --config machine.json` —
+  **JSON, not TOML** (owner's decision; full plan in
+  `notes/JSON_CONFIG.md`, including the JSON Schema and configurable
+  slots), populating the same `Options` the flags do.
+- An **`.ewmachine` document**: a folder bundle holding the JSON config plus
   its disk images (and, once save states exist, the machine state) — the
   analog of a VMware VM bundle. Registered in `CFBundleDocumentTypes`
   (Owner rank: this type is ours); double-clicking one boots that machine.
