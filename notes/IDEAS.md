@@ -135,7 +135,11 @@ deterministic golden-BMP test culture.
 ## Debugging tools
 
 The REWRITE explicitly lists "a debugger" as never-implemented future work,
-and AppleWin's symbolic debugger is the genre benchmark.
+and AppleWin's symbolic debugger is the genre benchmark. **Planned**: the
+minimal always-present slice of this section — WozBug, CPU breakpoints,
+device-state commands, built-in symbols — has a plan in
+`notes/DEBUGGING_TOOLS.md`; the bullets below remain the long-range
+backlog beyond it.
 
 - **Interactive debugger** (L) — pause-and-inspect: breakpoints (PC, memory
   read/write watchpoints, soft-switch access), single-step / step-over, and
