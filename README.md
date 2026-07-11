@@ -112,6 +112,17 @@ cargo run -p ewm --example one                                  # Woz Monitor
 cargo run -p ewm --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
 
+## Native Mac app
+
+`scripts/make-app.sh` assembles a self-contained, double-clickable
+`dist/EWM.app` — SDL3 is compiled in statically (CMake required at build
+time), the icon is `][` rendered by the emulator's own character generator,
+and the bundle is ad-hoc signed for local use. Opening the app boots the
+bootloader menu; opening a disk image with it (or dragging one onto the
+window) boots the ][+ with that disk — dropping a floppy on a running
+machine swaps drive 1. See `notes/MAC_APP.md` for the plan (signing and
+notarization for distribution are Phase 2).
+
 ## Testing
 
 ```

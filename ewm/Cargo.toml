@@ -8,4 +8,17 @@ license.workspace = true
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 ewm-core = { path = "../ewm-core" }
 fontdue = "0.9.3"
-sdl3 = { version = "0.18.4", features = ["use-pkg-config"] }
+sdl3 = { version = "0.18.4", default-features = false }
+
+[features]
+# Dev/CI builds link the Homebrew/system SDL3 via pkg-config (fast).
+default = ["sdl-pkgconfig"]
+sdl-pkgconfig = ["sdl3/use-pkg-config"]
+# App-bundle builds compile SDL3 from source and link it statically, so
+# EWM.app is self-contained (see scripts/make-app.sh). Needs CMake.
+sdl-static = ["sdl3/build-from-source-static"]
+
+[dev-dependencies]
+# Only the icon-generator example (examples/icon.rs) uses this, for the
+# zlib stream inside its hand-rolled PNG writer.
+flate2 = "1"

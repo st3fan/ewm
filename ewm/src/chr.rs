@@ -17,7 +17,7 @@ static CHR_ROM: &[u8; 2048] = include_bytes!("../../rom/3410036.bin");
 static CHR_ROM_IIE: &[u8; 4096] =
     include_bytes!("../../rom/Apple IIe Video - Enhanced - 342-0265-A - 2732.bin");
 
-type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
+pub type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
 
 pub struct Chr {
     bitmaps: [Option<Glyph>; 256],
