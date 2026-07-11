@@ -1999,6 +1999,21 @@ pub fn main(args: &[String]) -> i32 {
                 Event::Quit { .. } => break 'outer,
                 Event::Window { .. } => two.set_screen_dirty(true),
 
+                // A disk image dropped on the running machine swaps drive 1
+                // (hard-drive images need a restart -- slot 7 mounts at boot).
+                Event::DropFile { filename, .. } => match crate::media::classify(&filename) {
+                    Some(crate::media::MediaKind::Floppy) => match two.load_disk(0, &filename) {
+                        Ok(()) => eprintln!("[TWO] Inserted in drive 1: {filename}"),
+                        Err(e) => eprintln!("[TWO] Could not load {filename}: {e}"),
+                    },
+                    Some(crate::media::MediaKind::HardDrive) => {
+                        eprintln!(
+                            "[TWO] Hard-drive images mount at boot: restart with --hdd {filename:?}"
+                        );
+                    }
+                    None => eprintln!("[TWO] Not a disk image: {filename}"),
+                },
+
                 // Hot-plug: auto-connect when no pad is active (a pad already
                 // present at startup also fires Added — a no-op here); on
                 // losing the active pad, fall back to any remaining one.

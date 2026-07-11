@@ -3,6 +3,7 @@
 
 use std::process::ExitCode;
 
+use ewm::media::MediaKind;
 use ewm::{boo, one, two};
 
 fn usage() {
@@ -23,6 +24,14 @@ fn run_boo(args: &[String]) -> i32 {
         boo::BooChoice::BootApple1 => one::main(&["--model".to_string(), "apple1".to_string()]),
         boo::BooChoice::BootReplica1 => one::main(&["--model".to_string(), "replica1".to_string()]),
         boo::BooChoice::BootApple2Plus => two::main(&[]),
+        // A dropped or Finder-opened disk image boots the ][+ with it (the
+        // default model until machine configs exist; see notes/MAC_APP.md).
+        boo::BooChoice::BootDroppedMedia(path, MediaKind::Floppy) => {
+            two::main(&["--drive1".to_string(), path])
+        }
+        boo::BooChoice::BootDroppedMedia(path, MediaKind::HardDrive) => {
+            two::main(&["--hdd".to_string(), path])
+        }
         boo::BooChoice::Quit => 0,
     }
 }

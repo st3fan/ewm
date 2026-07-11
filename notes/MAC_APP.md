@@ -23,7 +23,7 @@ launch plumbing, file associations, machine configs) that 2 orchestrates.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 1 | `EWM.app`: self-contained bundle, icon, file associations, drag-drop | M | Not started |
+| 1 | `EWM.app`: self-contained bundle, icon, file associations, drag-drop | M | **Done** (PR pending) |
 | 2 | Distribution: Developer ID signing, notarization, DMG, CI artifacts | M | Not started |
 | 3 | Machine documents: `--config` TOML + the `.ewmachine` bundle | M | Not started |
 | 4 | The library app: browse machines, spawn each as its own app instance | L | Not started |
@@ -131,7 +131,11 @@ per running machine). By this point it is pure orchestration over Phases
   link statically); the source build adds minutes to bundle builds only.
 - **Drop-event timing at launch:** the odoc event may arrive before the boo
   loop polls; verify SDL queues it (it should — delivered post-init) and
-  handle it in the first frames.
+  handle it in the first frames. *(Phase 1 note: handled in the boo loop's
+  normal poll; verified by the owner's double-click test.)*
+- **Phase 1 deviation:** no `EWM.icns` binary is committed — the script
+  regenerates it from `examples/icon.rs` on every build (same
+  reproducibility, no binary artifact in the repo).
 - **`.ewmachine` layout** (Phase 3): folder bundle vs single TOML with
   relative paths — decide when reached; folder bundle is the working
   assumption.

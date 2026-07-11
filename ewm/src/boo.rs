@@ -13,12 +13,15 @@ use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, TTY_ROWS, Tty};
 
 const BOO_FPS: u32 = 40;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum BooChoice {
     Quit,
     BootApple1,
     BootReplica1,
     BootApple2Plus,
+    /// A disk image dropped on the window — or opened from the Finder,
+    /// which macOS delivers through the same SDL drop event.
+    BootDroppedMedia(String, crate::media::MediaKind),
 }
 
 static MENU: [&str; TTY_ROWS] = [
@@ -117,6 +120,10 @@ pub fn main(_args: &[String]) -> BooChoice {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. } => return BooChoice::Quit,
+                Event::DropFile { filename, .. } => match crate::media::classify(&filename) {
+                    Some(kind) => return BooChoice::BootDroppedMedia(filename, kind),
+                    None => eprintln!("[BOO] Not a disk image: {filename}"),
+                },
                 Event::KeyDown {
                     keycode: Some(keycode),
                     ..
