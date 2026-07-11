@@ -1735,11 +1735,9 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
 fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <path>   configure the machine from a JSON file (flags override it)");
+    eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
+    eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
-    eprintln!("  --drive1 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 1");
-    eprintln!("  --drive2 <path>   load .dsk, .po, .nib or .woz at path in slot 6 drive 2");
-    eprintln!("  --hdd <path>      mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive");
-    eprintln!("                    (other slot layouts come from --config)");
     eprintln!("  --aux <card>      //e aux-slot card: 80col, ext80col (default) or");
     eprintln!("                    ramworksiii[:SIZE] with SIZE 64k..8m (default 8m)");
     eprintln!(
@@ -1758,8 +1756,8 @@ fn usage() {
 struct Options {
     model: TwoType,
     /// The machine's slot table, seeded with the default layout (clock in 1,
-    /// Disk II in 6). `--drive1`/`--drive2`/`--hdd` are slot 6/7 sugar that
-    /// merges into it; a config's `machine.slots` replaces it wholesale.
+    /// Disk II in 6) and replaced when the config document carries a
+    /// `machine.slots` table (`--config` files and `--set` overrides).
     slots: BTreeMap<u8, config::SlotCard>,
     monitor: MonitorStyle,
     scanlines: Scanlines,
@@ -1796,25 +1794,6 @@ fn default_slot_cards() -> BTreeMap<u8, config::SlotCard> {
     ])
 }
 
-/// The `--drive1`/`--drive2` sugar: merge a floppy path into the slot 6
-/// Disk II, adding the controller (or replacing another card there) when
-/// the table has no Disk II in slot 6.
-fn set_slot6_drive(slots: &mut BTreeMap<u8, config::SlotCard>, drive: usize, path: String) {
-    let entry = slots.entry(6).or_insert(config::SlotCard::Diskii {
-        drive1: None,
-        drive2: None,
-    });
-    if !matches!(entry, config::SlotCard::Diskii { .. }) {
-        *entry = config::SlotCard::Diskii {
-            drive1: None,
-            drive2: None,
-        };
-    }
-    if let config::SlotCard::Diskii { drive1, drive2 } = entry {
-        *(if drive == 0 { drive1 } else { drive2 }) = Some(path);
-    }
-}
-
 fn parse_options(args: &[String]) -> Result<Options, i32> {
     let mut options = Options {
         fps: TWO_FPS_DEFAULT,
@@ -1822,21 +1801,52 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         slots: default_slot_cards(),
         ..Options::default()
     };
-    // Pass 1: config files seed the options, so that in pass 2 — the flag
-    // loop, which only assigns a field when its flag is present — anything
-    // given explicitly on the command line overrides the file.
+    // Pass 1: build the config document — --config files and --set
+    // overrides deep-merge left-to-right — and seed the options from it,
+    // so that in pass 2 — the flag loop, which only assigns a field when
+    // its flag is present — anything given explicitly on the command line
+    // overrides the document.
+    let mut doc: Option<serde_json::Value> = None;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
-        if arg == "--config" {
-            let Some(path) = it.next() else {
-                usage();
-                return Err(1);
-            };
-            if let Err(e) = crate::config::load(path).and_then(|c| apply_config(&mut options, c)) {
-                eprintln!("{e}");
-                return Err(1);
+        match arg.as_str() {
+            "--config" => {
+                let Some(path) = it.next() else {
+                    usage();
+                    return Err(1);
+                };
+                match crate::config::load_document(path) {
+                    Ok(value) => match doc.as_mut() {
+                        Some(doc) => crate::config::merge_documents(doc, value),
+                        None => doc = Some(value),
+                    },
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return Err(1);
+                    }
+                }
             }
+            "--set" => {
+                let Some(expr) = it.next() else {
+                    usage();
+                    return Err(1);
+                };
+                let doc =
+                    doc.get_or_insert_with(|| serde_json::json!({"machine": {"model": "2plus"}}));
+                if let Err(e) = crate::config::apply_set(doc, expr) {
+                    eprintln!("{e}");
+                    return Err(1);
+                }
+            }
+            _ => {}
         }
+    }
+    if let Some(doc) = doc
+        && let Err(e) =
+            crate::config::from_document(doc).and_then(|c| apply_config(&mut options, c))
+    {
+        eprintln!("{e}");
+        return Err(1);
     }
     let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
@@ -1845,7 +1855,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 usage();
                 return Err(0);
             }
-            "--config" => {
+            "--config" | "--set" => {
                 // Applied in pass 1.
                 it.next();
             }
@@ -1857,29 +1867,9 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     return Err(1);
                 }
             },
-            "--drive1" => {
-                if let Some(path) = it.next() {
-                    set_slot6_drive(&mut options.slots, 0, path.clone());
-                }
-            }
-            "--drive2" => {
-                if let Some(path) = it.next() {
-                    set_slot6_drive(&mut options.slots, 1, path.clone());
-                }
-            }
-            "--hdd" => {
-                if let Some(path) = it.next() {
-                    options.slots.insert(
-                        7,
-                        config::SlotCard::Harddrive {
-                            image: path.clone(),
-                        },
-                    );
-                }
-            }
             // Bare --color keeps its historical meaning (an RGB color
             // monitor); an optional value picks a monochrome phosphor
-            // instead. Peek-don't-consume so `--color --drive1 x` works.
+            // instead. Peek-don't-consume so `--color --set k=v` works.
             "--color" => {
                 options.monitor = it
                     .peek()
@@ -2370,7 +2360,9 @@ pub fn main(args: &[String]) -> i32 {
                     },
                     Some(crate::media::MediaKind::HardDrive) => {
                         eprintln!(
-                            "[TWO] Hard-drive images mount at boot: restart with --hdd {filename:?}"
+                            "[TWO] Hard-drive images mount at boot: restart with \
+                             --set machine:slots:7:card=harddrive \
+                             --set machine:slots:7:image={filename:?}"
                         );
                     }
                     None => eprintln!("[TWO] Not a disk image: {filename}"),
@@ -2948,7 +2940,7 @@ mod tests {
         assert_eq!(opts(&["--color", "white"]).monitor, MonitorStyle::White);
         assert_eq!(opts(&["--color", "rgb"]).monitor, MonitorStyle::Rgb);
         // Bare --color followed by another flag: the flag is not consumed.
-        let o = opts(&["--color", "--drive1", "game.dsk"]);
+        let o = opts(&["--color", "--set", "machine:slots:6:drive1=game.dsk"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
         assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
     }
@@ -2961,7 +2953,7 @@ mod tests {
         assert_eq!(opts(&["--scanlines", "heavy"]).scanlines, Scanlines::Heavy);
         assert_eq!(opts(&["--scanlines", "off"]).scanlines, Scanlines::Off);
         // Bare --scanlines followed by another flag: the flag is not consumed.
-        let o = opts(&["--scanlines", "--drive1", "game.dsk"]);
+        let o = opts(&["--scanlines", "--set", "machine:slots:6:drive1=game.dsk"]);
         assert_eq!(o.scanlines, Scanlines::Light);
         assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
     }
@@ -3026,14 +3018,15 @@ mod tests {
             fixture!("full.json"),
             "--color",
             "amber",
-            "--drive1",
-            "other.dsk",
+            "--set",
+            "machine:slots:6:drive1=other.dsk",
         ]);
-        // The explicitly given flags win...
+        // The explicitly given flag and the later --set win...
         assert_eq!(o.monitor, MonitorStyle::Amber);
         assert_eq!(slot6_drives(&o).0, Some("other.dsk"));
         // ...while everything the command line left alone survives, including
-        // the config's drive 2 next to the overridden drive 1.
+        // the config's drive 2 next to the overridden drive 1 (object-level
+        // merge).
         assert_eq!(
             slot6_drives(&o).1,
             Some(fixture!("../../../disks/DOS33-SamplePrograms.dsk"))
@@ -3047,27 +3040,98 @@ mod tests {
     }
 
     #[test]
-    fn drive_sugar_targets_slot_6() {
-        // The default table gains the floppy in slot 6 drive 1.
-        let o = opts(&["--drive1", "a.dsk", "--drive2", "b.dsk"]);
+    fn set_overrides_the_config_document() {
+        // Bare --set drives extend the default machine, exactly like the
+        // removed --drive1/--drive2 flags did.
+        let o = opts(&[
+            "--set",
+            "machine:slots:6:drive1=a.dsk",
+            "--set",
+            "machine:slots:6:drive2=b.dsk",
+        ]);
         assert_eq!(slot6_drives(&o), (Some("a.dsk"), Some("b.dsk")));
         assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
-        // --hdd puts the card in slot 7.
-        let o = opts(&["--hdd", "c.hdv"]);
+
+        // The --hdd replacement: two sets build the slot 7 card...
+        let o = opts(&[
+            "--set",
+            "machine:slots:7:card=harddrive",
+            "--set",
+            "machine:slots:7:image=c.hdv",
+        ]);
         assert_eq!(hdd_image(&o, 7), Some("c.hdv"));
-        // A config that empties slot 6 gets a Disk II back when --drive1
-        // insists on one.
-        let o = opts(&["--config", fixture!("bare.json"), "--drive1", "a.dsk"]);
+        // ...or one whole-object set.
+        let o = opts(&[
+            "--set",
+            r#"machine:slots:7={"card":"harddrive","image":"c.hdv"}"#,
+        ]);
+        assert_eq!(hdd_image(&o, 7), Some("c.hdv"));
+
+        // A literal (bare) slots table from a file is not re-materialized:
+        // the set creates only what it names, and needs the card first.
+        let o = opts(&[
+            "--config",
+            fixture!("bare.json"),
+            "--set",
+            "machine:slots:6:card=diskii",
+            "--set",
+            "machine:slots:6:drive1=a.dsk",
+        ]);
         assert_eq!(slot6_drives(&o), (Some("a.dsk"), None));
         assert_eq!(o.slots.len(), 1, "the bare table only gains slot 6");
+
+        // Later sets win; non-slot keys work; a file merged after a set
+        // overrides it.
+        let o = opts(&[
+            "--set",
+            "display:monitor=amber",
+            "--set",
+            "display:monitor=white",
+            "--set",
+            "display:fps=30",
+            "--set",
+            "cpu:strict=true",
+        ]);
+        assert_eq!(o.monitor, MonitorStyle::White);
+        assert_eq!(o.fps, 30);
+        assert!(o.strict);
+        let o = opts(&[
+            "--set",
+            "machine:model=2plus",
+            "--config",
+            fixture!("full.json"),
+        ]);
+        assert_eq!(o.model, TwoType::Apple2E, "the later file wins");
+
+        // Bad expressions fail with exit code 1.
+        for bad in [
+            "--set machine:slots:9:card=diskii",
+            "--set nonsense=1",
+            "--set display:monitor",
+        ] {
+            let args: Vec<String> = ["--set", &bad["--set ".len()..]]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            assert!(matches!(parse_options(&args), Err(1)), "{bad}");
+        }
     }
 
     #[test]
     fn config_boots_dos33_like_drive1() {
-        // The boot gate: a config naming the DOS 3.3 disk boots exactly like
-        // --drive1 does (and its relative path resolves against the config's
-        // directory, not the CWD). build_machine is the same code main() runs.
+        // The boot gate: a config naming the DOS 3.3 disk boots it (its
+        // relative path resolves against the config's directory, not the
+        // CWD). build_machine is the same code main() runs.
         let mut o = opts(&["--config", fixture!("boot-dos33.json")]);
+        // The --set spelling produces the same machine (path as given).
+        let via_set = opts(&[
+            "--set",
+            concat!(
+                "machine:slots:6:drive1=",
+                fixture!("../../../disks/DOS33-SystemMaster.dsk")
+            ),
+        ]);
+        assert_eq!(via_set.slots.get(&6), o.slots.get(&6));
         let mut two = build_machine(&mut o).expect("machine must construct");
         two.cpu.reset();
 

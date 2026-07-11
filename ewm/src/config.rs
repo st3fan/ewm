@@ -16,7 +16,7 @@ use crate::two::TwoType;
 /// A complete EWM machine configuration, for `ewm two --config file.json`.
 /// Only `machine` is required; every other setting defaults to what a bare
 /// `ewm two` would do. Explicitly given command-line flags override the file.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -45,7 +45,7 @@ pub struct Config {
 }
 
 /// The machine's physical build.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
@@ -66,7 +66,7 @@ pub struct Machine {
 }
 
 /// Which Apple II model to emulate.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Model {
     /// The Apple ][+.
@@ -87,7 +87,7 @@ impl Model {
 }
 
 /// The //e auxiliary-slot card.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Aux {
@@ -100,7 +100,7 @@ pub struct Aux {
 }
 
 /// The auxiliary-card types.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum AuxKind {
     /// The 1K Apple 80-Column Text Card.
@@ -127,7 +127,7 @@ impl AuxKind {
 }
 
 /// A peripheral card, discriminated by `"card"`.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "card", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SlotCard {
@@ -163,7 +163,7 @@ impl SlotCard {
 
 /// An extra RAM or ROM region loaded from a file at startup (the config
 /// equivalent of the `--memory` flag).
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct MemoryRegion {
@@ -177,7 +177,7 @@ pub struct MemoryRegion {
 }
 
 /// Whether a memory region is RAM or ROM.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryKind {
@@ -204,7 +204,7 @@ impl MemoryRegion {
 }
 
 /// Monitor and rendering settings.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Display {
@@ -217,7 +217,7 @@ pub struct Display {
 }
 
 /// Monitor styles.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Monitor {
@@ -243,7 +243,7 @@ impl Monitor {
 }
 
 /// Scanline darkening levels.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ScanlinesSetting {
@@ -266,7 +266,7 @@ impl ScanlinesSetting {
 }
 
 /// CPU speed and emulation-strictness settings.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Cpu {
@@ -277,7 +277,7 @@ pub struct Cpu {
 }
 
 /// The classic accelerator speed steps.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum CpuSpeed {
     /// 1.023 MHz — a stock machine.
@@ -292,7 +292,7 @@ pub enum CpuSpeed {
 }
 
 /// Input-device preferences.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Input {
@@ -302,7 +302,7 @@ pub struct Input {
 }
 
 /// Boot behavior.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Boot {
@@ -312,7 +312,7 @@ pub struct Boot {
 }
 
 /// Debugging aids.
-#[derive(Debug, Clone, PartialEq, Default, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Debug {
@@ -329,6 +329,154 @@ pub fn load(path: &str) -> Result<Config, String> {
         std::fs::read_to_string(path).map_err(|e| format!("cannot read config {path}: {e}"))?;
     let base = Path::new(path).parent().unwrap_or(Path::new("."));
     from_str_resolved(&text, path, base)
+}
+
+/// Load a config file as a JSON document: the full typed path (parse,
+/// semantic validation, relative paths resolved against the file's
+/// directory), then back to JSON — ready to layer with other sources
+/// (`merge_documents`, `apply_set`) before the final `from_document`.
+pub fn load_document(path: &str) -> Result<serde_json::Value, String> {
+    let config = load(path)?;
+    serde_json::to_value(config).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Deep-merge `overlay` into `doc`, the layering rule for config sources
+/// (later `--config` files and `--set` overrides win, key by key):
+///
+/// - objects merge recursively;
+/// - a `null` overlay value is a no-op — a source that doesn't set a field
+///   must not clear it (`Option` fields serialize to `null`);
+/// - an *empty array* overlay is likewise a no-op (`machine.memory`
+///   serializes to `[]` when a file has no regions);
+/// - two objects whose `"card"` discriminators differ replace wholesale —
+///   merging a diskii's drives into an `"empty"` card would fail
+///   validation;
+/// - everything else replaces.
+pub fn merge_documents(doc: &mut serde_json::Value, overlay: serde_json::Value) {
+    use serde_json::Value;
+    // A source that doesn't set a field must not clear it: None fields
+    // serialize to null, an empty machine.memory to [].
+    fn is_noop(value: &Value) -> bool {
+        value.is_null() || matches!(value, Value::Array(entries) if entries.is_empty())
+    }
+    if is_noop(&overlay) {
+        return;
+    }
+    if let (Value::Object(base), Value::Object(overlay_map)) = (&mut *doc, &overlay) {
+        let card_differs = matches!(
+            (base.get("card"), overlay_map.get("card")),
+            (Some(a), Some(b)) if a != b
+        );
+        if !card_differs {
+            let Value::Object(overlay_map) = overlay else {
+                unreachable!("matched as an object above");
+            };
+            for (key, value) in overlay_map {
+                match base.get_mut(&key) {
+                    Some(slot) => merge_documents(slot, value),
+                    None if is_noop(&value) => {}
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+            return;
+        }
+    }
+    *doc = overlay;
+}
+
+/// The JSON form of the default slot table (`two::default_slots()` is the
+/// machine-level equivalent), materialized when a `--set` override enters
+/// `machine:slots` on a document that has none — so overrides extend the
+/// default machine instead of accidentally creating a literal one-slot
+/// table.
+fn default_slots_value() -> serde_json::Value {
+    serde_json::json!({
+        "1": { "card": "thunderclock" },
+        "6": { "card": "diskii" },
+    })
+}
+
+/// Apply one `--set <key>=<value>` override to the document. The key path
+/// is colon-separated (`machine:slots:6:drive1`); the value is parsed as
+/// JSON when it *is* valid JSON — numbers, booleans, quoted strings, whole
+/// objects like `machine:slots:7={"card":"harddrive","image":"x.hdv"}` —
+/// and taken as a plain string otherwise.
+pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> {
+    use serde_json::Value;
+    let Some((key, value)) = expr.split_once('=') else {
+        return Err(format!("--set {expr}: expected <key>=<value>"));
+    };
+    let segments: Vec<&str> = key.split(':').collect();
+    if segments.iter().any(|s| s.is_empty()) {
+        return Err(format!("--set {expr}: empty segment in key {key:?}"));
+    }
+
+    // Entering machine:slots on a document without one would create a
+    // literal (near-empty) table; materialize the default layout first so
+    // overrides extend the default machine.
+    if segments.first() == Some(&"machine") && segments.get(1) == Some(&"slots") {
+        let machine = doc
+            .as_object_mut()
+            .ok_or_else(|| format!("--set {expr}: the config document is not an object"))?
+            .entry("machine")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(machine) = machine.as_object_mut()
+            && machine.get("slots").is_none_or(|s| s.is_null())
+        {
+            machine.insert("slots".to_string(), default_slots_value());
+        }
+    }
+
+    let mut parsed = Some(
+        serde_json::from_str::<Value>(value).unwrap_or_else(|_| Value::String(value.to_string())),
+    );
+    let mut node = &mut *doc;
+    for (i, segment) in segments.iter().enumerate() {
+        let map = match node {
+            Value::Array(_) => {
+                return Err(format!(
+                    "--set {expr}: cannot index into the {:?} array (memory regions come from --memory)",
+                    segments[..i].join(":")
+                ));
+            }
+            Value::Object(map) => map,
+            _ => {
+                return Err(format!(
+                    "--set {expr}: {:?} is not an object",
+                    segments[..i].join(":")
+                ));
+            }
+        };
+        if i == segments.len() - 1 {
+            let value = parsed.take().expect("value used once");
+            // Changing a "card" discriminator invalidates the object's other
+            // fields (a harddrive has no drive1) — reset the object to just
+            // the new card, mirroring merge_documents' replace rule.
+            if *segment == "card" && map.get("card").is_some_and(|card| *card != value) {
+                map.clear();
+            }
+            map.insert(segment.to_string(), value);
+            return Ok(());
+        }
+        node = map
+            .entry(segment.to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+    }
+    // The key has at least one non-empty segment, so the loop always
+    // returns from its last iteration.
+    Ok(())
+}
+
+/// Convert a layered config document (files + `--set` overrides) into a
+/// validated `Config`. No path resolution happens here: file-sourced paths
+/// were resolved per file by `load_document`, and `--set` values stay as
+/// given (relative to the working directory, like the flags they replace).
+pub fn from_document(doc: serde_json::Value) -> Result<Config, String> {
+    let config: Config = serde_json::from_value(doc).map_err(|e| format!("config: {e}"))?;
+    validate(&config).map_err(|e| format!("config: {e}"))?;
+    Ok(config)
 }
 
 /// The testable core of `load`: `origin` names the file in error messages,
@@ -630,5 +778,139 @@ mod tests {
         assert!(region("0x10000").address_value().is_err());
         assert!(region("d000").address_value().is_err());
         assert!(region("").address_value().is_err());
+    }
+
+    #[test]
+    fn merge_layers_objects_and_skips_nulls() {
+        let mut doc = serde_json::json!({
+            "machine": {"model": "2plus", "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}}},
+            "display": {"monitor": "green"},
+        });
+        merge_documents(
+            &mut doc,
+            serde_json::json!({
+                "machine": {"model": "2e", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
+                "display": {"monitor": null, "fps": 30},
+            }),
+        );
+        assert_eq!(
+            doc,
+            serde_json::json!({
+                "machine": {"model": "2e", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
+                "display": {"monitor": "green", "fps": 30},
+            })
+        );
+    }
+
+    #[test]
+    fn merge_replaces_an_object_whose_card_changes() {
+        let mut doc = serde_json::json!({"card": "diskii", "drive1": "a.dsk"});
+        merge_documents(&mut doc, serde_json::json!({"card": "empty"}));
+        assert_eq!(doc, serde_json::json!({"card": "empty"}));
+    }
+
+    #[test]
+    fn set_types_values_as_json_or_string() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "display:fps=30").unwrap();
+        apply_set(&mut doc, "cpu:strict=true").unwrap();
+        apply_set(&mut doc, "display:monitor=amber").unwrap();
+        apply_set(&mut doc, r#"input:controller="8BitDo Pro 2""#).unwrap();
+        assert_eq!(doc["display"]["fps"], serde_json::json!(30));
+        assert_eq!(doc["cpu"]["strict"], serde_json::json!(true));
+        assert_eq!(doc["display"]["monitor"], serde_json::json!("amber"));
+        assert_eq!(
+            doc["input"]["controller"],
+            serde_json::json!("8BitDo Pro 2")
+        );
+    }
+
+    #[test]
+    fn set_materializes_the_default_slots_once() {
+        // Entering machine:slots on a slotless document brings in the
+        // default table, so the override extends the default machine.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({
+                "1": {"card": "thunderclock"},
+                "6": {"card": "diskii", "drive1": "x.dsk"},
+            })
+        );
+        // A document that already has a slots table is taken literally.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus", "slots": {}}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({"6": {"drive1": "x.dsk"}})
+        );
+    }
+
+    #[test]
+    fn set_replaces_a_slot_whose_card_changes() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
+        apply_set(&mut doc, "machine:slots:6:card=harddrive").unwrap();
+        apply_set(&mut doc, "machine:slots:6:image=x.hdv").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"]["6"],
+            serde_json::json!({"card": "harddrive", "image": "x.hdv"})
+        );
+        // A whole-object value replaces the slot in one go.
+        apply_set(
+            &mut doc,
+            r#"machine:slots:7={"card":"harddrive","image":"y.hdv"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            doc["machine"]["slots"]["7"],
+            serde_json::json!({"card": "harddrive", "image": "y.hdv"})
+        );
+    }
+
+    #[test]
+    fn set_rejects_bad_expressions() {
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let err = apply_set(&mut doc, "display:monitor").unwrap_err();
+        assert!(err.contains("expected <key>=<value>"), "{err}");
+        let err = apply_set(&mut doc, "display::monitor=amber").unwrap_err();
+        assert!(err.contains("empty segment"), "{err}");
+        let err = apply_set(&mut doc, "machine:model:x=1").unwrap_err();
+        assert!(err.contains(r#""machine:model" is not an object"#), "{err}");
+        doc["machine"]["memory"] = serde_json::json!([{"type": "rom"}]);
+        let err = apply_set(&mut doc, "machine:memory:0:path=x.bin").unwrap_err();
+        assert!(err.contains("cannot index into"), "{err}");
+    }
+
+    #[test]
+    fn from_document_validates_and_names_unknown_fields() {
+        let doc = serde_json::json!({"machine": {"model": "2plus"}, "disply": {}});
+        let err = from_document(doc).unwrap_err();
+        assert!(err.starts_with("config:"), "{err}");
+        assert!(err.contains("unknown field `disply`"), "{err}");
+
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "display:fps=0").unwrap();
+        let err = from_document(doc).unwrap_err();
+        assert!(err.contains("display.fps"), "{err}");
+    }
+
+    #[test]
+    fn documents_round_trip_through_serialize() {
+        // load_document(file) == what from_document accepts: the resolved
+        // typed config survives the Value round trip intact.
+        let doc = load_document(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/configs/full.json"
+        ))
+        .expect("full.json must load");
+        let via_document = from_document(doc).expect("round trip");
+        let direct = load(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/configs/full.json"
+        ))
+        .expect("direct load");
+        assert_eq!(via_document, direct);
     }
 }

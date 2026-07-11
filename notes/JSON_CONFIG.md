@@ -90,21 +90,57 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 - **Absent `machine.slots` = the default layout**; a *present* `slots`
   object (even `{}`) is literal — absent keys inside it are empty slots.
   This keeps `{"machine": {"model": "2plus"}}` equal to bare `ewm two`
-  while honoring "an absent slot key means empty". A config's table
-  replaces the default wholesale; the `--drive1`/`--drive2`/`--hdd` flags
-  are slot 6/7 sugar merged in afterwards (so they override config
-  structurally, per the Phase A precedence design).
+  while honoring "an absent slot key means empty". *(The `--drive1`/
+  `--drive2`/`--hdd` sugar this section originally described was replaced
+  by `--set`; see the CLI overrides decisions below.)*
 - **Drive lights are OR'ed across controllers** — the status bar and LED
   strip keep their two-light layout; at any moment at most one controller
   spins, so the pair reads as the active controller's drives.
+
+## CLI overrides (`--set`) decisions (recorded as built)
+
+- **`--set <key>=<value>`** overrides one config value by colon-separated
+  key path (`--set machine:slots:6:drive1=game.dsk`, `--set
+  display:monitor=amber`). A **separate flag** (owner's decision — not
+  overloaded onto `--config`), and the `--drive1`/`--drive2`/`--hdd`
+  sugar flags are **removed** (owner's decision); the boo launcher and
+  docs speak `--set`.
+- **One config document, sources layered left-to-right**: `--config`
+  files load through the typed path (per-file validation and relative-path
+  resolution intact) and are serialized back to JSON (`serde::Serialize`
+  on the config types — fronting Phase C); `--set` mutates the document
+  directly. One typed conversion + validation at the end
+  (`config::from_document`). Consequence: multiple `--config` files now
+  **deep-merge** instead of a later file's slots table replacing
+  wholesale. The remaining convenience flags (`--model`, `--color`, …)
+  still override the finished document, per the Phase A precedence design.
+- **Merge rules** (`config::merge_documents`): objects merge recursively;
+  `null` and empty-array overlays are no-ops (a source that doesn't set a
+  field must not clear it); two objects whose `"card"` discriminators
+  differ replace wholesale (merging a diskii's drives into an `"empty"`
+  card would fail validation). `apply_set` mirrors the card rule: setting
+  a different `card` resets the object's other fields.
+- **Slots materialization**: a `--set` entering `machine:slots` on a
+  document without one materializes the default table first, so `--set
+  machine:slots:6:drive1=x` on a bare command line extends the default
+  machine exactly like the removed `--drive1` did.
+- **Value typing**: a `--set` value that parses as JSON is used as JSON
+  (numbers, booleans, quoted strings, whole objects — `--set
+  'machine:slots:7={"card":"harddrive","image":"tr.hdv"}'` is the one-line
+  `--hdd` replacement); anything else is a plain string. Escape hatch for
+  values that accidentally parse as JSON (a file named `123`): quote them
+  (`--set 'machine:slots:6:drive1="123"'`). `--set` path values stay
+  as-given (CWD-relative), like the flags they replace; file paths keep
+  resolving against their config's directory.
+- **Array paths are rejected** (`machine:memory:0:path`) — memory regions
+  come from `--memory`.
 
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
 |---|---|---|
 | CLI | `--model` | `2plus`, `2e` |
-| CLI | `--drive1` / `--drive2` | floppy image paths (slot 6) |
-| CLI | `--hdd` | ProDOS block image (slot 7) |
+| CLI | `--set <key>=<value>` | any config key by colon path (drives, slots, display, …) |
 | CLI | `--aux` | `80col`, `ext80col`, `ramworksiii[:SIZE]` (//e only) |
 | CLI + palette | monitor style | `green`, `amber`, `white`, `rgb` |
 | CLI + palette | scanlines | `off`, `light`, `heavy` |

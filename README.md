@@ -73,19 +73,19 @@ Or start a machine directly:
 
 ```
 # Apple ][+ with color graphics and the DOS 3.3 sample programs disk
-cargo run --release -- two --color --drive1 disks/DOS33-SamplePrograms.dsk
+cargo run --release -- two --color --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
 
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
-cargo run --release -- two --color --hdd "disks/Total Replay v6.0.1.hdv"
+cargo run --release -- two --color --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
 
 # A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
-cargo run --release -- two --color --drive1 "disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
+cargo run --release -- two --color --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --model 2e --color --drive1 disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --model 2e --color --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --model 2e --aux ramworksiii --drive1 disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --model 2e --aux ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
@@ -94,8 +94,16 @@ cargo run --release -- one --model replica1
 cargo run --release -- one --model apple1
 ```
 
+`--set <key>=<value>` overrides one value in the machine configuration
+by its colon-separated key path — any key the JSON config (below)
+accepts, so `--set display:monitor=amber` or `--set cpu:speed=3.58mhz`
+work the same way. Values are JSON when they parse as JSON (numbers,
+booleans, whole objects like the hard-drive example above) and plain
+strings otherwise.
+
 A whole machine can also be described in a JSON file and started with
-`--config` (explicitly given flags override the file):
+`--config`; files and `--set` overrides layer left-to-right, and the
+remaining convenience flags override the result:
 
 ```
 cargo run --release -- two --config myiie.json
@@ -122,11 +130,11 @@ cargo run --release -- two --config myiie.json
 Ready-made configs for the classic machines live in `configs/` — an
 Apple ][+ with a green monitor (`plus.json`) and an Enhanced //e with
 the extended 80-column card and a color monitor (`enhanced.json`).
-Neither names a disk, so pair them with the drive flags, which merge
-into the config's slot 6 card:
+Neither names a disk, so pair them with a `--set` override, which
+merges into the config's slot 6 card:
 
 ```
-cargo run --release -- two --config configs/enhanced.json --drive1 disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config configs/enhanced.json --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 ```
 
 The machine's physical layout lives in `slots`: any card in any slot,
