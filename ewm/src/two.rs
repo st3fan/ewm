@@ -2994,7 +2994,7 @@ mod tests {
         );
         assert_eq!(
             hdd_image(&o, 7),
-            Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
+            Some(fixture!("../../../disks/ProDOS_2_4_3.po"))
         );
         assert_eq!(o.monitor, MonitorStyle::White);
         assert_eq!(o.scanlines, Scanlines::Heavy);
@@ -3035,7 +3035,7 @@ mod tests {
         assert_eq!(o.speed, SPEED_FAST);
         assert_eq!(
             hdd_image(&o, 7),
-            Some(fixture!("../../../disks/Total Replay v6.0.1.hdv"))
+            Some(fixture!("../../../disks/ProDOS_2_4_3.po"))
         );
     }
 

@@ -48,7 +48,7 @@ fn full_config_loads_with_resolved_paths() {
     let SlotCard::Harddrive { image } = &slots["7"] else {
         panic!("slot 7 should be a harddrive");
     };
-    assert_eq!(image, fixture!("../../../disks/Total Replay v6.0.1.hdv"));
+    assert_eq!(image, fixture!("../../../disks/ProDOS_2_4_3.po"));
     assert!(std::fs::metadata(drive1.as_deref().unwrap()).is_ok());
     assert!(std::fs::metadata(image).is_ok());
 
