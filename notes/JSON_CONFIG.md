@@ -157,10 +157,11 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 - **Slot 0 is a `"0"` key in `machine.slots`** (owner's decision —
   hardware-faithful, not a separate field). The ][+ language card was
   hardwired into `Two::new_2plus` before this; now it is a declared card.
-- **Card set restricted**: slot 0 takes only `"language"` or `"empty"` —
-  it has no `$Cn00` firmware space, so firmware-bearing cards can't work
-  there — and the language card fits nowhere else. The //e rejects `"0"`
-  outright (its language card is soldered onto the motherboard).
+- **Card set restricted**: slot 0 takes only `"language"`, `"saturn128"`
+  or `"empty"` — it has no `$Cn00` firmware space, so firmware-bearing
+  cards can't work there — and those cards fit nowhere else. The //e
+  rejects `"0"` outright (its language card is soldered onto the
+  motherboard).
 - **The literal-table rule covers slot 0** — a deliberate breaking
   change, accepted by the owner: a ][+ config whose `slots` table omits
   `"0"` is a stock **48K machine** ($D000–$FFFF motherboard ROM on the
@@ -170,12 +171,26 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
   lines stay the classic 64K build; `--set machine:slots:0:card=empty`
   is the 48K opt-out.
 - **Machine plumbing**: slot 0 never becomes a `SlotDevice` —
-  `build_machine` consumes it as a `language_card: bool` passed to
-  `Two::new_with_slots`. `Two::language_card()` reports it and WozBug's
-  `SLOTS` shows the slot 0 line on the ][+. DOS 3.3 boots on the 48K
-  machine (it just skips loading Integer BASIC) — regression-tested.
-- **Future**: an Integer BASIC Firmware card would be a third slot 0
-  card kind.
+  `build_machine` consumes it as a `two::Slot0` (Language / Saturn128 /
+  Empty) passed to `Two::new_with_slots`. `Two::slot0()` reports it and
+  WozBug's `SLOTS` shows the slot 0 line on the ][+ (with the selected
+  bank for the Saturn). DOS 3.3 boots on the 48K machine (it just skips
+  loading Integer BASIC) — regression-tested.
+- **`"saturn128"` — the Saturn Systems 128K RAM Board**
+  (`ewm/src/saturn.rs`, from the Saturn Operations Manual ch. 9): eight
+  16K banks at $D000–$FFFF, each two 4K banks (A/B) at $D000 plus its
+  own 8K. The $C08x A2=0 column is the exact Language Card protocol
+  (bank 1 is how DOS/Pascal/VisiCalc see a "16K card"); A2=1 selects the
+  16K bank ($C084–7 → 1–4, $C08C–F → 5–8), with read/write/4K state
+  persisting across switches. Write-enable follows the LC's read-twice
+  rule (the manual's "PEEK or POKE" prose is looser; the LC-compatible
+  semantics are what software relies on and what `alc.rs` implements).
+  Regression-tested: all eight banks hold independent contents on the
+  bus, and DOS 3.3 loads Integer BASIC into bank 1 with INT/FP switching
+  both ways.
+- **Future**: an Integer BASIC Firmware card would be a fourth slot 0
+  card kind; the Saturn 32K/64K siblings would be a size field or
+  variants.
 
 ## The schema (draft)
 
