@@ -232,6 +232,11 @@ impl Dsk {
     }
 
     /// The selected drive (0 or 1), for the frontend's drive lights.
+    /// Whether the given drive has a disk inserted.
+    pub fn drive_loaded(&self, drive: usize) -> bool {
+        self.drives[drive].loaded
+    }
+
     pub fn active_drive(&self) -> usize {
         self.drive
     }

@@ -35,6 +35,8 @@ use sdl3::video::FullscreenType;
 
 pub const TWO_FPS_DEFAULT: u32 = 40;
 pub const TWO_SPEED: u32 = 1_023_000;
+/// The WozBug line server's default port. Of course.
+const WOZBUG_DEFAULT_PORT: u16 = 6502;
 
 // The six machine ROMs, $D000-$FFFF (ewm_two_init loads the same files).
 static ROM_341_0011: &[u8] = include_bytes!("../../rom/341-0011.bin"); // AppleSoft BASIC D000
@@ -1330,6 +1332,16 @@ impl Two {
             .map(|&h| self.cpu.mem.device(h))
     }
 
+    /// The hard drive in the given slot, if any.
+    pub fn hdd_at(&self, slot: u8) -> Option<&Hdd> {
+        self.hdds.get(&slot).map(|&h| self.cpu.mem.device(h))
+    }
+
+    /// The slot holding the Thunderclock, if any.
+    pub fn clock_slot(&self) -> Option<u8> {
+        self.clk.map(|(slot, _)| slot)
+    }
+
     /// The machine's soft-switch device as a `SoftSwitches` — the single point
     /// where the model dispatch lives, so the accessors below don't repeat it.
     fn switches(&self) -> &dyn SoftSwitches {
@@ -1747,6 +1759,8 @@ fn usage() {
     eprintln!("  --boot-delay <seconds>  hold the machine at power-on (debugging/recording)");
     eprintln!("  --fps <fps>       set fps for display (default: 30)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
+    eprintln!("  --wozbug [port]   WozBug debugger server on 127.0.0.1 (default port 6502)");
+    eprintln!("  --break <addr,..> break at hex addresses or symbols (implies --wozbug)");
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
     eprintln!("  --debug           print debug info");
@@ -1773,6 +1787,10 @@ struct Options {
     speed: u32,
     /// Preferred game-controller name (config-only); hot-plug still applies.
     controller: Option<String>,
+    /// WozBug line-server port (None = no server).
+    wozbug: Option<u16>,
+    /// Breakpoints armed at boot (`--break`); implies the server.
+    breakpoints: Vec<u16>,
     trace_path: Option<String>,
     strict: bool,
     debug: bool,
@@ -1919,6 +1937,38 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             "--trace" => options.trace_path = Some("/dev/stderr".to_string()),
             "--strict" => options.strict = true,
             "--debug" => options.debug = true,
+            // Optional-value convention like --color: bare --wozbug uses
+            // the default port.
+            "--wozbug" => {
+                options.wozbug = Some(
+                    it.peek()
+                        .and_then(|v| v.parse::<u16>().ok())
+                        .inspect(|_| {
+                            it.next();
+                        })
+                        .unwrap_or(WOZBUG_DEFAULT_PORT),
+                );
+            }
+            "--break" => match it.next() {
+                Some(list) => {
+                    for part in list.split(',') {
+                        match crate::wozbug::parse_addr(part) {
+                            Some(addr) => options.breakpoints.push(addr),
+                            None => {
+                                eprintln!("bad --break address {part:?}");
+                                usage();
+                                return Err(1);
+                            }
+                        }
+                    }
+                    // A breakpoint needs somewhere to land.
+                    options.wozbug.get_or_insert(WOZBUG_DEFAULT_PORT);
+                }
+                None => {
+                    usage();
+                    return Err(1);
+                }
+            },
             _ => {
                 if let Some(path) = arg.strip_prefix("--trace=") {
                     options.trace_path = Some(path.to_string());
@@ -2192,6 +2242,27 @@ pub fn main(args: &[String]) -> i32 {
         }
     };
     two.set_debug(options.debug);
+
+    // WozBug: arm --break breakpoints and start the line server. The
+    // frame loop drains its commands between frames.
+    for &addr in &options.breakpoints {
+        two.cpu.add_breakpoint(addr);
+    }
+    let mut wozbug = crate::wozbug::WozBug::new();
+    let wozbug_server = match options.wozbug {
+        Some(port) => match crate::wozbug::Server::start(port) {
+            Ok(server) => {
+                eprintln!("[WOZBUG] listening on 127.0.0.1:{}", server.port());
+                Some(server)
+            }
+            Err(e) => {
+                eprintln!("[WOZBUG] cannot listen on 127.0.0.1:{port}: {e}");
+                return 1;
+            }
+        },
+        None => None,
+    };
+    let mut was_stopped = false;
 
     let layout = match sdl::pixel_format(&canvas) {
         Some(format) if format == PixelFormat::RGBA8888 => PixelLayout::Rgba8888,
@@ -2732,6 +2803,22 @@ pub fn main(args: &[String]) -> i32 {
             }
         }
 
+        // WozBug: execute queued debugger commands against the machine
+        // (works running or stopped), and announce breakpoint hits.
+        if let Some(server) = &wozbug_server {
+            while let Ok(line) = server.commands.try_recv() {
+                let reply = wozbug.execute(&mut two, &line);
+                server.reply(&reply);
+            }
+            let stopped = two.cpu.stopped();
+            if stopped && !was_stopped {
+                let banner = crate::wozbug::stopped_banner(&mut two);
+                eprintln!("[WOZBUG] {}", banner.replace('\n', "\n[WOZBUG] "));
+                server.reply(&banner);
+            }
+            was_stopped = stopped;
+        }
+
         if sdl3::timer::ticks() >= next_frame {
             if !paused && !palette_visible && sdl3::timer::ticks() >= boot_at {
                 // Feed the joystick axes to the paddle logic before the burst.
@@ -2750,7 +2837,12 @@ pub fn main(args: &[String]) -> i32 {
 
                 let mut budget = (speed / fps) as i64;
                 while budget > 0 {
-                    budget -= two.cpu.step() as i64;
+                    match two.cpu.step() {
+                        // Stopped on a breakpoint: give the frame up (the
+                        // WozBug pump above owns the machine until G).
+                        0 => break,
+                        cycles => budget -= cycles as i64,
+                    }
                 }
             }
 
@@ -3159,6 +3251,23 @@ mod tests {
         assert!(o.controller.is_none());
         assert_eq!(o.fps, TWO_FPS_DEFAULT);
         assert_eq!(o.slots, default_slot_cards());
+    }
+
+    #[test]
+    fn wozbug_and_break_flags() {
+        assert_eq!(opts(&[]).wozbug, None);
+        assert_eq!(opts(&["--wozbug"]).wozbug, Some(6502));
+        assert_eq!(opts(&["--wozbug", "7000"]).wozbug, Some(7000));
+        // Bare --wozbug followed by another flag: peek-don't-consume.
+        let o = opts(&["--wozbug", "--color", "amber"]);
+        assert_eq!(o.wozbug, Some(6502));
+        assert_eq!(o.monitor, MonitorStyle::Amber);
+        // --break takes hex or symbols and implies the server.
+        let o = opts(&["--break", "RWTS,C600"]);
+        assert_eq!(o.breakpoints, vec![0xbd00, 0xc600]);
+        assert_eq!(o.wozbug, Some(6502));
+        let bad: Vec<String> = vec!["--break".to_string(), "zzz".to_string()];
+        assert!(matches!(parse_options(&bad), Err(1)));
     }
 
     #[test]

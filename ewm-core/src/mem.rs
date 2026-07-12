@@ -46,6 +46,15 @@ struct Region {
     backing: Backing,
 }
 
+/// A memory-access watchpoint hit: the address, whether it was a write,
+/// and the value read or written.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WatchHit {
+    pub addr: u16,
+    pub write: bool,
+    pub value: u8,
+}
+
 pub struct Memory {
     base_ram: Vec<u8>,
     regions: Vec<Region>,
@@ -54,6 +63,14 @@ pub struct Memory {
     /// device handlers can timestamp accesses like the C handlers reading
     /// `cpu->counter`.
     pub cycles: u64,
+    /// Access watchpoints as inclusive ranges (WozBug,
+    /// notes/DEBUGGING_TOOLS.md). Empty in normal operation: every bus
+    /// access pays one always-false branch, measured as noise against the
+    /// Dormann suite.
+    watchpoints: Vec<(u16, u16)>,
+    /// The first watched access since the last `clear_watch_hit` —
+    /// `Cpu::step` clears per instruction and stops on a recorded hit.
+    watch_hit: Option<WatchHit>,
 }
 
 impl Memory {
@@ -66,6 +83,54 @@ impl Memory {
             regions: Vec::new(),
             devices: Vec::new(),
             cycles: 0,
+            watchpoints: Vec::new(),
+            watch_hit: None,
+        }
+    }
+
+    /// Watch every access to `from..=to` (endpoints in either order).
+    pub fn add_watchpoint(&mut self, from: u16, to: u16) {
+        let range = (from.min(to), from.max(to));
+        if !self.watchpoints.contains(&range) {
+            self.watchpoints.push(range);
+        }
+    }
+
+    /// Remove a watchpoint previously added with the same range.
+    pub fn remove_watchpoint(&mut self, from: u16, to: u16) {
+        let range = (from.min(to), from.max(to));
+        self.watchpoints.retain(|&r| r != range);
+    }
+
+    pub fn watchpoints(&self) -> &[(u16, u16)] {
+        &self.watchpoints
+    }
+
+    /// Whether any watchpoints exist — `Cpu::step` skips its per-
+    /// instruction watch bookkeeping entirely when not.
+    pub fn watching(&self) -> bool {
+        !self.watchpoints.is_empty()
+    }
+
+    pub fn clear_watchpoints(&mut self) {
+        self.watchpoints.clear();
+        self.watch_hit = None;
+    }
+
+    /// Take the recorded hit, clearing it.
+    pub fn take_watch_hit(&mut self) -> Option<WatchHit> {
+        self.watch_hit.take()
+    }
+
+    fn watched(&self, addr: u16) -> bool {
+        self.watchpoints
+            .iter()
+            .any(|&(a, b)| addr >= a && addr <= b)
+    }
+
+    fn record_watch(&mut self, addr: u16, write: bool, value: u8) {
+        if self.watch_hit.is_none() && self.watched(addr) {
+            self.watch_hit = Some(WatchHit { addr, write, value });
         }
     }
 
@@ -141,6 +206,16 @@ impl Memory {
     /// Port of `mem_get_byte`: base-RAM fast path, then the region walk.
     /// Unmapped reads return 0.
     pub fn read(&mut self, addr: u16) -> u8 {
+        if !self.watchpoints.is_empty() {
+            let value = self.read_unwatched(addr);
+            self.record_watch(addr, false, value);
+            return value;
+        }
+        self.read_unwatched(addr)
+    }
+
+    #[inline]
+    fn read_unwatched(&mut self, addr: u16) -> u8 {
         if (addr as usize) < self.base_ram.len() {
             return self.base_ram[addr as usize];
         }
@@ -160,6 +235,9 @@ impl Memory {
     /// the C walk returns on a region without the write flag. Unmapped
     /// writes are ignored.
     pub fn write(&mut self, addr: u16, b: u8) {
+        if !self.watchpoints.is_empty() {
+            self.record_watch(addr, true, b);
+        }
         if (addr as usize) < self.base_ram.len() {
             self.base_ram[addr as usize] = b;
             return;

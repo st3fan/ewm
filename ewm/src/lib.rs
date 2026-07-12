@@ -26,3 +26,4 @@ pub mod snd;
 pub mod tty;
 pub mod two;
 pub mod woz;
+pub mod wozbug;

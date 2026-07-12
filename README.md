@@ -146,6 +146,27 @@ Schema (`schema/ewm-config.schema.json`) gives editors validation and
 autocomplete via the `$schema` key; `notes/JSON_CONFIG.md` has the full
 plan.
 
+### Debugging with WozBug
+
+`--wozbug` starts WozBug — a minimal, Woz-Monitor-dialect debugger — as a
+line server on a local TCP port (default 6502, naturally). `--break`
+arms breakpoints at boot, by hex address or built-in symbol (RWTS, MLI,
+COUT, …), and implies the server:
+
+```
+cargo run --release -- two --break RWTS \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+# in another terminal:
+nc localhost 6502
+```
+
+When a breakpoint hits, the machine freezes and the client sees the
+registers. `280.29F` dumps memory (a bare Return continues), `300:A9 20`
+deposits, `R`/`PC=BD00` show and set registers, `S` single-steps, `G`
+resumes, and `DSK`/`SW`/`TEXT`/`SLOTS` dump the disk controllers, soft
+switches, text screen, and slot table. `?` lists everything; the plan
+lives in `notes/DEBUGGING_TOOLS.md`.
+
 Each subcommand accepts `--help` for all options. Useful keys while the
 emulator runs:
 

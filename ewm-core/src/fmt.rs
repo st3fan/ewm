@@ -204,6 +204,18 @@ pub fn format_instruction(cpu: &mut Cpu) -> String {
     }
 }
 
+/// Disassemble the instruction at `addr` without executing it: the
+/// formatted line plus the address of the next instruction (WozBug's
+/// `L`). Reads go through the bus, like every disassembler here.
+pub fn disassemble(cpu: &mut Cpu, addr: u16) -> (String, u16) {
+    let saved = cpu.pc;
+    cpu.pc = addr;
+    let line = format_instruction(cpu);
+    let bytes = (cpu.instructions[cpu.mem.read(addr) as usize].bytes as u16).max(1);
+    cpu.pc = saved;
+    (line, addr.wrapping_add(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
