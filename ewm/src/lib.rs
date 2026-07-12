@@ -16,6 +16,7 @@ pub mod config;
 pub mod dsk;
 pub mod hdd;
 pub mod led;
+pub mod liron;
 pub mod media;
 pub mod one;
 pub mod palette;

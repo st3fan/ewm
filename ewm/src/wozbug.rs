@@ -513,6 +513,13 @@ fn slots(two: &mut Two) -> String {
             "Disk II".to_string()
         } else if let Some(hdd) = two.hdd_at(slot) {
             format!("hard drive ({} blocks)", hdd.blocks())
+        } else if let Some(liron) = two.liron_at(slot) {
+            let media = |drive: usize| match liron.drive_blocks(drive) {
+                Some(800) => "400K",
+                Some(_) => "800K",
+                None => "-",
+            };
+            format!("UniDisk 3.5 (D1 {}, D2 {})", media(0), media(1))
         } else if two.clock_slot() == Some(slot) {
             "Thunderclock".to_string()
         } else {
