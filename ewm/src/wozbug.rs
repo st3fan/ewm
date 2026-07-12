@@ -81,6 +81,8 @@ const CONTINUE_BYTES: u16 = 64;
 pub struct WozBug {
     /// The dot address: one past the last byte dumped or deposited.
     dot: u16,
+    /// Where a bare `L` continues disassembling.
+    lst: Option<u16>,
 }
 
 impl Default for WozBug {
@@ -91,7 +93,7 @@ impl Default for WozBug {
 
 impl WozBug {
     pub fn new() -> WozBug {
-        WozBug { dot: 0 }
+        WozBug { dot: 0, lst: None }
     }
 
     /// Execute one command line against the machine; the reply is the
@@ -127,16 +129,33 @@ impl WozBug {
                 return step(two, n);
             }
         }
-        if let Some(rest) = upper.strip_prefix("B") {
-            return self.breakpoints(two, rest.trim());
-        }
         match upper.as_str() {
             "DSK" => return dsk(two),
             "SW" => return switches(two),
             "TEXT" => return text(two),
             "SLOTS" => return slots(two),
+            "T" => {
+                two.cpu.trace = Some(Box::new(std::io::stderr()));
+                return "trace on (stderr)".to_string();
+            }
+            "T-" => {
+                two.cpu.trace = None;
+                return "trace off".to_string();
+            }
             "?" | "HELP" => return HELP.trim().to_string(),
             _ => {}
+        }
+        // B/W/L take their argument after a space or '-' — never glued,
+        // because `B` is a hex digit and `BD00` must examine memory, not
+        // set a breakpoint at $D00.
+        if let Some(rest) = command_arg(&upper, 'B') {
+            return self.breakpoints(two, rest);
+        }
+        if let Some(rest) = command_arg(&upper, 'W') {
+            return self.watchpoints(two, rest);
+        }
+        if let Some(rest) = command_arg(&upper, 'L') {
+            return self.list(two, rest);
         }
 
         // Register set: PC=BD00, A=FF, X=, Y=, SP=, P=.
@@ -218,6 +237,74 @@ impl WozBug {
         self.dump(two, start, start.wrapping_add(values.len() as u16 - 1))
     }
 
+    /// `W` list, `W ADDR[.ADDR]` watch a range, `W-ADDR[.ADDR]` clear,
+    /// `W-` clear all. The CPU stops *after* the instruction that touches
+    /// a watched address (fetches count — executing watched code stops
+    /// too).
+    fn watchpoints(&mut self, two: &mut Two, rest: &str) -> String {
+        fn parse_range(s: &str) -> Option<(u16, u16)> {
+            match s.split_once('.') {
+                Some((from, to)) => Some((parse_addr(from)?, parse_addr(to)?)),
+                None => parse_addr(s).map(|addr| (addr, addr)),
+            }
+        }
+        fn range_name((from, to): (u16, u16)) -> String {
+            if from == to {
+                name_of(from)
+            } else {
+                format!("{from:04X}.{to:04X}")
+            }
+        }
+        if let Some(rest) = rest.strip_prefix('-') {
+            let rest = rest.trim();
+            if rest.is_empty() {
+                two.cpu.mem.clear_watchpoints();
+                return "all watchpoints cleared".to_string();
+            }
+            return match parse_range(rest) {
+                Some((from, to)) => {
+                    two.cpu.mem.remove_watchpoint(from, to);
+                    format!("watchpoint cleared at {}", range_name((from, to)))
+                }
+                None => "?".to_string(),
+            };
+        }
+        if rest.is_empty() {
+            let list = two.cpu.mem.watchpoints();
+            if list.is_empty() {
+                return "no watchpoints".to_string();
+            }
+            return list
+                .iter()
+                .map(|&range| range_name(range))
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+        match parse_range(rest) {
+            Some((from, to)) => {
+                two.cpu.mem.add_watchpoint(from, to);
+                format!("watchpoint set at {}", range_name((from, to)))
+            }
+            None => "?".to_string(),
+        }
+    }
+
+    /// `L [addr]`: disassemble sixteen instructions; a bare `L` continues.
+    fn list(&mut self, two: &mut Two, rest: &str) -> String {
+        let mut addr = match parse_addr(rest) {
+            Some(addr) => addr,
+            None => self.lst.unwrap_or(two.cpu.pc),
+        };
+        let mut out = String::new();
+        for _ in 0..16 {
+            let (line, next) = ewm_core::fmt::disassemble(&mut two.cpu, addr);
+            out.push_str(&format!("{addr:04X}: {line}\n"));
+            addr = next;
+        }
+        self.lst = Some(addr);
+        out.trim_end().to_string()
+    }
+
     /// `B` list, `B ADDR` set, `B-ADDR` clear, `B-` clear all. Addresses
     /// may be symbols (`B RWTS`).
     fn breakpoints(&mut self, two: &mut Two, rest: &str) -> String {
@@ -258,6 +345,17 @@ impl WozBug {
     }
 }
 
+/// Match a one-letter command: bare (`B`), with a clear-marker (`B-…`),
+/// or space-separated (`B 300`). Returns the argument (the `-` kept).
+fn command_arg(upper: &str, letter: char) -> Option<&str> {
+    let rest = upper.strip_prefix(letter)?;
+    if rest.is_empty() || rest.starts_with('-') {
+        Some(rest)
+    } else {
+        rest.strip_prefix(' ').map(str::trim)
+    }
+}
+
 /// `BD25 (RWTS+$25)` or plain `BD25`.
 fn name_of(addr: u16) -> String {
     match symbolize(addr) {
@@ -266,9 +364,24 @@ fn name_of(addr: u16) -> String {
     }
 }
 
-/// What the frontends announce when the machine halts on a breakpoint.
+/// What the frontends announce when the machine halts on a breakpoint or
+/// watchpoint.
 pub fn stopped_banner(two: &mut Two) -> String {
-    format!("stopped at {}\n{}", name_of(two.cpu.pc), registers(two))
+    let mut out = String::new();
+    if let Some(hit) = two.cpu.watch_stop() {
+        out.push_str(&format!(
+            "watch: {} {} = {:02X}\n",
+            if hit.write { "write" } else { "read" },
+            name_of(hit.addr),
+            hit.value,
+        ));
+    }
+    out.push_str(&format!(
+        "stopped at {}\n{}",
+        name_of(two.cpu.pc),
+        registers(two)
+    ));
+    out
 }
 
 /// The MicroBug `TD` analogue, in this machine's terms.
@@ -504,6 +617,10 @@ WozBug (see notes/DEBUGGING_TOOLS.md)
   R            registers             PC=BD00    set a register (A X Y SP P)
   S [n]        step n instructions   G / 300G   resume / go from address
   B [addr]     set/list breakpoints  B-addr     clear one (B- clears all)
+  W [a[.b]]    watch memory access   W-a        clear (stops after the
+                                     touching instruction; fetches count)
+  L [addr]     disassemble 16 (bare L continues)
+  T / T-       CPU trace to stderr on/off
   DSK SW TEXT SLOTS                  machine state (controllers, switches,
                                      screen, slot table)
 Addresses are hex; Monitor/DOS/ProDOS symbols work too (B RWTS).
@@ -607,6 +724,95 @@ mod tests {
         assert_eq!(wb.execute(&mut two, "300G"), "");
         assert!(!two.cpu.stopped());
         assert_eq!(two.cpu.pc, 0x0300);
+    }
+
+    #[test]
+    fn hex_addresses_starting_with_b_and_w_symbols_still_examine() {
+        let (mut wb, mut two) = machine();
+        // BD00 examines memory (RWTS ROM space is empty RAM-side here);
+        // it must not become a breakpoint at $D00.
+        let out = wb.execute(&mut two, "BD00");
+        assert!(out.starts_with("BD00-"), "{out}");
+        assert!(two.cpu.breakpoints().is_empty());
+        // The WAIT symbol examines $FCA8 rather than becoming a watchpoint.
+        let out = wb.execute(&mut two, "WAIT");
+        assert!(out.starts_with("FCA8-"), "{out}");
+        assert!(two.cpu.mem.watchpoints().is_empty());
+    }
+
+    #[test]
+    fn watchpoints_and_the_stop_banner() {
+        let (mut wb, mut two) = machine();
+        assert_eq!(
+            wb.execute(&mut two, "W 2000.200F"),
+            "watchpoint set at 2000.200F"
+        );
+        assert_eq!(wb.execute(&mut two, "W"), "2000.200F");
+
+        // STA $2000 from a little program: the CPU stops after the store
+        // and the banner names the access.
+        wb.execute(&mut two, "300:A9 5A 8D 00 20 EA");
+        two.cpu.pc = 0x0300;
+        let out = wb.execute(&mut two, "S 5");
+        assert!(out.contains("stopped at"), "{out}");
+        let banner = stopped_banner(&mut two);
+        assert!(banner.contains("watch: write 2000 = 5A"), "{banner}");
+
+        wb.execute(&mut two, "G");
+        assert_eq!(
+            wb.execute(&mut two, "W-2000.200F"),
+            "watchpoint cleared at 2000.200F"
+        );
+        assert_eq!(wb.execute(&mut two, "W"), "no watchpoints");
+        wb.execute(&mut two, "W 1234");
+        assert_eq!(wb.execute(&mut two, "W-"), "all watchpoints cleared");
+    }
+
+    #[test]
+    fn trace_toggle_and_disassembly() {
+        let (mut wb, mut two) = machine();
+        assert!(two.cpu.trace.is_none());
+        assert_eq!(wb.execute(&mut two, "T"), "trace on (stderr)");
+        assert!(two.cpu.trace.is_some());
+        assert_eq!(wb.execute(&mut two, "T-"), "trace off");
+        assert!(two.cpu.trace.is_none());
+
+        wb.execute(&mut two, "300:A9 42 8D 00 20 4C 00 03");
+        let out = wb.execute(&mut two, "L 300");
+        assert!(out.starts_with("0300: LDA  #$42"), "{out}");
+        assert!(out.contains("0302: STA  $2000"), "{out}");
+        assert!(out.contains("0305: JMP  $0300"), "{out}");
+        assert_eq!(out.lines().count(), 16);
+        // A bare L continues where the last one stopped.
+        let next = wb.execute(&mut two, "L");
+        assert!(!next.contains("0300: LDA"), "{next}");
+    }
+
+    #[test]
+    fn server_serves_sequential_connections() {
+        use std::io::{BufRead, BufReader, Write};
+
+        let (mut wb, mut two) = machine();
+        let server = Server::start(0).expect("bind an ephemeral port");
+
+        for attempt in 0..3 {
+            let mut client = std::net::TcpStream::connect(("127.0.0.1", server.port()))
+                .unwrap_or_else(|e| panic!("connect #{attempt}: {e}"));
+            client.write_all(b"R\n").expect("send");
+            let line = server
+                .commands
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap_or_else(|e| panic!("command #{attempt}: {e}"));
+            server.reply(&wb.execute(&mut two, &line));
+            let mut reader = BufReader::new(client);
+            let mut banner = String::new();
+            reader.read_line(&mut banner).expect("banner");
+            let mut reply = String::new();
+            reader.read_line(&mut reply).expect("reply");
+            assert!(reply.contains("PC="), "attempt {attempt}: {reply}");
+            // Dropping the client here must free the server to accept the
+            // next connection.
+        }
     }
 
     #[test]

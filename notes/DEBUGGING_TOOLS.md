@@ -12,7 +12,7 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
 |---|---|---|---|
 | 1 | CPU breakpoints + the WozBug command core (library, used by tests) | S/M | **Done** |
 | 2 | The `--wozbug` line server + `--break` flag + device commands | M | **Done** |
-| 3 | Watchpoints, runtime trace toggle, disassembly, symbol table | M | Not started |
+| 3 | Watchpoints, runtime trace toggle, disassembly, symbol table | M | **Done** |
 
 ## Phase 1 decisions (recorded as built)
 
@@ -57,6 +57,28 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
   then `nc localhost 6502` → announcement on connect, `R` shows the IOB
   pointer in Y/A, `S 3` traces `STY $48 / STA $49 / LDY #$02`, `G`
   resumes into the boot.
+
+## Phase 3 decisions (recorded as built)
+
+- **Watchpoints stop *after* the touching instruction** (post-hoc, unlike
+  the pre-execution PC breakpoint): `Memory` records the first watched
+  access per instruction, `Cpu::step` stops and keeps the reason
+  (`watch_stop()`), and the banner prints `watch: write 2000 = 5A`.
+  Opcode fetches count — executing watched code is a watched read. The
+  trace formatter's lookahead reads deliberately do not.
+- **Overhead measured, kept in the normal build**: the Dormann suite goes
+  0.19s → 0.21s release (~5-10% on the pure-CPU microbenchmark — the
+  irreducible one-branch-per-bus-access). At the app's real-time 1MHz
+  pacing the cost is zero, and CI moves by a couple of seconds, so
+  watchpoints stay always-available; the `debugger` feature gate remains
+  the documented fallback if that judgment ever changes.
+- **Dialect rule**: `B`/`W`/`L` take their argument after a space or `-`,
+  never glued — `B` is a hex digit, and `BD00` must examine memory, not
+  set a breakpoint at `$D00` (`WAIT` examines the symbol, not a watch).
+- `T`/`T-` toggles the `--trace` machinery onto stderr at runtime; `L`
+  reuses the trace disassembler via the new `ewm_core::fmt::disassemble`
+  (a bare `L` continues, like the Monitor's).
+- **JSON output mode: not built** — demand-driven, and no demand yet.
 
 ## The motivating case (what PR #253 actually took)
 

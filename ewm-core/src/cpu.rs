@@ -60,6 +60,9 @@ pub struct Cpu {
     /// After `resume()`, the address whose breakpoint is skipped once — so
     /// resuming from a hit executes the instruction instead of re-breaking.
     skip_breakpoint: Option<u16>,
+    /// Why the last watchpoint stop happened (the instruction that touched
+    /// the watched range has already executed). Cleared by `resume()`.
+    watch_stop: Option<crate::mem::WatchHit>,
     pub(crate) instructions: &'static [Instruction; 256],
 }
 
@@ -87,6 +90,7 @@ impl Cpu {
             breakpoints: Vec::new(),
             stopped: false,
             skip_breakpoint: None,
+            watch_stop: None,
             instructions: match model {
                 Model::M6502 => &INSTRUCTIONS_6502,
                 Model::M65C02 => instructions_65c02(),
@@ -222,6 +226,14 @@ impl Cpu {
     pub fn resume(&mut self) {
         self.stopped = false;
         self.skip_breakpoint = Some(self.pc);
+        self.watch_stop = None;
+    }
+
+    /// When the last stop came from a watchpoint: what was accessed. The
+    /// triggering instruction has already executed (the stop is post-hoc,
+    /// unlike a PC breakpoint's pre-execution stop).
+    pub fn watch_stop(&self) -> Option<crate::mem::WatchHit> {
+        self.watch_stop
     }
 
     /// Execute one instruction and return the cycles it took (the fixed
@@ -254,6 +266,14 @@ impl Cpu {
             }
         }
 
+        // A fresh watch scope per instruction: everything from the opcode
+        // fetch on counts as this instruction's accesses (the trace
+        // formatter's reads above deliberately do not).
+        let watching = self.mem.watching();
+        if watching {
+            self.mem.take_watch_hit();
+        }
+
         // Fetch instruction
         let instructions = self.instructions;
         let ins = &instructions[self.mem.read(self.pc) as usize];
@@ -274,6 +294,13 @@ impl Cpu {
                 let oper = self.mem.read_word(pc.wrapping_add(1));
                 f(self, oper);
             }
+        }
+
+        // A watched access stops the CPU *after* the instruction that made
+        // it (post-hoc, unlike the pre-execution PC breakpoint).
+        if watching && let Some(hit) = self.mem.take_watch_hit() {
+            self.stopped = true;
+            self.watch_stop = Some(hit);
         }
 
         // Base cost from the table plus what the handler accrued (taken
@@ -332,6 +359,41 @@ mod tests {
         assert!(cpu.breakpoints().is_empty());
         cpu.pc = 0x0402;
         assert!(cpu.step() > 0);
+    }
+
+    #[test]
+    fn watchpoints_stop_after_the_touching_instruction() {
+        let mut cpu = test_cpu(Model::M6502);
+        // LDA $1000 / STA $2000 / NOP
+        cpu.mem
+            .load(0x0400, &[0xad, 0x00, 0x10, 0x8d, 0x00, 0x20, 0xea]);
+        cpu.mem.write(0x1000, 0x5a);
+        cpu.reset();
+        cpu.pc = 0x0400;
+        cpu.mem.add_watchpoint(0x2000, 0x200f);
+
+        assert!(cpu.step() > 0, "the $1000 read is not watched");
+        assert!(!cpu.stopped());
+        assert!(cpu.step() > 0, "the store executes, then the CPU stops");
+        assert!(cpu.stopped());
+        let hit = cpu.watch_stop().expect("watch reason recorded");
+        assert_eq!((hit.addr, hit.write, hit.value), (0x2000, true, 0x5a));
+        assert_eq!(cpu.mem.read(0x2000), 0x5a, "the write landed");
+        assert_eq!(cpu.pc, 0x0406, "the stop is post-instruction");
+
+        // Resume clears the reason and continues.
+        cpu.resume();
+        assert!(cpu.watch_stop().is_none());
+        assert!(cpu.step() > 0);
+
+        // Reads trigger too — the opcode fetch included.
+        cpu.mem.clear_watchpoints();
+        cpu.mem.add_watchpoint(0x0400, 0x0400);
+        cpu.pc = 0x0400;
+        assert!(cpu.step() > 0);
+        assert!(cpu.stopped(), "executing watched code is a watched read");
+        let hit = cpu.watch_stop().expect("fetch hit recorded");
+        assert_eq!((hit.addr, hit.write, hit.value), (0x0400, false, 0xad));
     }
 
     #[test]
