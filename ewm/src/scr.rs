@@ -351,6 +351,10 @@ impl Scr {
                 None => return,
             }
         };
+        // $40-$7F flashes only in the primary character set; with ALTCHARSET
+        // on those codes are MouseText and inverse lower case, which are
+        // steady. (The ][+ has no alternate set: alt_charset() is false.)
+        let flash = flash && !two.alt_charset();
         let base = (SCR_WIDTH * CHR_HEIGHT * row) + (CHR_WIDTH * column);
         for y in 0..CHR_HEIGHT {
             for x in 0..CHR_WIDTH {
@@ -566,6 +570,9 @@ impl Scr {
         flash: bool,
     ) {
         let base = 0x400 + line_offset;
+        // $40-$7F flashes only in the primary set — the alternate set's
+        // MouseText and inverse lower case are steady.
+        let flash = flash && !alt;
         for column in 0..80 {
             let bank = if column % 2 == 0 { aux } else { main };
             let c = bank[base + column / 2];
@@ -820,6 +827,59 @@ mod tests {
         scr.set_monitor_style(MonitorStyle::Green);
         scr.update(&two, 0, 40);
         assert!(scr.pixels.contains(&green), "switching back restores green");
+    }
+
+    /// MouseText must not flash: $40-$7F is the flashing range only in the
+    /// primary character set — with ALTCHARSET on those codes are MouseText
+    /// and inverse lower case, which are steady. (The //e Diagnostics menu
+    /// draws its window borders with MouseText; they flashed before.)
+    #[test]
+    fn mousetext_does_not_flash() {
+        let layout = PixelLayout::Argb8888;
+        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut scr = Scr::new(layout);
+
+        // $53 is the MouseText horizontal bar; put it in the top-left cell.
+        two.cpu.mem.write(0x400, 0x53);
+        let cell = |scr: &Scr| {
+            (0..CHR_HEIGHT)
+                .flat_map(|y| (0..CHR_WIDTH).map(move |x| (y, x)))
+                .filter(|&(y, x)| scr.pixels[y * SCR_WIDTH + x] != 0)
+                .count()
+        };
+
+        // phase 10 of 40 fps is the blanked flash phase.
+        two.cpu.mem.write(0xc00f, 0); // ALTCHARSET on
+        scr.update(&two, 10, 40);
+        assert!(cell(&scr) > 0, "MouseText must render during flash");
+
+        two.cpu.mem.write(0xc00e, 0); // ALTCHARSET off: primary set flashes
+        scr.update(&two, 10, 40);
+        assert_eq!(cell(&scr), 0, "the primary set must still flash");
+    }
+
+    /// The same rule on the 80-column path, straight through the row
+    /// renderer: an alternate-set MouseText cell survives the flash phase, a
+    /// primary-set cell blanks.
+    #[test]
+    fn mousetext_does_not_flash_in_80_columns() {
+        let mut scr = Scr::new(PixelLayout::Argb8888);
+        let mut main = vec![0u8; 0x800];
+        let aux = vec![0u8; 0x800];
+        main[0x400] = 0x53; // display column 1 (odd columns come from main)
+
+        let cell = |scr: &Scr| {
+            (0..CHR_HEIGHT)
+                .flat_map(|y| (0..CHR_WIDTH).map(move |x| (y, x)))
+                .filter(|&(y, x)| scr.wide[y * SCR_WIDTH_E + CHR_WIDTH + x] != 0)
+                .count()
+        };
+
+        scr.render_txt_row_80(&main, &aux, true, 0, 0, true);
+        assert!(cell(&scr) > 0, "alternate-set MouseText must not blank");
+
+        scr.render_txt_row_80(&main, &aux, false, 0, 0, true);
+        assert_eq!(cell(&scr), 0, "primary-set flash must still blank");
     }
 
     /// The Phase 7 automated gate: boot the System Master for a fixed
