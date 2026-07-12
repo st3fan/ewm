@@ -54,8 +54,8 @@ pub fn symbolize(addr: u16) -> Option<String> {
 }
 
 /// Parse an address: hex (no `$`/`0x` needed, both tolerated) or a symbol
-/// name from the built-in table.
-fn parse_addr(s: &str) -> Option<u16> {
+/// name from the built-in table. Public so `--break RWTS` works.
+pub fn parse_addr(s: &str) -> Option<u16> {
     let s = s.trim();
     if let Some((_, name)) = SYMBOLS
         .iter()
@@ -266,6 +266,11 @@ fn name_of(addr: u16) -> String {
     }
 }
 
+/// What the frontends announce when the machine halts on a breakpoint.
+pub fn stopped_banner(two: &mut Two) -> String {
+    format!("stopped at {}\n{}", name_of(two.cpu.pc), registers(two))
+}
+
 /// The MicroBug `TD` analogue, in this machine's terms.
 fn registers(two: &mut Two) -> String {
     let pc = two.cpu.pc;
@@ -392,6 +397,106 @@ fn slots(two: &mut Two) -> String {
     out.join("\n")
 }
 
+/// The `--wozbug` line server: one TCP client at a time on 127.0.0.1,
+/// newline-delimited commands in, replies out, `nc`-friendly. The server
+/// threads only move strings — the emulator loop drains `commands` and
+/// executes them between frames, so the machine is never touched off its
+/// own thread and an idle server costs nothing per frame beyond one
+/// `try_recv`.
+pub struct Server {
+    pub commands: std::sync::mpsc::Receiver<String>,
+    replies: std::sync::mpsc::Sender<String>,
+    port: u16,
+}
+
+impl Server {
+    /// Bind 127.0.0.1:`port` (0 picks an ephemeral port — tests) and start
+    /// the connection threads.
+    pub fn start(port: u16) -> std::io::Result<Server> {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", port))?;
+        let port = listener.local_addr()?.port();
+        let (cmd_tx, commands) = std::sync::mpsc::channel();
+        let (replies, resp_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || serve(listener, cmd_tx, resp_rx));
+        Ok(Server {
+            commands,
+            replies,
+            port,
+        })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Send a reply (or an unsolicited announcement) followed by the
+    /// Monitor's `*` prompt. Dropped silently when no client is listening.
+    pub fn reply(&self, text: &str) {
+        let framed = if text.is_empty() {
+            "* ".to_string()
+        } else {
+            format!("{text}\n* ")
+        };
+        let _ = self.replies.send(framed);
+    }
+}
+
+/// One client at a time: a reader thread feeds the command channel; this
+/// thread writes replies until the client goes away, then accepts the
+/// next connection. `recv_timeout` lets a silent disconnect (reader saw
+/// EOF, no replies pending) release the writer to accept again.
+fn serve(
+    listener: std::net::TcpListener,
+    commands: std::sync::mpsc::Sender<String>,
+    replies: std::sync::mpsc::Receiver<String>,
+) {
+    use std::io::{BufRead, Write};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        if stream
+            .write_all(b"WozBug \xE2\x80\x94 ? for help\n* ")
+            .is_err()
+        {
+            continue;
+        }
+        let Ok(reader) = stream.try_clone() else {
+            continue;
+        };
+        let alive = Arc::new(AtomicBool::new(true));
+        let reader_alive = alive.clone();
+        let tx = commands.clone();
+        let reader_thread = std::thread::spawn(move || {
+            for line in std::io::BufReader::new(reader).lines() {
+                let Ok(line) = line else { break };
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+            reader_alive.store(false, Ordering::Relaxed);
+        });
+        loop {
+            match replies.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(msg) => {
+                    if stream.write_all(msg.as_bytes()).is_err() {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if !alive.load(Ordering::Relaxed) {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        let _ = reader_thread.join();
+    }
+}
+
 const HELP: &str = "
 WozBug (see notes/DEBUGGING_TOOLS.md)
   280.29F      dump a range          280        examine one byte
@@ -502,6 +607,32 @@ mod tests {
         assert_eq!(wb.execute(&mut two, "300G"), "");
         assert!(!two.cpu.stopped());
         assert_eq!(two.cpu.pc, 0x0300);
+    }
+
+    #[test]
+    fn server_round_trip() {
+        use std::io::{BufRead, BufReader, Write};
+
+        let (mut wb, mut two) = machine();
+        let server = Server::start(0).expect("bind an ephemeral port");
+        let mut client =
+            std::net::TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
+        client.write_all(b"R\n").expect("send command");
+
+        // Pump the emulator side once, as the frame loop does.
+        let line = server
+            .commands
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("command arrives");
+        server.reply(&wb.execute(&mut two, &line));
+
+        let mut reader = BufReader::new(client);
+        let mut banner = String::new();
+        reader.read_line(&mut banner).expect("banner");
+        assert!(banner.contains("WozBug"), "{banner}");
+        let mut reply = String::new();
+        reader.read_line(&mut reply).expect("reply");
+        assert!(reply.contains("PC="), "{reply}");
     }
 
     #[test]

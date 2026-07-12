@@ -11,7 +11,7 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | 1 | CPU breakpoints + the WozBug command core (library, used by tests) | S/M | **Done** |
-| 2 | The `--wozbug` line server + `--break` flag + device commands | M | Not started |
+| 2 | The `--wozbug` line server + `--break` flag + device commands | M | **Done** |
 | 3 | Watchpoints, runtime trace toggle, disassembly, symbol table | M | Not started |
 
 ## Phase 1 decisions (recorded as built)
@@ -33,6 +33,30 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
 - The #253 retrofit is `ewm/tests/wozbug.rs`: boot DOS, `B RWTS` (by
   symbol), CATALOG lands on the breakpoint, `R` names `PC=BD00 (RWTS)`,
   `DSK` shows the controller, Y/A → IOB checked, `S`/`G` resume cleanly.
+
+## Phase 2 decisions (recorded as built)
+
+- **`--wozbug [port]`** (default 6502) starts the line server on
+  127.0.0.1; **`--break addr[,addr]`** (hex or symbols — `--break RWTS`)
+  arms breakpoints at boot and implies the server. Optional-value parsing
+  follows the `--color` peek convention.
+- **Threading**: the server threads only move strings over channels — the
+  frame loop drains commands and runs `execute()` on the machine's own
+  thread, so no locking exists and an idle server costs one `try_recv`
+  per loop iteration. One client at a time; the writer uses a 200ms
+  `recv_timeout` so a silent disconnect frees it to accept the next
+  connection.
+- **Stop integration**: the frame burst breaks on a 0-cycle step; a
+  rising stopped edge sends `stopped at …` + registers to the client
+  *and* stderr (so a hit is visible even before a client connects — the
+  announcement a later client misses is retold by `R`'s `[stopped]`).
+- **No stdin REPL** (open question resolved): the server covers scripted
+  and interactive use via `nc`; the tty adds a raw-mode/SDL headache for
+  no new capability.
+- Verified live: `ewm two --break RWTS --set machine:slots:6:drive1=…`,
+  then `nc localhost 6502` → announcement on connect, `R` shows the IOB
+  pointer in Y/A, `S 3` traces `STY $48 / STA $49 / LDY #$02`, `G`
+  resumes into the boot.
 
 ## The motivating case (what PR #253 actually took)
 
