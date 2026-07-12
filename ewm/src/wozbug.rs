@@ -495,13 +495,16 @@ fn text(two: &mut Two) -> String {
 /// The machine's slot table.
 fn slots(two: &mut Two) -> String {
     let mut out = Vec::new();
-    // Slot 0 is the ][+ language-card socket; the //e's card is built into
-    // the motherboard, so no slot 0 line there.
+    // Slot 0 is the ][+ memory-expansion socket; the //e's language card
+    // is built into the motherboard, so no slot 0 line there.
     if two.model() == crate::two::TwoType::Apple2Plus {
-        let what = if two.language_card() {
-            "language card (16K)"
-        } else {
-            "-"
+        let what = match two.slot0() {
+            crate::two::Slot0::Language => "language card (16K)".to_string(),
+            crate::two::Slot0::Saturn128 => {
+                let bank = two.saturn_bank().expect("Saturn128 keeps its handle");
+                format!("Saturn 128K (bank {})", bank + 1)
+            }
+            crate::two::Slot0::Empty => "-".to_string(),
         };
         out.push(format!("S0: {what}"));
     }
@@ -647,6 +650,25 @@ mod tests {
             WozBug::new(),
             Two::new(TwoType::Apple2Plus).expect("machine must construct"),
         )
+    }
+
+    #[test]
+    fn slots_shows_the_saturn_and_its_bank() {
+        use crate::two::{Slot0, default_slots};
+        let mut wb = WozBug::new();
+        let mut two = Two::new_with_slots(
+            TwoType::Apple2Plus,
+            None,
+            Slot0::Saturn128,
+            &default_slots(),
+        )
+        .expect("machine must construct");
+        let slots = wb.execute(&mut two, "SLOTS");
+        assert!(slots.contains("S0: Saturn 128K (bank 1)"), "{slots}");
+        // Selecting 16K bank 6 ($C08D) shows up in the display.
+        two.cpu.mem.read(0xc08d);
+        let slots = wb.execute(&mut two, "SLOTS");
+        assert!(slots.contains("S0: Saturn 128K (bank 6)"), "{slots}");
     }
 
     #[test]

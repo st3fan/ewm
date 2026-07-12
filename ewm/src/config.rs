@@ -151,6 +151,10 @@ pub enum SlotCard {
     /// 48K machine into the classic 64K build. Omitting slot 0 from an
     /// explicit `slots` table leaves the socket empty (a 48K machine).
     Language,
+    /// The Saturn Systems 128K RAM Board: eight 16K banks at $D000-$FFFF,
+    /// bank 1 speaking the exact Language Card protocol. Slot 0 only,
+    /// ][+ only.
+    Saturn128,
     /// Explicitly nothing in this slot.
     Empty,
 }
@@ -163,6 +167,7 @@ impl SlotCard {
             SlotCard::Harddrive { .. } => "harddrive",
             SlotCard::Thunderclock => "thunderclock",
             SlotCard::Language => "language",
+            SlotCard::Saturn128 => "saturn128",
             SlotCard::Empty => "empty",
         }
     }
@@ -513,8 +518,8 @@ fn validate(config: &Config) -> Result<(), String> {
         for (key, card) in slots {
             match key.as_str() {
                 // Slot 0 is the ][+ memory-expansion socket: no $Cn00
-                // firmware space, so only the language card (or nothing)
-                // fits; the //e has no slot 0 at all.
+                // firmware space, so only bankable-RAM cards (or nothing)
+                // fit; the //e has no slot 0 at all.
                 "0" => {
                     if config.machine.model == Model::TwoE {
                         return Err(
@@ -522,17 +527,21 @@ fn validate(config: &Config) -> Result<(), String> {
                                 .into(),
                         );
                     }
-                    if !matches!(card, SlotCard::Language | SlotCard::Empty) {
+                    if !matches!(
+                        card,
+                        SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty
+                    ) {
                         return Err(format!(
-                            "machine.slots: slot \"0\" takes only \"language\" or \"empty\" (not \"{}\")",
+                            "machine.slots: slot \"0\" takes only \"language\", \"saturn128\" or \"empty\" (not \"{}\")",
                             card.card_name()
                         ));
                     }
                 }
                 "1" | "2" | "3" | "4" | "5" | "6" | "7" => {
-                    if matches!(card, SlotCard::Language) {
+                    if matches!(card, SlotCard::Language | SlotCard::Saturn128) {
                         return Err(format!(
-                            "machine.slots: the language card only fits slot \"0\" (not slot {key:?})"
+                            "machine.slots: the {} card only fits slot \"0\" (not slot {key:?})",
+                            card.card_name()
                         ));
                     }
                 }
@@ -589,7 +598,8 @@ fn resolve_paths(config: &mut Config, base: &Path) {
                 }
             }
             SlotCard::Harddrive { image } => resolve(base, image),
-            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Empty => {}
+            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty => {
+            }
         }
     }
     for region in &mut config.machine.memory {
@@ -719,18 +729,24 @@ mod tests {
         let err = slot("01", r#"{"card": "thunderclock"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "01""#), "{err}");
 
-        // Slot 0 is the ][+ language-card socket: language or empty only,
-        // and the language card fits nowhere else.
+        // Slot 0 is the ][+ memory-expansion socket: bankable-RAM cards or
+        // empty only, and those cards fit nowhere else.
         assert!(slot("0", r#"{"card": "language"}"#).is_ok());
+        assert!(slot("0", r#"{"card": "saturn128"}"#).is_ok());
         assert!(slot("0", r#"{"card": "empty"}"#).is_ok());
         let err = slot("0", r#"{"card": "diskii"}"#).unwrap_err();
         assert!(
-            err.contains(r#"slot "0" takes only "language" or "empty""#),
+            err.contains(r#"slot "0" takes only "language", "saturn128" or "empty""#),
             "{err}"
         );
         let err = slot("3", r#"{"card": "language"}"#).unwrap_err();
         assert!(
             err.contains(r#"the language card only fits slot "0""#),
+            "{err}"
+        );
+        let err = slot("3", r#"{"card": "saturn128"}"#).unwrap_err();
+        assert!(
+            err.contains(r#"the saturn128 card only fits slot "0""#),
             "{err}"
         );
         let err = parse(r#"{"machine": {"model": "2e", "slots": {"0": {"card": "language"}}}}"#)

@@ -20,6 +20,7 @@ pub mod media;
 pub mod one;
 pub mod palette;
 pub mod pia;
+pub mod saturn;
 pub mod scr;
 pub mod sdl;
 pub mod snd;

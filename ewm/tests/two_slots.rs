@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use ewm::clk::{ClockTime, clk_read_entry};
 use ewm::hdd::hdd_driver_entry;
-use ewm::two::{SlotDevice, Two, TwoType};
+use ewm::two::{Slot0, SlotDevice, Two, TwoType};
 
 const DOS33: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -19,7 +19,8 @@ fn slots(entries: &[(u8, SlotDevice)]) -> BTreeMap<u8, SlotDevice> {
 }
 
 fn plus_with(entries: &[(u8, SlotDevice)]) -> Two {
-    Two::new_with_slots(TwoType::Apple2Plus, None, true, &slots(entries)).expect("must construct")
+    Two::new_with_slots(TwoType::Apple2Plus, None, Slot0::Language, &slots(entries))
+        .expect("must construct")
 }
 
 /// Step until the predicate holds, with a cycle cap. The predicate is
@@ -263,7 +264,7 @@ fn empty_slots_read_zero_on_the_iie() {
     let mut two = Two::new_with_slots(
         TwoType::Apple2E,
         None,
-        true,
+        Slot0::Language,
         &slots(&[(1, SlotDevice::Thunderclock)]),
     )
     .expect("must construct");
@@ -445,9 +446,9 @@ fn boot_scans_the_higher_hard_drive_first() {
 fn slot_zero_language_card_is_optional() {
     // With the card (the classic 64K build): two reads of $C083 read- and
     // write-enable bank 2 RAM at $D000, so a write sticks.
-    let mut two =
-        Two::new_with_slots(TwoType::Apple2Plus, None, true, &slots(&[])).expect("must construct");
-    assert!(two.language_card());
+    let mut two = Two::new_with_slots(TwoType::Apple2Plus, None, Slot0::Language, &slots(&[]))
+        .expect("must construct");
+    assert_eq!(two.slot0(), Slot0::Language);
     let rom_byte = two.cpu.mem.read(0xd000);
     two.cpu.mem.read(0xc083);
     two.cpu.mem.read(0xc083);
@@ -461,9 +462,9 @@ fn slot_zero_language_card_is_optional() {
     // Without it (the 48K machine): $D000-$FFFF is motherboard ROM straight
     // on the bus, the same switch sequence changes nothing, and slot 0's
     // DEVSEL range is as unmapped as any other empty slot's.
-    let mut two =
-        Two::new_with_slots(TwoType::Apple2Plus, None, false, &slots(&[])).expect("must construct");
-    assert!(!two.language_card());
+    let mut two = Two::new_with_slots(TwoType::Apple2Plus, None, Slot0::Empty, &slots(&[]))
+        .expect("must construct");
+    assert_eq!(two.slot0(), Slot0::Empty);
     assert_eq!(two.cpu.mem.read(0xd000), rom_byte, "the same machine ROM");
     assert_eq!(two.cpu.mem.read(0xc083), 0x00, "slot 0 DEVSEL is unmapped");
     two.cpu.mem.read(0xc083);
@@ -478,7 +479,7 @@ fn dos33_boots_on_a_48k_machine() {
     let mut two = Two::new_with_slots(
         TwoType::Apple2Plus,
         None,
-        false,
+        Slot0::Empty,
         &slots(&[(6, SlotDevice::DiskII)]),
     )
     .expect("must construct");
@@ -495,7 +496,7 @@ fn construction_rejects_bad_tables_and_occupied_slots() {
     let err = Two::new_with_slots(
         TwoType::Apple2Plus,
         None,
-        true,
+        Slot0::Language,
         &slots(&[(8, SlotDevice::DiskII)]),
     )
     .err()
@@ -505,7 +506,7 @@ fn construction_rejects_bad_tables_and_occupied_slots() {
     let err = Two::new_with_slots(
         TwoType::Apple2Plus,
         None,
-        true,
+        Slot0::Language,
         &slots(&[(1, SlotDevice::Thunderclock), (2, SlotDevice::Thunderclock)]),
     )
     .err()

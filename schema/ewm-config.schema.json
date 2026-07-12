@@ -456,6 +456,20 @@
           ]
         },
         {
+          "description": "The Saturn Systems 128K RAM Board: eight 16K banks at $D000-$FFFF,\nbank 1 speaking the exact Language Card protocol. Slot 0 only,\n][+ only.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "saturn128"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
           "description": "Explicitly nothing in this slot.",
           "type": "object",
           "properties": {
