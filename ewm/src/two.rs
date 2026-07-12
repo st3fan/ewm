@@ -2624,9 +2624,7 @@ pub fn main(args: &[String]) -> i32 {
                                         Submenu::Scanlines => {
                                             add_scanline_commands(&mut palette, scanlines)
                                         }
-                                        Submenu::Speed => {
-                                            add_speed_commands(&mut palette, speed)
-                                        }
+                                        Submenu::Speed => add_speed_commands(&mut palette, speed),
                                         Submenu::Controller => {
                                             let active = controller
                                                 .as_ref()
@@ -2762,9 +2760,7 @@ pub fn main(args: &[String]) -> i32 {
                                 // choice rows.
                                 palette.add_submenu_command(
                                     format!("Speed: {}", speed_label(speed)),
-                                    TwoAction::Run(|ctx| {
-                                        *ctx.open_submenu = Some(Submenu::Speed)
-                                    }),
+                                    TwoAction::Run(|ctx| *ctx.open_submenu = Some(Submenu::Speed)),
                                 );
                                 palette_visible = true;
                             }
