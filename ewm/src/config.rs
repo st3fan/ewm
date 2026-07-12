@@ -145,6 +145,14 @@ pub enum SlotCard {
         /// Block image (`.hdv`, `.po`).
         image: String,
     },
+    /// A UniDisk 3.5 Controller ("Liron") with up to two SmartPort 3.5"
+    /// drives taking .2mg images of 400K or 800K.
+    Liron {
+        /// .2mg image for drive 1.
+        drive1: Option<String>,
+        /// .2mg image for drive 2.
+        drive2: Option<String>,
+    },
     /// A Thunderclock Plus real-time clock.
     Thunderclock,
     /// The 16K Apple Language Card. Slot 0 only, ][+ only — it turns the
@@ -165,6 +173,7 @@ impl SlotCard {
         match self {
             SlotCard::Diskii { .. } => "diskii",
             SlotCard::Harddrive { .. } => "harddrive",
+            SlotCard::Liron { .. } => "liron",
             SlotCard::Thunderclock => "thunderclock",
             SlotCard::Language => "language",
             SlotCard::Saturn128 => "saturn128",
@@ -589,7 +598,7 @@ fn validate(config: &Config) -> Result<(), String> {
 fn resolve_paths(config: &mut Config, base: &Path) {
     for card in config.machine.slots.iter_mut().flat_map(|s| s.values_mut()) {
         match card {
-            SlotCard::Diskii { drive1, drive2 } => {
+            SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
                 if let Some(p) = drive1 {
                     resolve(base, p);
                 }
@@ -728,6 +737,21 @@ mod tests {
         assert!(err.contains(r#"no such slot "8""#), "{err}");
         let err = slot("01", r#"{"card": "thunderclock"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "01""#), "{err}");
+
+        // The Liron takes up to two .2mg drives, any slot but 0.
+        assert!(slot("5", r#"{"card": "liron"}"#).is_ok());
+        assert!(
+            slot(
+                "5",
+                r#"{"card": "liron", "drive1": "a.2mg", "drive2": "b.2mg"}"#
+            )
+            .is_ok()
+        );
+        let err = slot("0", r#"{"card": "liron"}"#).unwrap_err();
+        assert!(
+            err.contains(r#"slot "0" takes only "language", "saturn128" or "empty""#),
+            "{err}"
+        );
 
         // Slot 0 is the ][+ memory-expansion socket: bankable-RAM cards or
         // empty only, and those cards fit nowhere else.

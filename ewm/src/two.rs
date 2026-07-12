@@ -14,6 +14,7 @@ use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{Hdd, hdd_rom};
 use crate::led::{LED_STRIP_HEIGHT, LED_STRIP_WIDTH, render_led_strip};
+use crate::liron::{Liron, liron_rom};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::saturn::Saturn;
 use crate::scr::{
@@ -1083,6 +1084,9 @@ enum MachineIo {
 pub enum SlotDevice {
     DiskII,
     Thunderclock,
+    /// The UniDisk 3.5 Controller ("Liron"): two SmartPort 3.5" drives
+    /// taking .2mg images, mounted after construction with `load_2mg_at`.
+    Liron,
 }
 
 /// What occupies the ][+ slot 0 socket — the memory-expansion slot, which
@@ -1123,6 +1127,8 @@ pub struct Two {
     dsks: BTreeMap<u8, DeviceHandle<Dsk>>,
     /// Hard-drive cards by slot.
     hdds: BTreeMap<u8, DeviceHandle<Hdd>>,
+    /// UniDisk 3.5 controllers by slot.
+    lirons: BTreeMap<u8, DeviceHandle<Liron>>,
     clk: Option<(u8, DeviceHandle<Clk>)>,
     /// The ][+ slot 0 socket (`Slot0::Empty` = a 48K machine). The //e
     /// records `Language` — its card is soldered onto the board.
@@ -1228,6 +1234,7 @@ impl Two {
         // The peripheral cards: each slot's I/O device in its DEVSEL range,
         // its firmware as a plain ROM region at $Cn00.
         let mut dsks = BTreeMap::new();
+        let mut lirons = BTreeMap::new();
         let mut clk = None;
         for (&slot, &card) in slots {
             let base = slot_io_base(slot);
@@ -1242,6 +1249,10 @@ impl Two {
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
                     mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
                 }
+                SlotDevice::Liron => {
+                    lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
+                    mem.add_rom(slot_rom_base(slot), liron_rom(slot).to_vec());
+                }
             }
         }
 
@@ -1251,6 +1262,7 @@ impl Two {
             io: MachineIo::Plus(io),
             dsks,
             hdds: BTreeMap::new(),
+            lirons,
             clk,
             slot0,
             saturn,
@@ -1280,6 +1292,7 @@ impl Two {
             match card {
                 SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
                 SlotDevice::Thunderclock => iou.set_slot_rom(slot as usize, &clk_rom(slot)),
+                SlotDevice::Liron => iou.set_slot_rom(slot as usize, &liron_rom(slot)),
             }
         }
         let io = mem.add_device(0xc000, 0xc07f, iou);
@@ -1287,6 +1300,7 @@ impl Two {
         mem.map_device(io, 0xc100, 0xcfff); // $CX ROM
 
         let mut dsks = BTreeMap::new();
+        let mut lirons = BTreeMap::new();
         let mut clk = None;
         for (&slot, &card) in slots {
             let base = slot_io_base(slot);
@@ -1296,6 +1310,9 @@ impl Two {
                 }
                 SlotDevice::Thunderclock => {
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
+                }
+                SlotDevice::Liron => {
+                    lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
                 }
             }
         }
@@ -1312,6 +1329,7 @@ impl Two {
             io: MachineIo::E(io),
             dsks,
             hdds: BTreeMap::new(),
+            lirons,
             clk,
             slot0: Slot0::Language,
             saturn: None,
@@ -1374,6 +1392,7 @@ impl Two {
     fn slot_occupied(&self, slot: u8) -> bool {
         self.dsks.contains_key(&slot)
             || self.hdds.contains_key(&slot)
+            || self.lirons.contains_key(&slot)
             || self.clk.is_some_and(|(s, _)| s == slot)
     }
 
@@ -1496,6 +1515,19 @@ impl Two {
             return Err(format!("no Disk II controller in slot {slot}"));
         };
         self.cpu.mem.device_mut(h).set_disk_file(drive, false, path)
+    }
+
+    /// Mount a .2mg image (400K or 800K) in a UniDisk 3.5 drive (0 or 1).
+    pub fn load_2mg_at(&mut self, slot: u8, drive: usize, path: &str) -> Result<(), String> {
+        let Some(&h) = self.lirons.get(&slot) else {
+            return Err(format!("no UniDisk 3.5 controller in slot {slot}"));
+        };
+        self.cpu.mem.device_mut(h).load(drive, path)
+    }
+
+    /// The UniDisk 3.5 controller in a slot, if any.
+    pub fn liron_at(&self, slot: u8) -> Option<&Liron> {
+        self.lirons.get(&slot).map(|&h| self.cpu.mem.device(h))
     }
 
     /// The two drive lights, OR'ed across every Disk II controller — at any
@@ -2159,6 +2191,7 @@ fn build_machine(options: &mut Options) -> Result<Two, String> {
         .filter_map(|(&slot, card)| match card {
             config::SlotCard::Diskii { .. } => Some((slot, SlotDevice::DiskII)),
             config::SlotCard::Thunderclock => Some((slot, SlotDevice::Thunderclock)),
+            config::SlotCard::Liron { .. } => Some((slot, SlotDevice::Liron)),
             // Hard drives attach below (their card needs the image up front).
             config::SlotCard::Harddrive { .. }
             | config::SlotCard::Language
@@ -2184,6 +2217,18 @@ fn build_machine(options: &mut Options) -> Result<Two, String> {
             config::SlotCard::Harddrive { image } => {
                 two.attach_hdd_at(slot, image)
                     .map_err(|e| format!("cannot mount slot {slot} hard drive {image}: {e}"))?;
+            }
+            config::SlotCard::Liron { drive1, drive2 } => {
+                for (drive, path) in [(0, drive1), (1, drive2)] {
+                    if let Some(path) = path {
+                        two.load_2mg_at(slot, drive, path).map_err(|e| {
+                            format!(
+                                "cannot load slot {slot} 3.5 drive {drive} with {path}: {e}",
+                                drive = drive + 1
+                            )
+                        })?;
+                    }
+                }
             }
             config::SlotCard::Thunderclock
             | config::SlotCard::Language
@@ -3251,6 +3296,21 @@ mod tests {
         // ...or swapping it for the Saturn 128K board.
         let o = opts(&["--set", "machine:slots:0:card=saturn128"]);
         assert_eq!(o.slots.get(&0), Some(&config::SlotCard::Saturn128));
+
+        // A UniDisk 3.5 controller with a .2mg in drive 1.
+        let o = opts(&[
+            "--set",
+            "machine:slots:5:card=liron",
+            "--set",
+            "machine:slots:5:drive1=work.2mg",
+        ]);
+        assert_eq!(
+            o.slots.get(&5),
+            Some(&config::SlotCard::Liron {
+                drive1: Some("work.2mg".into()),
+                drive2: None,
+            })
+        );
 
         // The --hdd replacement: two sets build the slot 7 card...
         let o = opts(&[

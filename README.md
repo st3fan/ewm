@@ -35,9 +35,11 @@ and sound.
   Bluetooth pads connect any time — and the command palette picks between
   several)
 * **Disk images** — `.dsk`/`.do`/`.po` sector images, `.nib` nibble images,
-  and bit-accurate [WOZ 1.0](https://applesaucefdc.com/woz/reference1/)
+  bit-accurate [WOZ 1.0](https://applesaucefdc.com/woz/reference1/)
   images with copy-protection support (E7, RWTS18, half-tracks, MC3470
-  weak bits — see `notes/WOZ1.md` for the compatibility table)
+  weak bits — see `notes/WOZ1.md` for the compatibility table), and
+  `.2mg` images of 400K/800K 3.5" disks in the UniDisk 3.5 Controller
+  ("Liron", `{"card": "liron"}`), a SmartPort card ProDOS boots from
 * **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
   language card and MMU/IOU soft switches, a swappable auxiliary slot
   (`--aux`): the Extended 80-Column Text Card (64K, default), the plain
@@ -129,7 +131,8 @@ cargo run --release -- two --config myiie.json
 
 Ready-made configs for the classic machines live in `configs/` — an
 Apple ][+ with a green monitor (`plus.json`) and an Enhanced //e with
-the extended 80-column card and a color monitor (`enhanced.json`).
+the extended 80-column card, a UniDisk 3.5 controller in slot 5, and a
+color monitor (`enhanced.json`).
 Neither names a disk, so pair them with a `--set` override, which
 merges into the config's slot 6 card:
 

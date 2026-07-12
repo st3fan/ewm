@@ -428,6 +428,34 @@
           ]
         },
         {
+          "description": "A UniDisk 3.5 Controller (\"Liron\") with up to two SmartPort 3.5\"\ndrives taking .2mg images of 400K or 800K.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "liron"
+            },
+            "drive1": {
+              "description": ".2mg image for drive 1.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "drive2": {
+              "description": ".2mg image for drive 2.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
           "description": "A Thunderclock Plus real-time clock.",
           "type": "object",
           "properties": {

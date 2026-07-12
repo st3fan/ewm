@@ -4,6 +4,7 @@
     "model": "2e",
     "aux": { "card": "ext80col" },
     "slots": {
+      "5": { "card": "liron" },
       "6": { "card": "diskii" }
     }
   },

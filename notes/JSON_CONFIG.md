@@ -192,6 +192,32 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
   card kind; the Saturn 32K/64K siblings would be a size field or
   variants.
 
+## The Liron / UniDisk 3.5 decisions (recorded as built)
+
+- **`"liron"`** (`ewm/src/liron.rs`): the UniDisk 3.5 Controller as
+  virtual hardware in the `hdd.rs` style — hand-assembled `$Cn00`
+  firmware over magic DEVSEL ports, no IWM emulation. Two drives
+  (`drive1`/`drive2`), **.2mg only**, ProDOS-order, exactly 800 (400K)
+  or 1600 (800K) blocks; the 2IMG locked flag mounts read-only;
+  write-back lands at `data_offset + block*512`, header preserved. Any
+  slot 1–7, no multiplicity limit; `configs/enhanced.json` carries one
+  in slot 5.
+- **SmartPort identity is real**: signature `$Cn07=$00`, ID type at
+  `$CnFB`, ProDOS entry via `$CnFF` with the SmartPort dispatch at
+  entry+3. The dispatch implements STATUS (device count, per-unit
+  status + block count, DIB), READ_BLOCK and WRITE_BLOCK (translated
+  onto the ProDOS driver's pump); everything else returns $21. The
+  **Enhanced //e Autostart scan boots it** — the boot test proved the
+  scan accepts `$Cn07=$00`, so an 800K ProDOS .2mg in the highest
+  populated slot boots exactly like a hard drive.
+- **Space economies in the 256-byte firmware** (all safe for this
+  media): the third SmartPort block byte is ignored (800K = 1600
+  blocks), `$45` is not restored after transfers and `$42-$45` are
+  borrowed by the dispatch (ProDOS rebuilds `$42-$47` per call), and
+  ProDOS STATUS reports empty drives as 0 blocks rather than an error
+  (reads fail with `$2F` where it matters). The boot gap below `$40`
+  houses the SmartPort block-call setup.
+
 ## The schema (draft)
 
 Draft 2020-12, committed as **`schema/ewm-config.schema.json`**. Sketch of
