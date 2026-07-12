@@ -54,11 +54,13 @@ pub struct Machine {
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
-    /// The card in each peripheral slot, keyed `"1"` through `"7"`. When
-    /// the whole `slots` object is absent the machine gets the classic
-    /// default layout (a Thunderclock in slot 1, a Disk II in slot 6); when
+    /// The card in each peripheral slot, keyed `"0"` through `"7"` (slot 0
+    /// is the ][+ language-card socket). When the whole `slots` object is
+    /// absent the machine gets the classic default layout (a Language Card
+    /// in slot 0, a Thunderclock in slot 1, a Disk II in slot 6); when
     /// present it is taken literally — an absent slot key means that slot
-    /// is empty, and `"empty"` exists to say it explicitly.
+    /// is empty, and `"empty"` exists to say it explicitly. A ][+ table
+    /// without `"0"` is therefore a 48K machine.
     pub slots: Option<BTreeMap<String, SlotCard>>,
     /// Extra RAM or ROM regions loaded from files at startup.
     #[serde(default)]
@@ -145,6 +147,10 @@ pub enum SlotCard {
     },
     /// A Thunderclock Plus real-time clock.
     Thunderclock,
+    /// The 16K Apple Language Card. Slot 0 only, ][+ only — it turns the
+    /// 48K machine into the classic 64K build. Omitting slot 0 from an
+    /// explicit `slots` table leaves the socket empty (a 48K machine).
+    Language,
     /// Explicitly nothing in this slot.
     Empty,
 }
@@ -156,6 +162,7 @@ impl SlotCard {
             SlotCard::Diskii { .. } => "diskii",
             SlotCard::Harddrive { .. } => "harddrive",
             SlotCard::Thunderclock => "thunderclock",
+            SlotCard::Language => "language",
             SlotCard::Empty => "empty",
         }
     }
@@ -393,6 +400,7 @@ pub fn merge_documents(doc: &mut serde_json::Value, overlay: serde_json::Value) 
 /// table.
 fn default_slots_value() -> serde_json::Value {
     serde_json::json!({
+        "0": { "card": "language" },
         "1": { "card": "thunderclock" },
         "6": { "card": "diskii" },
     })
@@ -502,11 +510,37 @@ fn validate(config: &Config) -> Result<(), String> {
         }
     }
     if let Some(slots) = &config.machine.slots {
-        for key in slots.keys() {
-            if !matches!(key.as_str(), "1" | "2" | "3" | "4" | "5" | "6" | "7") {
-                return Err(format!(
-                    "machine.slots: no such slot {key:?} (slots are \"1\" through \"7\")"
-                ));
+        for (key, card) in slots {
+            match key.as_str() {
+                // Slot 0 is the ][+ memory-expansion socket: no $Cn00
+                // firmware space, so only the language card (or nothing)
+                // fits; the //e has no slot 0 at all.
+                "0" => {
+                    if config.machine.model == Model::TwoE {
+                        return Err(
+                            "machine.slots: the //e has no slot 0 (its language card is built in)"
+                                .into(),
+                        );
+                    }
+                    if !matches!(card, SlotCard::Language | SlotCard::Empty) {
+                        return Err(format!(
+                            "machine.slots: slot \"0\" takes only \"language\" or \"empty\" (not \"{}\")",
+                            card.card_name()
+                        ));
+                    }
+                }
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" => {
+                    if matches!(card, SlotCard::Language) {
+                        return Err(format!(
+                            "machine.slots: the language card only fits slot \"0\" (not slot {key:?})"
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(format!(
+                        "machine.slots: no such slot {key:?} (slots are \"0\" through \"7\")"
+                    ));
+                }
             }
         }
         // Any card can go in any slot; the multiplicity limits are the
@@ -555,7 +589,7 @@ fn resolve_paths(config: &mut Config, base: &Path) {
                 }
             }
             SlotCard::Harddrive { image } => resolve(base, image),
-            SlotCard::Thunderclock | SlotCard::Empty => {}
+            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Empty => {}
         }
     }
     for region in &mut config.machine.memory {
@@ -684,6 +718,27 @@ mod tests {
         assert!(err.contains(r#"no such slot "8""#), "{err}");
         let err = slot("01", r#"{"card": "thunderclock"}"#).unwrap_err();
         assert!(err.contains(r#"no such slot "01""#), "{err}");
+
+        // Slot 0 is the ][+ language-card socket: language or empty only,
+        // and the language card fits nowhere else.
+        assert!(slot("0", r#"{"card": "language"}"#).is_ok());
+        assert!(slot("0", r#"{"card": "empty"}"#).is_ok());
+        let err = slot("0", r#"{"card": "diskii"}"#).unwrap_err();
+        assert!(
+            err.contains(r#"slot "0" takes only "language" or "empty""#),
+            "{err}"
+        );
+        let err = slot("3", r#"{"card": "language"}"#).unwrap_err();
+        assert!(
+            err.contains(r#"the language card only fits slot "0""#),
+            "{err}"
+        );
+        let err = parse(r#"{"machine": {"model": "2e", "slots": {"0": {"card": "language"}}}}"#)
+            .unwrap_err();
+        assert!(
+            err.contains("the //e has no slot 0 (its language card is built in)"),
+            "{err}"
+        );
 
         // Multiplicity: at most three Disk ][ controllers, one Thunderclock.
         let err = parse(
@@ -834,8 +889,21 @@ mod tests {
         assert_eq!(
             doc["machine"]["slots"],
             serde_json::json!({
+                "0": {"card": "language"},
                 "1": {"card": "thunderclock"},
                 "6": {"card": "diskii", "drive1": "x.dsk"},
+            })
+        );
+        // Opting out of the language card keeps the rest of the default
+        // layout: the classic 48K machine.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        apply_set(&mut doc, "machine:slots:0:card=empty").unwrap();
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({
+                "0": {"card": "empty"},
+                "1": {"card": "thunderclock"},
+                "6": {"card": "diskii"},
             })
         );
         // A document that already has a slots table is taken literally.

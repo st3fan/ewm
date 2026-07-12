@@ -495,6 +495,16 @@ fn text(two: &mut Two) -> String {
 /// The machine's slot table.
 fn slots(two: &mut Two) -> String {
     let mut out = Vec::new();
+    // Slot 0 is the ][+ language-card socket; the //e's card is built into
+    // the motherboard, so no slot 0 line there.
+    if two.model() == crate::two::TwoType::Apple2Plus {
+        let what = if two.language_card() {
+            "language card (16K)"
+        } else {
+            "-"
+        };
+        out.push(format!("S0: {what}"));
+    }
     for slot in 1..=7u8 {
         let what = if two.dsk_at(slot).is_some() {
             "Disk II".to_string()
@@ -850,6 +860,7 @@ mod tests {
             "{dsk}"
         );
         let slots = wb.execute(&mut two, "SLOTS");
+        assert!(slots.contains("S0: language card (16K)"), "{slots}");
         assert!(slots.contains("S1: Thunderclock"), "{slots}");
         assert!(slots.contains("S6: Disk II"), "{slots}");
         assert!(slots.contains("S7: -"), "{slots}");

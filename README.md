@@ -140,7 +140,10 @@ cargo run --release -- two --config configs/enhanced.json --set machine:slots:6:
 The machine's physical layout lives in `slots`: any card in any slot,
 up to three Disk ][ controllers (six drives), multiple hard drives,
 empty slots — the Autostart scan boots the highest populated slot, as
-on hardware. Relative paths resolve against the config file's
+on hardware. On the ][+, slot 0 is the Language Card socket: the
+default machine has one (the classic 64K build), but an explicit
+`slots` table is taken literally, so leave out `"0"` — or pass
+`--set machine:slots:0:card=empty` — for a stock 48K machine. Relative paths resolve against the config file's
 directory, so a config travels with its disks. The committed JSON
 Schema (`schema/ewm-config.schema.json`) gives editors validation and
 autocomplete via the `$schema` key; `notes/JSON_CONFIG.md` has the full

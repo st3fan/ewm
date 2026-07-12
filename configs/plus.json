@@ -3,6 +3,7 @@
   "machine": {
     "model": "2plus",
     "slots": {
+      "0": { "card": "language" },
       "6": { "card": "diskii" }
     }
   },

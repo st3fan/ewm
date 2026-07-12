@@ -263,7 +263,7 @@
           "$ref": "#/$defs/Model"
         },
         "slots": {
-          "description": "The card in each peripheral slot, keyed `\"1\"` through `\"7\"`. When\nthe whole `slots` object is absent the machine gets the classic\ndefault layout (a Thunderclock in slot 1, a Disk II in slot 6); when\npresent it is taken literally — an absent slot key means that slot\nis empty, and `\"empty\"` exists to say it explicitly.",
+          "description": "The card in each peripheral slot, keyed `\"0\"` through `\"7\"` (slot 0\nis the ][+ language-card socket). When the whole `slots` object is\nabsent the machine gets the classic default layout (a Language Card\nin slot 0, a Thunderclock in slot 1, a Disk II in slot 6); when\npresent it is taken literally — an absent slot key means that slot\nis empty, and `\"empty\"` exists to say it explicitly. A ][+ table\nwithout `\"0\"` is therefore a 48K machine.",
           "type": [
             "object",
             "null"
@@ -434,6 +434,20 @@
             "card": {
               "type": "string",
               "const": "thunderclock"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
+          "description": "The 16K Apple Language Card. Slot 0 only, ][+ only — it turns the\n48K machine into the classic 64K build. Omitting slot 0 from an\nexplicit `slots` table leaves the socket empty (a 48K machine).",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "language"
             }
           },
           "additionalProperties": false,

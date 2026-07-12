@@ -19,7 +19,7 @@ fn slots(entries: &[(u8, SlotDevice)]) -> BTreeMap<u8, SlotDevice> {
 }
 
 fn plus_with(entries: &[(u8, SlotDevice)]) -> Two {
-    Two::new_with_slots(TwoType::Apple2Plus, None, &slots(entries)).expect("must construct")
+    Two::new_with_slots(TwoType::Apple2Plus, None, true, &slots(entries)).expect("must construct")
 }
 
 /// Step until the predicate holds, with a cycle cap. The predicate is
@@ -263,6 +263,7 @@ fn empty_slots_read_zero_on_the_iie() {
     let mut two = Two::new_with_slots(
         TwoType::Apple2E,
         None,
+        true,
         &slots(&[(1, SlotDevice::Thunderclock)]),
     )
     .expect("must construct");
@@ -438,11 +439,63 @@ fn boot_scans_the_higher_hard_drive_first() {
     std::fs::remove_file(&plain).ok();
 }
 
+// --- Slot 0: the language card ------------------------------------------------
+
+#[test]
+fn slot_zero_language_card_is_optional() {
+    // With the card (the classic 64K build): two reads of $C083 read- and
+    // write-enable bank 2 RAM at $D000, so a write sticks.
+    let mut two =
+        Two::new_with_slots(TwoType::Apple2Plus, None, true, &slots(&[])).expect("must construct");
+    assert!(two.language_card());
+    let rom_byte = two.cpu.mem.read(0xd000);
+    two.cpu.mem.read(0xc083);
+    two.cpu.mem.read(0xc083);
+    two.cpu.mem.write(0xd000, rom_byte.wrapping_add(1));
+    assert_eq!(
+        two.cpu.mem.read(0xd000),
+        rom_byte.wrapping_add(1),
+        "language-card RAM must take the write"
+    );
+
+    // Without it (the 48K machine): $D000-$FFFF is motherboard ROM straight
+    // on the bus, the same switch sequence changes nothing, and slot 0's
+    // DEVSEL range is as unmapped as any other empty slot's.
+    let mut two =
+        Two::new_with_slots(TwoType::Apple2Plus, None, false, &slots(&[])).expect("must construct");
+    assert!(!two.language_card());
+    assert_eq!(two.cpu.mem.read(0xd000), rom_byte, "the same machine ROM");
+    assert_eq!(two.cpu.mem.read(0xc083), 0x00, "slot 0 DEVSEL is unmapped");
+    two.cpu.mem.read(0xc083);
+    two.cpu.mem.write(0xd000, rom_byte.wrapping_add(1));
+    assert_eq!(two.cpu.mem.read(0xd000), rom_byte, "ROM must stay ROM");
+}
+
+#[test]
+fn dos33_boots_on_a_48k_machine() {
+    // DOS 3.3 probes for the language card and just skips loading Integer
+    // BASIC into it — the 48K machine still boots to the prompt.
+    let mut two = Two::new_with_slots(
+        TwoType::Apple2Plus,
+        None,
+        false,
+        &slots(&[(6, SlotDevice::DiskII)]),
+    )
+    .expect("must construct");
+    two.load_disk_at(6, 0, DOS33).expect("load slot 6");
+    two.cpu.reset();
+    step_until(&mut two, 400_000_000, "the ] prompt", |two| {
+        let text = two.text_screen();
+        text.contains("DOS VERSION 3.3") && text.contains(']')
+    });
+}
+
 #[test]
 fn construction_rejects_bad_tables_and_occupied_slots() {
     let err = Two::new_with_slots(
         TwoType::Apple2Plus,
         None,
+        true,
         &slots(&[(8, SlotDevice::DiskII)]),
     )
     .err()
@@ -452,6 +505,7 @@ fn construction_rejects_bad_tables_and_occupied_slots() {
     let err = Two::new_with_slots(
         TwoType::Apple2Plus,
         None,
+        true,
         &slots(&[(1, SlotDevice::Thunderclock), (2, SlotDevice::Thunderclock)]),
     )
     .err()
