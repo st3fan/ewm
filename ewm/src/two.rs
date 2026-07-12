@@ -1110,6 +1110,10 @@ pub struct Two {
     /// Hard-drive cards by slot.
     hdds: BTreeMap<u8, DeviceHandle<Hdd>>,
     clk: Option<(u8, DeviceHandle<Clk>)>,
+    /// Whether $D000-$FFFF has 16K of bankable RAM behind it: the slot 0
+    /// Language Card on the ][+ (absent = a 48K machine), always true on
+    /// the //e where the card is soldered onto the board.
+    language_card: bool,
 }
 
 impl Two {
@@ -1124,17 +1128,21 @@ impl Two {
     /// only; `None` = the default Extended 80-Column Text Card) and the
     /// default slot table.
     pub fn new_with_aux(two_type: TwoType, aux: Option<Box<dyn AuxCard>>) -> Result<Two, String> {
-        Two::new_with_slots(two_type, aux, &default_slots())
+        Two::new_with_slots(two_type, aux, true, &default_slots())
     }
 
     /// Construct a machine from a slot table: each entry puts that card's
     /// I/O device in its slot's DEVSEL range and its firmware ROM at $Cn00;
     /// slots absent from the table stay empty (their ranges read $00, which
     /// the Autostart slot scan skips). The ][+ has no auxiliary slot, so
-    /// requesting an aux card there is an error.
+    /// requesting an aux card there is an error. `language_card` is the
+    /// slot 0 socket on the ][+ (false = a 48K machine with the motherboard
+    /// ROM directly at $D000-$FFFF); the //e ignores it — its language card
+    /// is soldered onto the board.
     pub fn new_with_slots(
         two_type: TwoType,
         aux: Option<Box<dyn AuxCard>>,
+        language_card: bool,
         slots: &BTreeMap<u8, SlotDevice>,
     ) -> Result<Two, String> {
         if let Some(slot) = slots.keys().find(|s| !(1..=7).contains(*s)) {
@@ -1155,7 +1163,7 @@ impl Two {
                         card.label()
                     ));
                 }
-                Ok(Two::new_2plus(slots))
+                Ok(Two::new_2plus(language_card, slots))
             }
             TwoType::Apple2E => Ok(Two::new_2e(
                 aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
@@ -1166,7 +1174,7 @@ impl Two {
     }
 
     /// Port of `ewm_two_init`: the Apple ][+.
-    fn new_2plus(slots: &BTreeMap<u8, SlotDevice>) -> Two {
+    fn new_2plus(language_card: bool, slots: &BTreeMap<u8, SlotDevice>) -> Two {
         let mut rom = Vec::with_capacity(0x3000);
         for part in [
             ROM_341_0011,
@@ -1182,10 +1190,16 @@ impl Two {
 
         let mut mem = Memory::new(0xc000); // $0000-$BFFF
         let io = mem.add_device(0xc000, 0xc07f, TwoIo::new());
-        // The language card shadows the machine ROM, so it owns it and
-        // covers both its switches and the whole $D000-$FFFF bank space.
-        let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
-        mem.map_device(alc, 0xd000, 0xffff);
+        if language_card {
+            // The language card shadows the machine ROM, so it owns it and
+            // covers both its switches and the whole $D000-$FFFF bank space.
+            let alc = mem.add_device(0xc080, 0xc08f, Alc::new(rom));
+            mem.map_device(alc, 0xd000, 0xffff);
+        } else {
+            // Slot 0 empty: the 48K machine, motherboard ROM directly on the
+            // bus and slot 0's DEVSEL range unmapped (reads $00).
+            mem.add_rom(0xd000, rom);
+        }
 
         // The peripheral cards: each slot's I/O device in its DEVSEL range,
         // its firmware as a plain ROM region at $Cn00.
@@ -1214,6 +1228,7 @@ impl Two {
             dsks,
             hdds: BTreeMap::new(),
             clk,
+            language_card,
         }
     }
 
@@ -1273,12 +1288,19 @@ impl Two {
             dsks,
             hdds: BTreeMap::new(),
             clk,
+            language_card: true,
         }
     }
 
     /// The machine variant this instance was constructed as.
     pub fn model(&self) -> TwoType {
         self.model
+    }
+
+    /// Whether $D000-$FFFF has bankable language-card RAM (slot 0 on the
+    /// ][+, built in on the //e).
+    pub fn language_card(&self) -> bool {
+        self.language_card
     }
 
     /// Mount a ProDOS block image (.hdv/.po) as a slot 7 hard drive. The
@@ -1829,6 +1851,7 @@ struct Options {
 /// inserted (`default_slots()` is the machine-level equivalent).
 fn default_slot_cards() -> BTreeMap<u8, config::SlotCard> {
     BTreeMap::from([
+        (0, config::SlotCard::Language),
         (1, config::SlotCard::Thunderclock),
         (
             6,
@@ -2081,17 +2104,29 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
 /// the slot table, then mount the media the table names. Also the machine
 /// half of the headless boot-gate test.
 fn build_machine(options: &mut Options) -> Result<Two, String> {
+    // Slot 0 never becomes a SlotDevice: it is the ][+ language-card socket,
+    // consumed here as a machine-level flag. On the //e the card is built in,
+    // so the default table's slot 0 entry is simply true there — but an
+    // explicit "empty" (only reachable through --set plus --model, config
+    // validation rejects slot 0 on a //e) is an error, not a silent no-op.
+    let language_card = matches!(options.slots.get(&0), Some(config::SlotCard::Language));
+    if options.model == TwoType::Apple2E && !language_card && options.slots.contains_key(&0) {
+        return Err("the //e has no slot 0 (its language card is built in)".to_string());
+    }
     let table: BTreeMap<u8, SlotDevice> = options
         .slots
         .iter()
+        .filter(|(slot, _)| **slot != 0)
         .filter_map(|(&slot, card)| match card {
             config::SlotCard::Diskii { .. } => Some((slot, SlotDevice::DiskII)),
             config::SlotCard::Thunderclock => Some((slot, SlotDevice::Thunderclock)),
             // Hard drives attach below (their card needs the image up front).
-            config::SlotCard::Harddrive { .. } | config::SlotCard::Empty => None,
+            config::SlotCard::Harddrive { .. }
+            | config::SlotCard::Language
+            | config::SlotCard::Empty => None,
         })
         .collect();
-    let mut two = Two::new_with_slots(options.model, options.aux.take(), &table)?;
+    let mut two = Two::new_with_slots(options.model, options.aux.take(), language_card, &table)?;
     for (&slot, card) in &options.slots {
         match card {
             config::SlotCard::Diskii { drive1, drive2 } => {
@@ -2110,7 +2145,9 @@ fn build_machine(options: &mut Options) -> Result<Two, String> {
                 two.attach_hdd_at(slot, image)
                     .map_err(|e| format!("cannot mount slot {slot} hard drive {image}: {e}"))?;
             }
-            config::SlotCard::Thunderclock | config::SlotCard::Empty => {}
+            config::SlotCard::Thunderclock
+            | config::SlotCard::Language
+            | config::SlotCard::Empty => {}
         }
     }
     Ok(two)
@@ -3161,6 +3198,13 @@ mod tests {
             "machine:slots:6:drive2=b.dsk",
         ]);
         assert_eq!(slot6_drives(&o), (Some("a.dsk"), Some("b.dsk")));
+        assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
+        assert_eq!(o.slots.get(&0), Some(&config::SlotCard::Language));
+
+        // Opting out of the language card (the 48K machine) keeps the rest
+        // of the default layout.
+        let o = opts(&["--set", "machine:slots:0:card=empty"]);
+        assert_eq!(o.slots.get(&0), Some(&config::SlotCard::Empty));
         assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
 
         // The --hdd replacement: two sets build the slot 7 card...

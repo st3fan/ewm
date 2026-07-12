@@ -150,7 +150,32 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 | CLI | `--trace`, `--strict`, `--debug` | debugging |
 | palette only | CPU speed | 1.023 MHz (normal), 3.58 MHz, 7.16 MHz — the classic accelerator steps |
 | palette only | game controller | picked by name when several are present |
-| *(new)* | slots 1–7 | card per slot (below) |
+| *(new)* | slots 0–7 | card per slot (below); slot 0 is the ][+ language-card socket |
+
+## Slot 0 decisions (recorded as built)
+
+- **Slot 0 is a `"0"` key in `machine.slots`** (owner's decision —
+  hardware-faithful, not a separate field). The ][+ language card was
+  hardwired into `Two::new_2plus` before this; now it is a declared card.
+- **Card set restricted**: slot 0 takes only `"language"` or `"empty"` —
+  it has no `$Cn00` firmware space, so firmware-bearing cards can't work
+  there — and the language card fits nowhere else. The //e rejects `"0"`
+  outright (its language card is soldered onto the motherboard).
+- **The literal-table rule covers slot 0** — a deliberate breaking
+  change, accepted by the owner: a ][+ config whose `slots` table omits
+  `"0"` is a stock **48K machine** ($D000–$FFFF motherboard ROM on the
+  bus, slot 0's DEVSEL range unmapped). `configs/plus.json` declares the
+  card explicitly. The default table (absent `slots`, and the `--set`
+  materialization) gains `"0": {"card": "language"}`, so bare command
+  lines stay the classic 64K build; `--set machine:slots:0:card=empty`
+  is the 48K opt-out.
+- **Machine plumbing**: slot 0 never becomes a `SlotDevice` —
+  `build_machine` consumes it as a `language_card: bool` passed to
+  `Two::new_with_slots`. `Two::language_card()` reports it and WozBug's
+  `SLOTS` shows the slot 0 line on the ][+. DOS 3.3 boots on the 48K
+  machine (it just skips loading Integer BASIC) — regression-tested.
+- **Future**: an Integer BASIC Firmware card would be a third slot 0
+  card kind.
 
 ## The schema (draft)
 
