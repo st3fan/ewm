@@ -1655,6 +1655,7 @@ enum Submenu {
     MonitorStyle,
     Scanlines,
     Controller,
+    Speed,
 }
 
 /// A palette command's action: either a plain callback, or a data-carrying
@@ -1681,6 +1682,33 @@ fn choice_label(text: &str, active: bool) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// The human-readable label for an emulation speed: the MHz readout with a
+/// parenthetical name for the accelerator preset.
+fn speed_label(hz: u32) -> &'static str {
+    match hz {
+        SPEED_FAST => "3.58 MHz (Fast)",
+        SPEED_FASTER => "7.16 MHz (Faster)",
+        _ => "1.023 MHz (Normal)",
+    }
+}
+
+/// Register the speed submenu: one row per preset, the active one checked,
+/// picked exactly like a VS Code quick-pick choice.
+fn add_speed_commands(palette: &mut Palette<TwoAction>, speed: u32) {
+    palette.add_command(
+        choice_label(speed_label(SPEED_NORMAL), speed == SPEED_NORMAL),
+        TwoAction::Run(|ctx| set_speed(ctx, SPEED_NORMAL)),
+    );
+    palette.add_command(
+        choice_label(speed_label(SPEED_FAST), speed == SPEED_FAST),
+        TwoAction::Run(|ctx| set_speed(ctx, SPEED_FAST)),
+    );
+    palette.add_command(
+        choice_label(speed_label(SPEED_FASTER), speed == SPEED_FASTER),
+        TwoAction::Run(|ctx| set_speed(ctx, SPEED_FASTER)),
+    );
 }
 
 /// Register the scanline submenu: one row per level, the active one checked.
@@ -2596,6 +2624,9 @@ pub fn main(args: &[String]) -> i32 {
                                         Submenu::Scanlines => {
                                             add_scanline_commands(&mut palette, scanlines)
                                         }
+                                        Submenu::Speed => {
+                                            add_speed_commands(&mut palette, speed)
+                                        }
                                         Submenu::Controller => {
                                             let active = controller
                                                 .as_ref()
@@ -2727,21 +2758,13 @@ pub fn main(args: &[String]) -> i32 {
                                         *ctx.open_submenu = Some(Submenu::Controller)
                                     }),
                                 );
-                                // Speed choices; the active one carries a check.
-                                palette.add_command(
-                                    choice_label(
-                                        "Speed: 1.023 MHz (normal)",
-                                        speed == SPEED_NORMAL,
-                                    ),
-                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_NORMAL)),
-                                );
-                                palette.add_command(
-                                    choice_label("Speed: 3.58 MHz", speed == SPEED_FAST),
-                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_FAST)),
-                                );
-                                palette.add_command(
-                                    choice_label("Speed: 7.16 MHz", speed == SPEED_FASTER),
-                                    TwoAction::Run(|ctx| set_speed(ctx, SPEED_FASTER)),
+                                // Speed opens a submenu, like the other
+                                // choice rows.
+                                palette.add_submenu_command(
+                                    format!("Speed: {}", speed_label(speed)),
+                                    TwoAction::Run(|ctx| {
+                                        *ctx.open_submenu = Some(Submenu::Speed)
+                                    }),
                                 );
                                 palette_visible = true;
                             }
