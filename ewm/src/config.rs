@@ -364,6 +364,12 @@ pub struct Remote {
     pub port: Option<u16>,
     /// Serve the console read-only: ignore all keyboard and pointer input.
     pub view_only: Option<bool>,
+    /// VNC-auth password. When set, clients must authenticate with the RFB DES
+    /// challenge (only the first 8 characters are significant); this is what
+    /// lets clients that refuse the "None" security type — notably macOS
+    /// Screen Sharing — connect. The scheme is weak (notes/REMOTE.md §10):
+    /// keep the machine on localhost or behind a tunnel/proxy regardless.
+    pub password: Option<String>,
 }
 
 /// The remote-console protocol (`remote.protocol`).

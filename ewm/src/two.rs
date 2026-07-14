@@ -1877,7 +1877,10 @@ fn usage() {
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
     eprintln!("  --debug           print debug info");
-    eprintln!("  --serve <url>     boot headless and serve over VNC, e.g. vnc://0.0.0.0:5901");
+    eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
+    eprintln!(
+        "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password)"
+    );
 }
 
 #[derive(Default)]
@@ -1921,6 +1924,9 @@ struct ServeOptions {
     bind: String,
     port: u16,
     view_only: bool,
+    /// VNC-auth password (`None` → the `None` security type). Required by
+    /// clients that refuse `None`, such as macOS Screen Sharing.
+    password: Option<String>,
 }
 
 impl Default for ServeOptions {
@@ -1929,6 +1935,7 @@ impl Default for ServeOptions {
             bind: "127.0.0.1".to_string(),
             port: RFB_DEFAULT_PORT,
             view_only: false,
+            password: None,
         }
     }
 }
@@ -2090,7 +2097,9 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 );
             }
             "--serve" => match it.next() {
-                Some(url) => match parse_serve(url) {
+                // Start from any serve options the config already supplied so a
+                // config password/view-only survives an explicit --serve.
+                Some(url) => match parse_serve(url, options.serve.take().unwrap_or_default()) {
                     Ok(serve) => options.serve = Some(serve),
                     Err(e) => {
                         eprintln!("--serve {url}: {e}");
@@ -2140,17 +2149,19 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
     Ok(options)
 }
 
-/// Parse a `--serve` URL: `vnc://[bind][:port]`, e.g. `vnc://0.0.0.0:5901`
-/// or `vnc://:5901` (default bind) or `vnc://127.0.0.1` (default port). A
-/// trailing `?…` query (reserved for `ws=`/`web=` in later phases) is
-/// tolerated and ignored. Only the `vnc` scheme is implemented.
-fn parse_serve(url: &str) -> Result<ServeOptions, String> {
+/// Parse a `--serve` URL onto a base (usually the config's `remote` block):
+/// `vnc://[bind][:port][?password=…&view_only=1]`, e.g. `vnc://0.0.0.0:5901`,
+/// `vnc://:5901` (default bind), or `vnc://127.0.0.1` (default port). The query
+/// carries the password and view-only flag; `ws=`/`web=` keys are reserved for
+/// later phases and ignored. Only the `vnc` scheme is implemented.
+fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, String> {
     let rest = url
         .strip_prefix("vnc://")
         .ok_or("only vnc:// is supported (rdp is a later, optional track)")?;
-    // Drop a reserved query string (?ws=…&web=…) for now.
-    let authority = rest.split('?').next().unwrap_or(rest);
-    let mut serve = ServeOptions::default();
+    let (authority, query) = match rest.split_once('?') {
+        Some((authority, query)) => (authority, Some(query)),
+        None => (rest, None),
+    };
     let (host, port) = match authority.rsplit_once(':') {
         Some((host, port)) => (host, Some(port)),
         None => (authority, None),
@@ -2162,6 +2173,16 @@ fn parse_serve(url: &str) -> Result<ServeOptions, String> {
         serve.port = port.parse().map_err(|_| format!("invalid port {port:?}"))?;
         if serve.port == 0 {
             return Err("port must be at least 1".to_string());
+        }
+    }
+    for pair in query.into_iter().flat_map(|q| q.split('&')) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "password" => serve.password = (!value.is_empty()).then(|| value.to_string()),
+            "view_only" | "viewonly" => serve.view_only = matches!(value, "1" | "true"),
+            "ws" | "web" => {} // reserved for later phases
+            "" => {}
+            other => return Err(format!("unknown option {other:?}")),
         }
     }
     Ok(serve)
@@ -2234,6 +2255,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         || remote.bind.is_some()
         || remote.port.is_some()
         || remote.view_only.is_some()
+        || remote.password.is_some()
     {
         let mut serve = ServeOptions::default();
         if let Some(bind) = &remote.bind {
@@ -2245,6 +2267,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         if let Some(view_only) = remote.view_only {
             serve.view_only = view_only;
         }
+        serve.password = remote.password.clone();
         options.serve = Some(serve);
     }
     Ok(())
@@ -2510,6 +2533,7 @@ fn serve(mut options: Options) -> i32 {
         TwoType::Apple2E => "EWM Apple //e",
         _ => "EWM Apple ][+",
     };
+    let auth = serve.password.is_some();
     let (server, publisher) = match crate::rfb::Server::start(
         &serve.bind,
         serve.port,
@@ -2517,6 +2541,7 @@ fn serve(mut options: Options) -> i32 {
         SCR_HEIGHT as u16,
         name,
         serve.view_only,
+        serve.password,
     ) {
         Ok(pair) => pair,
         Err(e) => {
@@ -2525,10 +2550,11 @@ fn serve(mut options: Options) -> i32 {
         }
     };
     eprintln!(
-        "[RFB] serving {name} on vnc://{}:{}{}",
+        "[RFB] serving {name} on vnc://{}:{} ({} auth{})",
         serve.bind,
         server.port(),
-        if serve.view_only { " (view-only)" } else { "" }
+        if auth { "VNC password" } else { "no" },
+        if serve.view_only { ", view-only" } else { "" }
     );
 
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);

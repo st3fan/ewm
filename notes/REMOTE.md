@@ -372,11 +372,19 @@ built:
 
 - **`remote` config block + `--serve vnc://host:port`** (`config.rs`, `two.rs`).
   Boots headless when present; `"rdp"` and port 0 are rejected in `validate()`.
-- **`rfb.rs`** — a hand-rolled RFB 3.8/3.7/3.3 server on `std::net`, security
-  `None`, **Raw** encoding, one handler thread per client (multiple viewers of
-  one machine), `mpsc` input back to the emulator, big-endian-RGBA pixels shipped
-  with `u32::to_be_bytes` (no per-pixel conversion). Unit-tested: full-handshake
-  round-trip + first `FramebufferUpdate` decode, key/pointer delivery, view-only.
+- **`rfb.rs`** — a hand-rolled RFB 3.8/3.7/3.3 server on `std::net`, **Raw**
+  encoding, one handler thread per client (multiple viewers of one machine),
+  `mpsc` input back to the emulator, big-endian-RGBA pixels shipped with
+  `u32::to_be_bytes` (no per-pixel conversion). Security is `None` by default,
+  or **VNC authentication** (the RFB DES challenge, RFC 6143 §7.2.2) when a
+  password is set — which is what lets **macOS Screen Sharing** connect, since
+  it refuses the `None` type. Unit-tested: full-handshake round-trip + first
+  `FramebufferUpdate` decode, key/pointer delivery, view-only, and VNC-auth
+  accept/reject.
+- **`des.rs`** — a tiny from-scratch DES (FIPS 46-3, ECB, encrypt-only) for the
+  VNC-auth challenge, unit-tested against the textbook and all-zero vectors, and
+  cross-checked end-to-end against OpenSSL's DES (an OpenSSL-computed auth
+  response is accepted by the server, so the wire format matches a reference).
 - **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
   SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
   translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
@@ -398,13 +406,20 @@ Phase 5 (vendored noVNC) for the true browser/Proxmox experience.
 **Try it:**
 
 ```
-cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 \
+# macOS Screen Sharing refuses "None" auth, so give it a password:
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?password=secret' \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
-# then, in another terminal on macOS:
-open vnc://127.0.0.1:5901
-# or point any VNC client (TigerVNC, RealVNC) at 127.0.0.1:5901.
-# Bare Applesoft with no disk:  --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=empty
-# Expose to the LAN (no auth — see §10):  --serve vnc://0.0.0.0:5901
+# then, in another terminal:
+open vnc://127.0.0.1:5901          # enter the password when prompted
+# or embed it:  open vnc://:secret@127.0.0.1:5901
+
+# Other clients (TigerVNC, RealVNC) accept "None", so a password is optional:
+cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=empty
+
+# The password can also come from the config `remote` block or a --set:
+#   --set remote:password=secret
+# Expose to the LAN (still weak auth — see §10, keep it behind a tunnel):
+#   --serve 'vnc://0.0.0.0:5901?password=secret'
 ```
 
 ---

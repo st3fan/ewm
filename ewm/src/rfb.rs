@@ -55,10 +55,13 @@ struct Channel {
     width: u16,
     height: u16,
     name: String,
+    /// VNC-auth password. `Some` offers security type VNC (DES challenge);
+    /// `None` offers `None` — see notes/REMOTE.md §10.
+    password: Option<String>,
 }
 
 impl Channel {
-    fn new(width: u16, height: u16, name: String) -> Channel {
+    fn new(width: u16, height: u16, name: String, password: Option<String>) -> Channel {
         Channel {
             frame: Mutex::new(Frame {
                 bytes: vec![0; width as usize * height as usize * 4],
@@ -68,6 +71,7 @@ impl Channel {
             width,
             height,
             name,
+            password,
         }
     }
 }
@@ -112,7 +116,8 @@ impl Server {
     /// Bind `bind:port` (port 0 picks an ephemeral port — tests) and start
     /// accepting clients. Returns the `Server` (drain input from it) and a
     /// [`Publisher`] (push frames into it). `view_only` drops all client
-    /// input at the source.
+    /// input at the source; `password`, when set, requires VNC authentication
+    /// (the DES challenge) instead of offering the `None` security type.
     pub fn start(
         bind: &str,
         port: u16,
@@ -120,10 +125,11 @@ impl Server {
         height: u16,
         name: &str,
         view_only: bool,
+        password: Option<String>,
     ) -> io::Result<(Server, Publisher)> {
         let listener = TcpListener::bind((bind, port))?;
         let port = listener.local_addr()?.port();
-        let channel = Arc::new(Channel::new(width, height, name.to_string()));
+        let channel = Arc::new(Channel::new(width, height, name.to_string(), password));
         let (input_tx, input) = std::sync::mpsc::channel();
         let accept_channel = channel.clone();
         std::thread::spawn(move || accept(listener, accept_channel, input_tx, view_only));
@@ -204,8 +210,14 @@ fn handle(
     result
 }
 
-/// The RFB 3.x handshake through `ServerInit`: ProtocolVersion, security type
-/// `None`, `ClientInit`, then our geometry and pixel format.
+/// RFB security type: no authentication.
+const SEC_NONE: u8 = 1;
+/// RFB security type: VNC authentication (the DES challenge, RFC 6143 §7.2.2).
+const SEC_VNC: u8 = 2;
+
+/// The RFB 3.x handshake through `ServerInit`: ProtocolVersion, security
+/// negotiation (`None`, or VNC auth when a password is set), `ClientInit`,
+/// then our geometry and pixel format.
 fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
     // ProtocolVersion: offer 3.8; read the client's choice.
     stream.write_all(b"RFB 003.008\n")?;
@@ -213,18 +225,7 @@ fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
     stream.read_exact(&mut version)?;
     let minor = parse_minor(&version);
 
-    // Security: type None (1). 3.7+ negotiates from a list; 3.3 is dictated.
-    if minor >= 7 {
-        stream.write_all(&[1u8, 1u8])?; // one type on offer: None
-        let mut selected = [0u8; 1];
-        stream.read_exact(&mut selected)?;
-        // SecurityResult (OK) is a 3.8-and-later addition.
-        if minor >= 8 {
-            stream.write_all(&0u32.to_be_bytes())?;
-        }
-    } else {
-        stream.write_all(&1u32.to_be_bytes())?; // dictated: None
-    }
+    negotiate_security(stream, minor, channel)?;
 
     // ClientInit: one shared-flag byte we accept and ignore (all viewers
     // share the one machine).
@@ -240,6 +241,117 @@ fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
     init.extend_from_slice(channel.name.as_bytes());
     stream.write_all(&init)?;
     Ok(())
+}
+
+/// Negotiate the security type and authenticate. Offers exactly one type —
+/// VNC auth when a password is configured, otherwise `None` — via the 3.7+
+/// list or the 3.3 dictated word, then runs the DES challenge (VNC) and sends
+/// `SecurityResult`. Returns `Err` if the client picks an unoffered type or
+/// authentication fails, which closes the connection.
+fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> io::Result<()> {
+    let sec_type = if channel.password.is_some() {
+        SEC_VNC
+    } else {
+        SEC_NONE
+    };
+
+    // Announce the type: 3.7+ offers a list the client selects from; 3.3 is
+    // dictated as a single 32-bit word.
+    let selected = if minor >= 7 {
+        stream.write_all(&[1u8, sec_type])?;
+        let mut selection = [0u8; 1];
+        stream.read_exact(&mut selection)?;
+        selection[0]
+    } else {
+        stream.write_all(&(sec_type as u32).to_be_bytes())?;
+        sec_type
+    };
+    if selected != sec_type {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "client chose an unoffered security type",
+        ));
+    }
+
+    if sec_type == SEC_VNC {
+        let password = channel.password.as_deref().unwrap_or_default();
+        let ok = vnc_auth(stream, password)?;
+        stream.write_all(&(if ok { 0u32 } else { 1u32 }).to_be_bytes())?;
+        if !ok {
+            // 3.8 carries a reason string with the failure.
+            if minor >= 8 {
+                let reason = b"Authentication failed";
+                stream.write_all(&(reason.len() as u32).to_be_bytes())?;
+                stream.write_all(reason)?;
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "VNC authentication failed",
+            ));
+        }
+    } else if minor >= 8 {
+        // `None`: `SecurityResult` (OK) is a 3.8-and-later addition; 3.3/3.7
+        // proceed straight to `ClientInit`.
+        stream.write_all(&0u32.to_be_bytes())?;
+    }
+    Ok(())
+}
+
+/// Run the VNC DES challenge: send 16 random bytes, read the client's DES-
+/// encrypted reply, and compare it to our own encryption under the password
+/// key. Returns whether they match.
+fn vnc_auth(stream: &mut TcpStream, password: &str) -> io::Result<bool> {
+    let challenge = random_challenge();
+    stream.write_all(&challenge)?;
+    let mut response = [0u8; 16];
+    stream.read_exact(&mut response)?;
+
+    let key = des_key(password);
+    let mut expected = [0u8; 16];
+    for (chunk, out) in challenge.chunks_exact(8).zip(expected.chunks_exact_mut(8)) {
+        let block = u64::from_be_bytes(chunk.try_into().expect("8-byte chunk"));
+        out.copy_from_slice(&crate::des::encrypt_block(key, block).to_be_bytes());
+    }
+    Ok(constant_time_eq(&response, &expected))
+}
+
+/// Derive the DES key from a VNC password: the first 8 bytes (NUL-padded),
+/// each with its bit order reversed — the historical VNC quirk.
+fn des_key(password: &str) -> u64 {
+    let mut key = [0u8; 8];
+    for (dst, byte) in key.iter_mut().zip(password.bytes()) {
+        *dst = byte.reverse_bits();
+    }
+    u64::from_be_bytes(key)
+}
+
+/// Sixteen random bytes for the auth challenge. `/dev/urandom` when available;
+/// a time-seeded fallback otherwise (VNC auth is weak by design regardless —
+/// notes/REMOTE.md §10).
+fn random_challenge() -> [u8; 16] {
+    let mut buf = [0u8; 16];
+    if std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .is_ok()
+    {
+        return buf;
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    buf.copy_from_slice(&nanos.to_le_bytes());
+    buf
+}
+
+/// Compare two 16-byte arrays without an early-out, so a wrong password does
+/// not leak a timing signal.
+fn constant_time_eq(a: &[u8; 16], b: &[u8; 16]) -> bool {
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 /// Parse `RFB 003.00X\n` → the minor version, defaulting to 3 (the oldest,
@@ -446,7 +558,7 @@ mod tests {
     #[test]
     fn handshake_and_first_update() {
         let (server, publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM test", false).expect("bind");
+            Server::start("127.0.0.1", 0, 280, 192, "EWM test", false, None).expect("bind");
         let mut client =
             TcpStream::connect(("127.0.0.1", server.port())).expect("connect to server");
 
@@ -512,7 +624,7 @@ mod tests {
     fn view_only_drops_input() {
         // A view-only server must not surface client key/pointer events.
         let (server, _publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM", true).expect("bind");
+            Server::start("127.0.0.1", 0, 280, 192, "EWM", true, None).expect("bind");
         let mut client = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
         do_handshake(&mut client);
         client
@@ -525,7 +637,7 @@ mod tests {
     #[test]
     fn key_and_pointer_events_reach_the_emulator() {
         let (server, _publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM", false).expect("bind");
+            Server::start("127.0.0.1", 0, 280, 192, "EWM", false, None).expect("bind");
         let mut client = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
         do_handshake(&mut client);
 
@@ -584,5 +696,67 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         panic!("no input event arrived");
+    }
+
+    /// Run the client half of a VNC-auth handshake up to `SecurityResult`,
+    /// answering the DES challenge with `password`. Returns the result word.
+    fn vnc_auth_result(port: u16, password: &str) -> (TcpStream, u32) {
+        let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        let mut version = [0u8; 12];
+        client.read_exact(&mut version).expect("version");
+        client.write_all(b"RFB 003.008\n").expect("version");
+        let mut list = [0u8; 2];
+        client.read_exact(&mut list).expect("security list");
+        assert_eq!(list, [1, SEC_VNC], "server must offer VNC auth");
+        client.write_all(&[SEC_VNC]).expect("select VNC");
+        let mut challenge = [0u8; 16];
+        client.read_exact(&mut challenge).expect("challenge");
+        let key = des_key(password);
+        let mut response = [0u8; 16];
+        for (chunk, out) in challenge.chunks_exact(8).zip(response.chunks_exact_mut(8)) {
+            let block = u64::from_be_bytes(chunk.try_into().unwrap());
+            out.copy_from_slice(&crate::des::encrypt_block(key, block).to_be_bytes());
+        }
+        client.write_all(&response).expect("response");
+        let mut result = [0u8; 4];
+        client.read_exact(&mut result).expect("security result");
+        (client, u32::from_be_bytes(result))
+    }
+
+    #[test]
+    fn vnc_auth_accepts_the_right_password() {
+        let (server, _publisher) = Server::start(
+            "127.0.0.1",
+            0,
+            280,
+            192,
+            "EWM",
+            false,
+            Some("sekret".into()),
+        )
+        .expect("bind");
+        let (mut client, result) = vnc_auth_result(server.port(), "sekret");
+        assert_eq!(result, 0, "correct password should authenticate");
+        // The handshake continues into ClientInit → ServerInit.
+        client.write_all(&[1u8]).expect("shared flag");
+        let mut init = [0u8; 24];
+        client.read_exact(&mut init).expect("server init");
+        assert_eq!(u16::from_be_bytes([init[0], init[1]]), 280);
+    }
+
+    #[test]
+    fn vnc_auth_rejects_a_wrong_password() {
+        let (server, _publisher) = Server::start(
+            "127.0.0.1",
+            0,
+            280,
+            192,
+            "EWM",
+            false,
+            Some("sekret".into()),
+        )
+        .expect("bind");
+        let (_client, result) = vnc_auth_result(server.port(), "not-it");
+        assert_eq!(result, 1, "wrong password should fail authentication");
     }
 }

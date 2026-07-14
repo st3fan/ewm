@@ -13,6 +13,7 @@ pub mod boo;
 pub mod chr;
 pub mod clk;
 pub mod config;
+pub mod des;
 pub mod dsk;
 pub mod hdd;
 pub mod led;
