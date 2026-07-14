@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'notes/**'
+      - 'screenshots/**'
+      - '.gitignore'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'notes/**'
+      - 'screenshots/**'
+      - '.gitignore'
 
 jobs:
   rust:
