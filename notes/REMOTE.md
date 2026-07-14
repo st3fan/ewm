@@ -353,16 +353,59 @@ a pure `Vec<u32>`.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | Not started |
-| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Not started |
-| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | Not started |
-| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | Not started |
+| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | **Prototype** ✅ |
+| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Deferred (see note) |
+| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
+| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
 | 4 | Embedded **WebSocket** transport (`tungstenite`) → noVNC connects directly, no websockify | M | Not started |
 | 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | Not started |
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
 | B1 | *(optional Track B)* `ironrdp-server` RDP frontend | L | Optional |
 | B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Optional |
+
+### Prototype note (branch `claude/remote-console`)
+
+A first working prototype landed on this branch, collapsing Phases 0/2/3 into
+one pass so the feature is **tryable now** with a native VNC client. What was
+built:
+
+- **`remote` config block + `--serve vnc://host:port`** (`config.rs`, `two.rs`).
+  Boots headless when present; `"rdp"` and port 0 are rejected in `validate()`.
+- **`rfb.rs`** — a hand-rolled RFB 3.8/3.7/3.3 server on `std::net`, security
+  `None`, **Raw** encoding, one handler thread per client (multiple viewers of
+  one machine), `mpsc` input back to the emulator, big-endian-RGBA pixels shipped
+  with `u32::to_be_bytes` (no per-pixel conversion). Unit-tested: full-handshake
+  round-trip + first `FramebufferUpdate` decode, key/pointer delivery, view-only.
+- **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
+  SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
+  translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
+  reset) mirrors the SDL keyboard table.
+
+Verified end-to-end: booted the DOS 3.3 System Master and a bare Applesoft ][+
+over `vnc://`, typed `PRINT 2+2` and saw `4`. All gates green (`cargo fmt
+--check`, `clippy -D warnings`, `cargo test` incl. the golden-BMP tripwires).
+
+**Deliberate shortcut vs. the plan:** Phase 1's full `Driver`/`SdlFrontend`
+refactor is **deferred**. Instead the prototype adds a *parallel* headless path
+(an early branch in `two::main` → `serve()`) that reuses `build_machine()` and
+`Scr` directly. This leaves the SDL loop **byte-for-byte untouched** (lowest risk
+to the golden tests) at the cost of a small amount of duplicated frame-loop
+logic. The right follow-up is to do Phase 1 properly and re-express both `serve()`
+and the SDL loop over one `Driver` — then continue with Phase 4 (WebSocket) and
+Phase 5 (vendored noVNC) for the true browser/Proxmox experience.
+
+**Try it:**
+
+```
+cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+# then, in another terminal on macOS:
+open vnc://127.0.0.1:5901
+# or point any VNC client (TigerVNC, RealVNC) at 127.0.0.1:5901.
+# Bare Applesoft with no disk:  --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=empty
+# Expose to the LAN (no auth — see §10):  --serve vnc://0.0.0.0:5901
+```
 
 ---
 

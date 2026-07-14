@@ -54,6 +54,16 @@
     "machine": {
       "description": "The machine's physical build: model, aux card, slots, and any extra\nmemory regions.",
       "$ref": "#/$defs/Machine"
+    },
+    "remote": {
+      "description": "Remote-console (VNC) server. When present the machine boots headless\nand is reachable over the network instead of opening an SDL window.",
+      "$ref": "#/$defs/Remote",
+      "default": {
+        "bind": null,
+        "port": null,
+        "protocol": null,
+        "view_only": null
+      }
     }
   },
   "additionalProperties": false,
@@ -354,6 +364,63 @@
           "description": "An RGB color monitor.",
           "type": "string",
           "const": "rgb"
+        }
+      ]
+    },
+    "Remote": {
+      "description": "Remote-console (VNC) server settings. Presence of a `protocol` or `port`\nmakes `ewm two` boot headless and serve the screen over RFB (VNC) rather\nthan opening a local window. See notes/REMOTE.md.",
+      "type": "object",
+      "properties": {
+        "bind": {
+          "description": "Address to bind. Defaults to `127.0.0.1` (localhost only); set\n`\"0.0.0.0\"` to expose the machine to the network.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "description": "Plain-TCP RFB (VNC) port. Defaults to 5901.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "protocol": {
+          "description": "Remote-console protocol. Only `\"vnc\"` is implemented; `\"rdp\"` is\nreserved for a later optional track (notes/REMOTE.md Track B).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RemoteProtocol"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "view_only": {
+          "description": "Serve the console read-only: ignore all keyboard and pointer input.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "RemoteProtocol": {
+      "description": "The remote-console protocol (`remote.protocol`).",
+      "oneOf": [
+        {
+          "description": "RFB / VNC (RFC 6143) — the implemented v1 protocol.",
+          "type": "string",
+          "const": "vnc"
+        },
+        {
+          "description": "RDP — reserved, not implemented.",
+          "type": "string",
+          "const": "rdp"
         }
       ]
     },
