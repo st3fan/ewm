@@ -2420,18 +2420,35 @@ fn pixels_to_bytes(pixels: &[u32]) -> Vec<u8> {
     bytes
 }
 
+/// Most key bytes a remote client can have in flight before we drop input —
+/// generous type-ahead, but a bound against a client flooding the queue.
+const REMOTE_KEY_QUEUE_MAX: usize = 1024;
+
 /// Modifier state for translating RFB key events, mirroring the SDL loop's
-/// `keymod` tracking. There is one machine, so one shared modifier state even
-/// when several viewers type at once.
+/// `keymod` tracking, plus the pacing queue that feeds the keyboard latch.
+/// There is one machine, so one shared state even when several viewers type
+/// at once.
+///
+/// The pacing matters: the Apple II keyboard is a **one-byte latch**, and a
+/// browser (noVNC) delivers a whole typed word within a single frame — far
+/// faster than any human on the real keyboard. Latching those back-to-back
+/// with no CPU cycles in between would overwrite every byte but the last, so
+/// translated bytes queue here and [`RemoteKeys::pump`] feeds the next one
+/// only after the ROM has consumed the previous (strobe cleared via `$C010`).
+/// Free side effect: type-ahead while the machine is busy, like real hardware
+/// buffered in the user's fingers.
 #[derive(Default)]
 struct RemoteKeys {
     ctrl: bool,
+    /// Translated key bytes waiting their turn at the keyboard latch.
+    queue: std::collections::VecDeque<u8>,
 }
 
 impl RemoteKeys {
-    /// Apply one RFB input event to the machine. X11 keysyms re-target the SDL
-    /// keyboard table (notes/REMOTE.md §7); the left pointer button maps to the
-    /// Open-Apple / paddle-0 button.
+    /// Apply one RFB input event: translate and queue key bytes, and handle
+    /// the immediate actions (modifiers, reset, pointer buttons). X11 keysyms
+    /// re-target the SDL keyboard table (notes/REMOTE.md §7); the left
+    /// pointer button maps to the Open-Apple / paddle-0 button.
     fn apply(&mut self, two: &mut Two, event: crate::rfb::InputEvent) {
         use crate::rfb::InputEvent;
         match event {
@@ -2442,7 +2459,8 @@ impl RemoteKeys {
         }
     }
 
-    /// Translate one X11 keysym press/release to the machine's keyboard latch.
+    /// Translate one X11 keysym press/release; data keys land in the queue,
+    /// reset acts immediately (it must work even mid-type-ahead).
     fn key(&mut self, two: &mut Two, down: bool, keysym: u32) {
         match keysym {
             0xffe3 | 0xffe4 => {
@@ -2463,7 +2481,7 @@ impl RemoteKeys {
             if keysym <= 0x7f {
                 let upper = (keysym as u8).to_ascii_uppercase();
                 if upper.is_ascii_uppercase() {
-                    two.key(upper - b'A' + 1);
+                    self.push(upper - b'A' + 1);
                 }
             }
             return;
@@ -2478,7 +2496,7 @@ impl RemoteKeys {
             0xffff => 0x7f,          // Delete
             0xff09 => {
                 // Tab, mirroring the SDL loop's quirk (TAB also sends DEL).
-                two.key(0x09);
+                self.push(0x09);
                 0x7f
             }
             0x20..=0x7e => {
@@ -2492,7 +2510,25 @@ impl RemoteKeys {
             }
             _ => return,
         };
-        two.key(byte);
+        self.push(byte);
+    }
+
+    /// Queue a translated byte for the latch (dropped past the flood bound).
+    fn push(&mut self, byte: u8) {
+        if self.queue.len() < REMOTE_KEY_QUEUE_MAX {
+            self.queue.push_back(byte);
+        }
+    }
+
+    /// Feed the next queued byte once the ROM has consumed the previous one
+    /// (keyboard strobe clear). Called once per frame, before the CPU burst,
+    /// so the machine gets a full frame of cycles to read each byte.
+    fn pump(&mut self, two: &mut Two) {
+        if two.key_register() & 0x80 == 0
+            && let Some(byte) = self.queue.pop_front()
+        {
+            two.key(byte);
+        }
     }
 }
 
@@ -2597,6 +2633,9 @@ fn serve(mut options: Options) -> i32 {
         while let Some(event) = server.try_recv_input() {
             keys.apply(&mut two, event);
         }
+        // At most one queued key byte per frame, and only once the ROM has
+        // consumed the previous one — see the RemoteKeys doc comment.
+        keys.pump(&mut two);
 
         let mut budget = (speed / fps) as i64;
         while budget > 0 {
@@ -3830,5 +3869,42 @@ mod tests {
         assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
+    }
+
+    /// A remote client types faster than the one-byte keyboard latch can be
+    /// read (a browser delivers a whole word within a frame). The queue must
+    /// hold bytes back until the ROM consumes each one — no overwrites.
+    #[test]
+    fn remote_keys_pace_the_one_byte_keyboard_latch() {
+        let mut two = Two::new(TwoType::Apple2Plus).expect("machine must construct");
+        let mut keys = RemoteKeys::default();
+        let key_event = |keysym: u32, down: bool| crate::rfb::InputEvent::Key { down, keysym };
+
+        // "AB" arrives in one burst, as noVNC delivers it.
+        for keysym in [b'A' as u32, b'B' as u32] {
+            keys.apply(&mut two, key_event(keysym, true));
+            keys.apply(&mut two, key_event(keysym, false));
+        }
+        // Nothing reaches the latch until the frame loop pumps.
+        assert_eq!(two.key_register() & 0x80, 0);
+
+        keys.pump(&mut two);
+        assert_eq!(two.key_register(), b'A' | 0x80);
+        // Unconsumed strobe: pumping again must not clobber the pending byte.
+        keys.pump(&mut two);
+        assert_eq!(two.key_register(), b'A' | 0x80);
+
+        // The ROM clears the strobe ($C010); only then does the next byte feed.
+        two.cpu.mem.read(0xc010);
+        keys.pump(&mut two);
+        assert_eq!(two.key_register(), b'B' | 0x80);
+
+        // Ctrl tracking still translates through the queue: Ctrl+C → 3.
+        two.cpu.mem.read(0xc010);
+        keys.apply(&mut two, key_event(0xffe3, true)); // Control down
+        keys.apply(&mut two, key_event(b'c' as u32, true));
+        keys.apply(&mut two, key_event(0xffe3, false)); // Control up
+        keys.pump(&mut two);
+        assert_eq!(two.key_register(), 3 | 0x80);
     }
 }
