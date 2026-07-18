@@ -447,6 +447,25 @@ impl Device for Hdd {
     }
 }
 
+/// Controller registers and the in-flight block buffer (notes/STATE.md §5).
+/// The image and its file are not written: block writes flush to the
+/// backing file as they happen, so the file is the durable copy and
+/// construction reloads it.
+impl ewm_core::state::Persist for Hdd {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u16(self.block);
+        w.put_bytes(&self.buf);
+        w.put_u16(self.index as u16);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.block = r.get_u16()?;
+        self.buf.copy_from_slice(r.get_bytes(512)?);
+        self.index = (r.get_u16()? as usize).min(self.buf.len());
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

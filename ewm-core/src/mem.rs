@@ -12,7 +12,12 @@ use std::marker::PhantomData;
 /// `cpu_add_iom` read/write handlers plus their `void *obj`. `cycles` is
 /// the CPU cycle counter at the start of the current step, which the C
 /// handlers read as `cpu->counter` (speaker and paddle timestamps).
-pub trait Device: Any {
+///
+/// `Persist` is a supertrait on purpose (notes/STATE.md §3.2): every
+/// device must answer the state-persistence question, and a stateless one
+/// answers with an explicitly empty impl — a visible decision, not a
+/// silent omission.
+pub trait Device: Any + crate::state::Persist {
     fn read(&mut self, addr: u16, cycles: u64) -> u8;
     fn write(&mut self, addr: u16, b: u8, cycles: u64);
 }
@@ -271,10 +276,10 @@ impl Memory {
 
 /// Structural memory state (notes/STATE.md §5): base RAM, the `Ram` regions
 /// (by region index — construction is deterministic from the config, so
-/// indices are stable identities), and the cycle mirror. `Rom` regions are
+/// indices are stable identities), the cycle mirror, and every device as an
+/// index-tagged `DEV ` chunk in construction order. `Rom` regions are
 /// immutable and rebuilt at construction; watchpoints are debug session
-/// state — neither is written. Devices are counted here for validation
-/// (their payloads follow once `Device: Persist` lands).
+/// state — neither is written.
 impl crate::state::Persist for Memory {
     fn save(&self, w: &mut crate::state::Writer) {
         w.put_blob(&self.base_ram);
@@ -294,6 +299,12 @@ impl crate::state::Persist for Memory {
         }
         w.put_u64(self.cycles);
         w.put_u16(self.devices.len() as u16);
+        for (index, device) in self.devices.iter().enumerate() {
+            w.chunk(*b"DEV ", |w| {
+                w.put_u16(index as u16);
+                device.save(w);
+            });
+        }
     }
 
     fn restore(&mut self, r: &mut crate::state::Reader) -> crate::state::Result<()> {
@@ -342,6 +353,20 @@ impl crate::state::Persist for Memory {
                 self.devices.len()
             )));
         }
+        for expected in 0..devices {
+            let mut dev = r.chunk(*b"DEV ")?;
+            let index = dev.get_u16()? as usize;
+            if index != expected {
+                return Err(crate::state::Error(format!(
+                    "device chunks out of order: expected {expected}, found {index}"
+                )));
+            }
+            self.devices[index]
+                .restore(&mut dev)
+                .map_err(|e| crate::state::Error(format!("device {index}: {e}")))?;
+            dev.done()
+                .map_err(|e| crate::state::Error(format!("device {index}: {e}")))?;
+        }
         Ok(())
     }
 }
@@ -354,6 +379,15 @@ mod tests {
         last_read: Option<(u16, u64)>,
         last_write: Option<(u16, u8, u64)>,
         value: u8,
+    }
+
+    // The explicitly-empty answer to the persistence question — a test
+    // probe records nothing worth resuming.
+    impl crate::state::Persist for Probe {
+        fn save(&self, _w: &mut crate::state::Writer) {}
+        fn restore(&mut self, _r: &mut crate::state::Reader) -> crate::state::Result<()> {
+            Ok(())
+        }
     }
 
     impl Device for Probe {

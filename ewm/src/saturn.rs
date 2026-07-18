@@ -189,6 +189,28 @@ impl Device for Saturn {
     }
 }
 
+/// Banking state and the 128K (notes/STATE.md §5); the shadowed machine ROM
+/// is construction data and not written.
+impl ewm_core::state::Persist for Saturn {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.bank as u8);
+        w.put_bool(self.bank_b);
+        w.put_bool(self.read);
+        w.put_bool(self.write);
+        w.put_u32(self.wrtcount);
+        w.put_blob(&self.ram);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.bank = r.get_u8()? as usize % 8;
+        self.bank_b = r.get_bool()?;
+        self.read = r.get_bool()?;
+        self.write = r.get_bool()?;
+        self.wrtcount = r.get_u32()?;
+        crate::alc::restore_ram(&mut self.ram, r, "Saturn RAM")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

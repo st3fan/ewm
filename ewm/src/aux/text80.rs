@@ -66,6 +66,18 @@ impl AuxCard for Text80Col {
     }
 }
 
+/// The card's 1K, saved as its full `$0000-$BFFF`-shaped backing
+/// (notes/STATE.md §5).
+impl ewm_core::state::Persist for Text80Col {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_blob(&self.ram);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        crate::alc::restore_ram(&mut self.ram, r, "80-column card RAM")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

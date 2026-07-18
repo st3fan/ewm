@@ -26,7 +26,7 @@ pub enum LcRegion {
 }
 
 /// A card in the //e auxiliary slot.
-pub trait AuxCard {
+pub trait AuxCard: ewm_core::state::Persist {
     /// RAMRD/RAMWRT/ALTZP access to the selected bank's `$0000-$BFFF`.
     fn read(&self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, b: u8);
@@ -90,6 +90,27 @@ impl AuxBank {
             LcRegion::Bank2 => &mut self.lc_d2,
             LcRegion::High => &mut self.lc_e,
         }
+    }
+}
+
+impl AuxBank {
+    /// One bank's payload (notes/STATE.md §5): the 48K body and the aux
+    /// language-card RAM.
+    pub fn save_state(&self, w: &mut ewm_core::state::Writer) {
+        w.put_blob(&self.ram);
+        w.put_blob(&self.lc_d1);
+        w.put_blob(&self.lc_d2);
+        w.put_blob(&self.lc_e);
+    }
+
+    pub fn restore_state(
+        &mut self,
+        r: &mut ewm_core::state::Reader,
+    ) -> ewm_core::state::Result<()> {
+        crate::alc::restore_ram(&mut self.ram, r, "aux bank body")?;
+        crate::alc::restore_ram(&mut self.lc_d1, r, "aux LC bank 1")?;
+        crate::alc::restore_ram(&mut self.lc_d2, r, "aux LC bank 2")?;
+        crate::alc::restore_ram(&mut self.lc_e, r, "aux LC high")
     }
 }
 

@@ -82,6 +82,33 @@ impl AuxCard for RamWorksIII {
     }
 }
 
+/// The `$C073` bank select and every populated 64K bank (notes/STATE.md §5).
+impl ewm_core::state::Persist for RamWorksIII {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.selected);
+        w.put_u16(self.banks.len() as u16);
+        for bank in &self.banks {
+            bank.save_state(w);
+        }
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.selected = r.get_u8()?;
+        let count = r.get_u16()? as usize;
+        if count != self.banks.len() {
+            return Err(ewm_core::state::Error(format!(
+                "RamWorks bank count mismatch: state has {count}, machine has {} \
+                 (same-configuration precondition, notes/STATE.md)",
+                self.banks.len()
+            )));
+        }
+        for bank in &mut self.banks {
+            bank.restore_state(r)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

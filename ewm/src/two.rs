@@ -1070,6 +1070,207 @@ impl SoftSwitches for IouE {
 /// device as a `&dyn SoftSwitches` — so no host-facing accessor branches on the
 /// model. (`ram`/`aux_ram` are the one exception: the ][+'s RAM lives in
 /// `Memory`, not in `TwoIo`, so those stay a small direct match.)
+/// ][+ soft switches and game I/O (notes/STATE.md §5): the key latch, the
+/// display switches, buttons, paddle timers, and any undrained speaker
+/// toggles — cycle stamps saved verbatim, never rebased. Not written:
+/// `joystick` (the frontend re-feeds it every frame), `screen_dirty`
+/// (restore marks the screen dirty), and `debug` (config).
+impl ewm_core::state::Persist for TwoIo {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.key);
+        w.put_u8(match self.screen_mode {
+            ScreenMode::Text => 0,
+            ScreenMode::Graphics => 1,
+        });
+        w.put_u8(match self.screen_graphics_mode {
+            GraphicsMode::Lgr => 0,
+            GraphicsMode::Hgr => 1,
+        });
+        w.put_u8(match self.screen_graphics_style {
+            GraphicsStyle::Full => 0,
+            GraphicsStyle::Mixed => 1,
+        });
+        w.put_u8(match self.screen_page {
+            ScreenPage::Page1 => 0,
+            ScreenPage::Page2 => 1,
+        });
+        w.put_bytes(&self.buttons);
+        w.put_u64(self.padl0_time);
+        w.put_u8(self.padl0_value);
+        w.put_u64(self.padl1_time);
+        w.put_u8(self.padl1_value);
+        w.put_u16(self.speaker_toggles.len() as u16);
+        for &t in &self.speaker_toggles {
+            w.put_u64(t);
+        }
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        use ewm_core::state::Error;
+
+        self.key = r.get_u8()?;
+        self.screen_mode = match r.get_u8()? {
+            0 => ScreenMode::Text,
+            1 => ScreenMode::Graphics,
+            other => return Err(Error(format!("unknown screen mode {other}"))),
+        };
+        self.screen_graphics_mode = match r.get_u8()? {
+            0 => GraphicsMode::Lgr,
+            1 => GraphicsMode::Hgr,
+            other => return Err(Error(format!("unknown graphics mode {other}"))),
+        };
+        self.screen_graphics_style = match r.get_u8()? {
+            0 => GraphicsStyle::Full,
+            1 => GraphicsStyle::Mixed,
+            other => return Err(Error(format!("unknown graphics style {other}"))),
+        };
+        self.screen_page = match r.get_u8()? {
+            0 => ScreenPage::Page1,
+            1 => ScreenPage::Page2,
+            other => return Err(Error(format!("unknown screen page {other}"))),
+        };
+        self.buttons.copy_from_slice(r.get_bytes(4)?);
+        self.padl0_time = r.get_u64()?;
+        self.padl0_value = r.get_u8()?;
+        self.padl1_time = r.get_u64()?;
+        self.padl1_value = r.get_u8()?;
+        let toggles = r.get_u16()? as usize;
+        self.speaker_toggles.clear();
+        for _ in 0..toggles {
+            self.speaker_toggles.push(r.get_u64()?);
+        }
+        self.screen_dirty = true;
+        Ok(())
+    }
+}
+
+/// //e MMU/IOU state (notes/STATE.md §5): the key latch, ROM arbitration,
+/// the memory and display soft switches, game I/O, main 48K, the built-in
+/// language card, and the aux card as a framed child (`AuxCard: Persist`).
+/// Not written: the internal/slot ROMs and `lc_rom` (construction data),
+/// `joystick`, `screen_dirty`, `debug` — same reasoning as `TwoIo`.
+impl ewm_core::state::Persist for IouE {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.key);
+        w.put_bool(self.intcxrom);
+        w.put_bool(self.slotc3rom);
+        w.put_bool(self.c800_internal);
+        w.put_bool(self.store80);
+        w.put_bool(self.ramrd);
+        w.put_bool(self.ramwrt);
+        w.put_bool(self.altzp);
+        w.put_bool(self.text);
+        w.put_bool(self.mixed);
+        w.put_bool(self.page2);
+        w.put_bool(self.hires);
+        w.put_bool(self.col80);
+        w.put_bool(self.altcharset);
+        w.put_bool(self.dhires);
+        w.put_bytes(&self.buttons);
+        w.put_u64(self.padl0_time);
+        w.put_u8(self.padl0_value);
+        w.put_u64(self.padl1_time);
+        w.put_u8(self.padl1_value);
+        w.put_u16(self.speaker_toggles.len() as u16);
+        for &t in &self.speaker_toggles {
+            w.put_u64(t);
+        }
+        w.put_blob(&self.main);
+        w.put_blob(&self.lc_d1);
+        w.put_blob(&self.lc_d2);
+        w.put_blob(&self.lc_e);
+        w.put_bool(self.lc_active);
+        w.put_bool(self.lc_bank1);
+        w.put_bool(self.lc_read);
+        w.put_bool(self.lc_write);
+        w.put_u32(self.lc_wrtcount);
+        w.chunk(*b"AUX ", |w| self.aux.save(w));
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.key = r.get_u8()?;
+        self.intcxrom = r.get_bool()?;
+        self.slotc3rom = r.get_bool()?;
+        self.c800_internal = r.get_bool()?;
+        self.store80 = r.get_bool()?;
+        self.ramrd = r.get_bool()?;
+        self.ramwrt = r.get_bool()?;
+        self.altzp = r.get_bool()?;
+        self.text = r.get_bool()?;
+        self.mixed = r.get_bool()?;
+        self.page2 = r.get_bool()?;
+        self.hires = r.get_bool()?;
+        self.col80 = r.get_bool()?;
+        self.altcharset = r.get_bool()?;
+        self.dhires = r.get_bool()?;
+        self.buttons.copy_from_slice(r.get_bytes(4)?);
+        self.padl0_time = r.get_u64()?;
+        self.padl0_value = r.get_u8()?;
+        self.padl1_time = r.get_u64()?;
+        self.padl1_value = r.get_u8()?;
+        let toggles = r.get_u16()? as usize;
+        self.speaker_toggles.clear();
+        for _ in 0..toggles {
+            self.speaker_toggles.push(r.get_u64()?);
+        }
+        crate::alc::restore_ram(&mut self.main, r, "//e main RAM")?;
+        crate::alc::restore_ram(&mut self.lc_d1, r, "//e LC bank 1")?;
+        crate::alc::restore_ram(&mut self.lc_d2, r, "//e LC bank 2")?;
+        crate::alc::restore_ram(&mut self.lc_e, r, "//e LC high")?;
+        self.lc_active = r.get_bool()?;
+        self.lc_bank1 = r.get_bool()?;
+        self.lc_read = r.get_bool()?;
+        self.lc_write = r.get_bool()?;
+        self.lc_wrtcount = r.get_u32()?;
+        let mut aux = r.chunk(*b"AUX ")?;
+        self.aux.restore(&mut aux)?;
+        aux.done()?;
+        self.screen_dirty = true;
+        Ok(())
+    }
+}
+
+/// The machine root (notes/STATE.md §3.3): a small INFO chunk naming the
+/// model — the cheap seatbelt edge of the same-configuration precondition,
+/// ahead of the backlog fingerprint — then the CPU as a framed child, which
+/// carries everything else (Memory owns all devices). `Two`'s other fields
+/// are construction-time wiring with no runtime state of their own.
+impl ewm_core::state::Persist for Two {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.chunk(*b"INFO", |w| {
+            w.put_str(match self.model {
+                TwoType::Apple2 => "2",
+                TwoType::Apple2Plus => "2plus",
+                TwoType::Apple2E => "2e",
+            });
+        });
+        w.chunk(*b"CPU ", |w| self.cpu.save(w));
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        let mut info = r.chunk(*b"INFO")?;
+        let model = info.get_str()?;
+        info.done()?;
+        let ours = match self.model {
+            TwoType::Apple2 => "2",
+            TwoType::Apple2Plus => "2plus",
+            TwoType::Apple2E => "2e",
+        };
+        if model != ours {
+            return Err(ewm_core::state::Error(format!(
+                "state was saved by a {model} machine, this is a {ours} \
+                 (same-configuration precondition, notes/STATE.md)"
+            )));
+        }
+        let mut cpu = r.chunk(*b"CPU ")?;
+        self.cpu.restore(&mut cpu)?;
+        cpu.done()?;
+        // Everything derived re-derives: force a full redraw.
+        self.set_screen_dirty(true);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 enum MachineIo {
     Plus(DeviceHandle<TwoIo>),
