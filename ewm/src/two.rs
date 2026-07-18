@@ -3724,7 +3724,8 @@ pub fn main(args: &[String]) -> i32 {
                 // pauses from here on show the plain PAUSED box.
                 restored_banner = None;
             }
-            if !paused && !palette_visible && sdl3::timer::ticks() >= boot_at {
+            let running = !paused && !palette_visible && sdl3::timer::ticks() >= boot_at;
+            if running {
                 // Feed the joystick axes to the paddle logic before the burst.
                 two.set_joystick(controller.as_ref().map(|c| {
                     // The D-pad (full deflection) wins over the analog stick.
@@ -3881,15 +3882,21 @@ pub fn main(args: &[String]) -> i32 {
             if now > next_frame + 1000 {
                 next_frame = now + frame_ms;
             }
-            phase += 1;
-            if phase == fps {
-                phase = 0;
+            // Screen time advances only while machine time does: the FLASH
+            // blink (AppleSoft's cursor, flashing text) is derived from
+            // `phase` in the renderer, so a paused machine must not keep
+            // blinking behind the pause box — the tableau freezes whole.
+            if running {
+                phase += 1;
+                if phase == fps {
+                    phase = 0;
 
-                // Cycles executed over the past second — the true rate, which
-                // the palette's acceleration options make meaningful (at 1x it
-                // is the fake ≈1.023 MHz of quirk #3).
-                mhz = (two.cpu.counter - counter) as f64 / 1_000_000.0;
-                counter = two.cpu.counter;
+                    // Cycles executed over the past second — the true rate,
+                    // which the palette's acceleration options make meaningful
+                    // (at 1x it is the fake ≈1.023 MHz of quirk #3).
+                    mhz = (two.cpu.counter - counter) as f64 / 1_000_000.0;
+                    counter = two.cpu.counter;
+                }
             }
 
             frames += 1;
