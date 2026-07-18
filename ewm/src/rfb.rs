@@ -123,6 +123,9 @@ pub struct Options {
     /// Serve the embedded noVNC console (`web.rs`) for plain HTTP requests on
     /// the WebSocket port (Phase 5). Off: plain HTTP gets `426`.
     pub web: bool,
+    /// The speaker's PCM broadcast hub: a WebSocket upgrade on `/audio`
+    /// streams from it (notes/VNC.md §4). `None` closes such requests.
+    pub audio: Option<Arc<crate::audio::Hub>>,
     /// The desktop name sent in `ServerInit`.
     pub name: String,
     /// Drop all client input at the source.
@@ -170,11 +173,19 @@ impl Server {
         let (input_tx, input) = std::sync::mpsc::channel();
         let view_only = options.view_only;
         let web = options.web;
+        let audio = options.audio;
 
         let tcp_channel = channel.clone();
         let tcp_input = input_tx.clone();
         std::thread::spawn(move || {
-            accept(listener, tcp_channel, tcp_input, view_only, Transport::Tcp)
+            accept(
+                listener,
+                tcp_channel,
+                tcp_input,
+                view_only,
+                Transport::Tcp,
+                None,
+            )
         });
         if let Some(ws_listener) = ws_listener {
             let ws_channel = channel.clone();
@@ -185,6 +196,7 @@ impl Server {
                     input_tx,
                     view_only,
                     Transport::WebSocket { web },
+                    audio,
                 )
             });
         }
@@ -232,16 +244,18 @@ fn accept(
     input_tx: Sender<InputEvent>,
     view_only: bool,
     transport: Transport,
+    audio: Option<Arc<crate::audio::Hub>>,
 ) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let channel = channel.clone();
         let input_tx = input_tx.clone();
+        let audio = audio.clone();
         std::thread::spawn(move || {
             let result = match transport {
                 Transport::Tcp => handle_tcp(stream, channel, input_tx, view_only),
                 Transport::WebSocket { web } => {
-                    handle_ws(stream, channel, input_tx, view_only, web)
+                    handle_ws(stream, channel, input_tx, view_only, web, audio)
                 }
             };
             if let Err(e) = result {
@@ -268,15 +282,18 @@ fn handle_tcp(
 
 /// One browser connection. A WebSocket upgrade becomes the identical RFB
 /// byte stream framed in WebSocket binary messages (`ws::WsReader`/`WsWriter`
-/// implement `Read`/`Write`, so the state machine below is shared verbatim).
-/// A plain HTTP request is the web console (Phase 5) when enabled — the same
-/// port serves the page and its RFB stream, the Proxmox shape — or `426`.
+/// implement `Read`/`Write`, so the state machine below is shared verbatim) —
+/// except on `/audio`, where it becomes the speaker's PCM stream instead
+/// (notes/VNC.md §4). A plain HTTP request is the web console (Phase 5) when
+/// enabled — the same port serves the page and its RFB stream, the Proxmox
+/// shape — or `426`.
 fn handle_ws(
     mut stream: TcpStream,
     channel: Arc<Channel>,
     input_tx: Sender<InputEvent>,
     view_only: bool,
     web: bool,
+    audio: Option<Arc<crate::audio::Hub>>,
 ) -> io::Result<()> {
     let request = crate::ws::read_http_request(&mut stream)?;
     if !request.is_upgrade() {
@@ -289,6 +306,16 @@ fn handle_ws(
                 "plain HTTP on the WebSocket port (no web console enabled)",
             ))
         };
+    }
+    if request.path.split(['?', '#']).next() == Some("/audio") {
+        let Some(hub) = audio else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "audio channel requested but not available",
+            ));
+        };
+        crate::ws::accept_upgrade(&mut stream, &request)?;
+        return hub.attach(stream);
     }
     crate::ws::accept_upgrade(&mut stream, &request)?;
     let (reader, writer) = crate::ws::split(&stream)?;
@@ -704,6 +731,7 @@ mod tests {
                 port: 0,
                 websocket: websocket.then_some(0),
                 web: websocket, // tests exercise the console alongside WS
+                audio: None,
                 name: name.into(),
                 view_only,
                 password,
@@ -1063,6 +1091,7 @@ mod tests {
                 port: 0,
                 websocket: Some(0),
                 web: false,
+                audio: None,
                 name: "EWM".into(),
                 view_only: false,
                 password: None,
@@ -1073,5 +1102,63 @@ mod tests {
         .expect("bind");
         let response = http_get(server.websocket_port().expect("ws port"), "/");
         assert!(response.starts_with("HTTP/1.1 426"), "{response}");
+    }
+
+    /// An upgrade on `/audio` streams PCM (header text frame first) instead
+    /// of RFB, while the default path still speaks RFB — one port, three jobs.
+    #[test]
+    fn audio_path_streams_pcm_beside_rfb_and_the_console() {
+        let hub = crate::audio::Hub::new();
+        let (server, _publisher) = Server::start(
+            Options {
+                bind: "127.0.0.1".into(),
+                port: 0,
+                websocket: Some(0),
+                web: true,
+                audio: Some(hub.clone()),
+                name: "EWM".into(),
+                view_only: false,
+                password: None,
+            },
+            280,
+            192,
+        )
+        .expect("bind");
+        let port = server.websocket_port().expect("ws port");
+
+        // /audio: the JSON header, then a published chunk.
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .write_all(
+                b"GET /audio HTTP/1.1\r\n\
+                  Host: localhost\r\n\
+                  Upgrade: websocket\r\n\
+                  Connection: Upgrade\r\n\
+                  Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                  Sec-WebSocket-Version: 13\r\n\r\n",
+            )
+            .expect("upgrade");
+        let mut byte = [0u8; 1];
+        let mut response = String::new();
+        while !response.ends_with("\r\n\r\n") {
+            stream.read_exact(&mut byte).expect("response");
+            response.push(byte[0] as char);
+        }
+        assert!(response.starts_with("HTTP/1.1 101"), "{response}");
+        let (_, opcode, payload) = crate::ws::read_frame(&mut stream, false).expect("header");
+        assert_eq!(opcode, crate::ws::OP_TEXT);
+        assert!(
+            String::from_utf8_lossy(&payload).contains("\"s16le\""),
+            "audio header"
+        );
+        // Having read the header, this client is registered: publish reaches it.
+        hub.publish(&[1000, -1000]);
+        let (_, opcode, payload) = crate::ws::read_frame(&mut stream, false).expect("pcm");
+        assert_eq!(opcode, crate::ws::OP_BINARY);
+        assert_eq!(payload, [1000i16, -1000].map(i16::to_le_bytes).concat());
+
+        // The default path on the same port is still RFB.
+        let mut rfb = WsClient::connect(port);
+        assert_eq!(rfb.read_bytes(12), b"RFB 003.008\n");
     }
 }

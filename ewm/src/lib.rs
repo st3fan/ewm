@@ -8,6 +8,7 @@
 //! `one::main`, `two::main`, and the `boo` bootloader menu.
 
 pub mod alc;
+pub mod audio;
 pub mod aux;
 pub mod boo;
 pub mod chr;

@@ -2624,12 +2624,18 @@ fn serve(mut options: Options) -> i32 {
         (None, true) => Some(WS_DEFAULT_PORT),
         (websocket, _) => websocket,
     };
+    // The speaker's WebAudio side-channel (notes/VNC.md §4): browser clients
+    // upgrade on /audio and stream the PCM the frame loop renders below.
+    let audio = crate::audio::Hub::new();
+    let mut wave = crate::snd::Wave::new();
+    wave.set_cpu_frequency(speed as u64);
     let (server, publisher) = match crate::rfb::Server::start(
         crate::rfb::Options {
             bind: serve.bind.clone(),
             port: serve.port,
             websocket,
             web: serve.web,
+            audio: Some(audio.clone()),
             name: name.to_string(),
             view_only: serve.view_only,
             password: serve.password,
@@ -2683,8 +2689,12 @@ fn serve(mut options: Options) -> i32 {
                 cycles => budget -= cycles as i64,
             }
         }
-        // RFB has no audio channel (v1): drain and drop the speaker toggles.
-        let _ = two.drain_speaker_toggles();
+        // RFB has no audio channel; the speaker streams over the /audio
+        // WebSocket instead (notes/VNC.md). Rendering must run every frame
+        // to keep the wave's cycle window in step; the hub only pays for
+        // encoding when someone is actually listening.
+        let toggles = two.drain_speaker_toggles();
+        audio.publish(wave.render(&toggles, two.cpu.counter));
 
         scr.update(&two, phase, fps);
         publisher.publish(scr.frame(two.model()));
