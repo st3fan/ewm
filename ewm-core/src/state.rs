@@ -48,6 +48,20 @@ fn corrupt(what: &str) -> Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Component-local machine-state persistence (notes/STATE.md §3). Save and
+/// restore must agree exactly: only *runtime* state is written — anything
+/// reconstructible from config or ROMs is not — and `restore` overwrites
+/// every field `save` recorded. Impls read and write their payload only;
+/// the owner frames children in chunks and fixes the order. On `Err` the
+/// machine is unusable: restore is all-or-nothing at the top level.
+pub trait Persist {
+    /// Append this component's payload to the writer.
+    fn save(&self, w: &mut Writer);
+
+    /// Restore from a reader holding exactly this component's payload.
+    fn restore(&mut self, r: &mut Reader) -> Result<()>;
+}
+
 /// Builds a chunk stream in memory. All integers little-endian.
 #[derive(Default)]
 pub struct Writer {

@@ -269,6 +269,83 @@ impl Memory {
     }
 }
 
+/// Structural memory state (notes/STATE.md §5): base RAM, the `Ram` regions
+/// (by region index — construction is deterministic from the config, so
+/// indices are stable identities), and the cycle mirror. `Rom` regions are
+/// immutable and rebuilt at construction; watchpoints are debug session
+/// state — neither is written. Devices are counted here for validation
+/// (their payloads follow once `Device: Persist` lands).
+impl crate::state::Persist for Memory {
+    fn save(&self, w: &mut crate::state::Writer) {
+        w.put_blob(&self.base_ram);
+        let ram_regions: Vec<(usize, &Vec<u8>)> = self
+            .regions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, region)| match &region.backing {
+                Backing::Ram(data) => Some((i, data)),
+                _ => None,
+            })
+            .collect();
+        w.put_u16(ram_regions.len() as u16);
+        for (index, data) in ram_regions {
+            w.put_u16(index as u16);
+            w.put_blob(data);
+        }
+        w.put_u64(self.cycles);
+        w.put_u16(self.devices.len() as u16);
+    }
+
+    fn restore(&mut self, r: &mut crate::state::Reader) -> crate::state::Result<()> {
+        let base = r.get_blob()?;
+        if base.len() != self.base_ram.len() {
+            return Err(crate::state::Error(format!(
+                "base RAM size mismatch: state has {} bytes, machine has {}",
+                base.len(),
+                self.base_ram.len()
+            )));
+        }
+        self.base_ram.copy_from_slice(base);
+
+        let count = r.get_u16()? as usize;
+        for _ in 0..count {
+            let index = r.get_u16()? as usize;
+            let data = r.get_blob()?;
+            let Some(region) = self.regions.get_mut(index) else {
+                return Err(crate::state::Error(format!(
+                    "state names RAM region {index}, machine has {} regions",
+                    self.regions.len()
+                )));
+            };
+            let Backing::Ram(existing) = &mut region.backing else {
+                return Err(crate::state::Error(format!(
+                    "state region {index} is RAM, the machine's is not"
+                )));
+            };
+            if data.len() != existing.len() {
+                return Err(crate::state::Error(format!(
+                    "RAM region {index} size mismatch: state has {} bytes, machine has {}",
+                    data.len(),
+                    existing.len()
+                )));
+            }
+            existing.copy_from_slice(data);
+        }
+
+        self.cycles = r.get_u64()?;
+
+        let devices = r.get_u16()? as usize;
+        if devices != self.devices.len() {
+            return Err(crate::state::Error(format!(
+                "device count mismatch: state has {devices}, machine has {} \
+                 (same-configuration precondition, notes/STATE.md)",
+                self.devices.len()
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

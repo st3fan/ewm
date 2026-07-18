@@ -312,6 +312,39 @@ impl Cpu {
     }
 }
 
+/// CPU state (notes/STATE.md §5): the registers, the flags via the packed
+/// status byte, the cycle counter, and the memory system as a framed child.
+/// Deliberately not written: `model` and the instruction table (construction
+/// data), `strict`/`trace`/breakpoints/`stopped`/watch state (debug session
+/// aids), and `extra_cycles` (transient within a step — save and restore
+/// happen only at step boundaries, notes/STATE.md §5 quiescence rule).
+impl crate::state::Persist for Cpu {
+    fn save(&self, w: &mut crate::state::Writer) {
+        w.put_u8(self.a);
+        w.put_u8(self.x);
+        w.put_u8(self.y);
+        w.put_u8(self.sp);
+        w.put_u8(self.status());
+        w.put_u16(self.pc);
+        w.put_u64(self.counter);
+        w.chunk(*b"MEM ", |w| self.mem.save(w));
+    }
+
+    fn restore(&mut self, r: &mut crate::state::Reader) -> crate::state::Result<()> {
+        self.a = r.get_u8()?;
+        self.x = r.get_u8()?;
+        self.y = r.get_u8()?;
+        self.sp = r.get_u8()?;
+        let status = r.get_u8()?;
+        self.set_status(status);
+        self.pc = r.get_u16()?;
+        self.counter = r.get_u64()?;
+        let mut mem = r.chunk(*b"MEM ")?;
+        self.mem.restore(&mut mem)?;
+        mem.done()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,6 +482,70 @@ mod tests {
             "0400: LDA  #$42                A=00 X=00 Y=00 S=34 SP=FF -----I--\n\
              0402: NOP                      A=42 X=00 Y=00 S=34 SP=FF -----I--\n"
         );
+    }
+
+    #[test]
+    fn state_round_trip_restores_registers_and_memory() {
+        use crate::state::{Persist, Reader, Writer};
+
+        // A machine shape with base RAM, an extra RAM region, and ROM.
+        let build = || {
+            let mut mem = Memory::new(0x1000);
+            mem.add_ram(0x4000, vec![0; 0x100]);
+            mem.add_rom(0xf000, vec![0xea; 0x100]);
+            Cpu::new(Model::M6502, mem)
+        };
+
+        let mut cpu = build();
+        cpu.a = 0x42;
+        cpu.x = 0x11;
+        cpu.y = 0x22;
+        cpu.sp = 0xf0;
+        cpu.pc = 0xbd00;
+        cpu.set_status(0b1010_0101);
+        cpu.counter = 123_456_789;
+        cpu.mem.write(0x0123, 0x5a);
+        cpu.mem.write(0x4042, 0xa5);
+        cpu.mem.cycles = 123_456_780;
+
+        let mut w = Writer::new();
+        cpu.save(&mut w);
+        let bytes = w.into_bytes();
+
+        let mut twin = build();
+        let mut r = Reader::new(&bytes);
+        twin.restore(&mut r).expect("restore");
+        r.done().expect("payload fully consumed");
+
+        assert_eq!(
+            (twin.a, twin.x, twin.y, twin.sp, twin.pc),
+            (0x42, 0x11, 0x22, 0xf0, 0xbd00)
+        );
+        assert_eq!(twin.status(), cpu.status());
+        assert_eq!(twin.counter, 123_456_789);
+        assert_eq!(twin.mem.cycles, 123_456_780);
+        assert_eq!(twin.mem.read(0x0123), 0x5a, "base RAM restored");
+        assert_eq!(twin.mem.read(0x4042), 0xa5, "RAM region restored");
+        assert_eq!(twin.mem.read(0xf000), 0xea, "ROM untouched");
+    }
+
+    #[test]
+    fn state_restore_rejects_a_differently_shaped_machine() {
+        use crate::state::{Persist, Reader, Writer};
+
+        let cpu = Cpu::new(Model::M6502, Memory::new(0x1000));
+        let mut w = Writer::new();
+        cpu.save(&mut w);
+        let bytes = w.into_bytes();
+
+        // Different base RAM size: the same-configuration precondition
+        // (notes/STATE.md) is checked where it is cheap.
+        let mut other = Cpu::new(Model::M6502, Memory::new(0x2000));
+        let err = other
+            .restore(&mut Reader::new(&bytes))
+            .expect_err("size mismatch rejected")
+            .to_string();
+        assert!(err.contains("base RAM size mismatch"), "{err}");
     }
 
     #[test]
