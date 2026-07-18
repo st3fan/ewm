@@ -208,6 +208,23 @@ impl Device for Clk {
     }
 }
 
+/// The latched time string mid-read (notes/STATE.md §5) — a suspended
+/// ProDOS clock read resumes where it left off; the *next* latch samples
+/// the host clock, which is "now" by definition. The `fixed` test aid is
+/// not written.
+impl ewm_core::state::Persist for Clk {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u16(self.index as u16);
+        w.put_bytes(&self.buf);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.index = (r.get_u16()? as usize).min(STRING_LEN);
+        self.buf.copy_from_slice(r.get_bytes(STRING_LEN)?);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

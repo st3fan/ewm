@@ -455,6 +455,48 @@ fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
+/// The drive electronics mid-flight (notes/STATE.md §5): head cursor, shift
+/// register, MC3470 fake-bit state, the noise RNG — cycle stamps saved
+/// verbatim, never rebased. The image itself is not written: WOZ media is
+/// read-only in EWM, so construction reloads it from the file.
+impl ewm_core::state::Persist for WozMedia {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.tmap_val);
+        w.put_u64(self.bit_pos as u64);
+        w.put_u64(self.last_cycles);
+        w.put_u64(self.bit_acc);
+        w.put_u8(self.shifter);
+        w.put_u8(self.latch);
+        w.put_u8(self.hold);
+        w.put_u32(self.zero_run);
+        w.put_bool(self.held);
+        w.put_u32(self.rng);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.tmap_val = r.get_u8()?;
+        self.bit_pos = r.get_u64()? as usize;
+        self.last_cycles = r.get_u64()?;
+        self.bit_acc = r.get_u64()?;
+        self.shifter = r.get_u8()?;
+        self.latch = r.get_u8()?;
+        self.hold = r.get_u8()?;
+        self.zero_run = r.get_u32()?;
+        self.held = r.get_bool()?;
+        self.rng = r.get_u32()?;
+        // Keep the cursor within the (reloaded) track, whatever the file
+        // says — the same-configuration precondition makes mismatch UB, but
+        // an in-bounds cursor keeps it non-crashing UB.
+        if self.tmap_val != 0xff
+            && let Some(track) = self.image.tracks.get(self.tmap_val as usize)
+            && track.bit_count > 0
+        {
+            self.bit_pos %= track.bit_count;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

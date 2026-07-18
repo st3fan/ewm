@@ -639,6 +639,34 @@ impl Device for Liron {
     }
 }
 
+/// Controller registers and the in-flight block buffer (notes/STATE.md §5).
+/// The mounted images are not written: like the hard drive, block writes
+/// flush to the backing .2mg files, which construction reloads.
+impl ewm_core::state::Persist for Liron {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.drive as u8);
+        w.put_bool(self.unit_ok);
+        w.put_u8(self.sp_unit);
+        w.put_u8(self.statcode);
+        w.put_u16(self.block);
+        w.put_bytes(&self.buf);
+        w.put_u16(self.index as u16);
+        w.put_u8(self.status_len);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.drive = (r.get_u8()? as usize).min(1);
+        self.unit_ok = r.get_bool()?;
+        self.sp_unit = r.get_u8()?;
+        self.statcode = r.get_u8()?;
+        self.block = r.get_u16()?;
+        self.buf.copy_from_slice(r.get_bytes(512)?);
+        self.index = (r.get_u16()? as usize).min(self.buf.len());
+        self.status_len = r.get_u8()?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

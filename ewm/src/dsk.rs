@@ -638,6 +638,113 @@ fn convert_track(volume: u8, data: &[u8], track_idx: usize, dsk_type: DskType) -
     track
 }
 
+/// Controller and drive state, **including nibblized media contents**
+/// (notes/STATE.md §5): floppy writes are in-memory only, so a resumed
+/// session must carry the modified tracks or silently lose them. WOZ media
+/// is read-only — only its drive-electronics state is saved (`woz.rs`), and
+/// construction reloads the image from the file. Cycle stamps (`off_at`)
+/// are saved verbatim, never rebased.
+impl ewm_core::state::Persist for Dsk {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_bool(self.on);
+        w.put_bool(self.off_at.is_some());
+        w.put_u64(self.off_at.unwrap_or(0));
+        w.put_u8(match self.mode {
+            Mode::Read => 0,
+            Mode::Write => 1,
+        });
+        w.put_u8(self.latch);
+        w.put_u8(self.drive as u8);
+        w.put_u32(self.skip);
+        for drive in &self.drives {
+            w.put_bool(drive.loaded);
+            w.put_u8(drive.volume);
+            w.put_u32(drive.track as u32);
+            w.put_u64(drive.head as u64);
+            w.put_u8(drive.phase as u8);
+            w.put_bool(drive.readonly);
+            match &drive.media {
+                Media::None => w.put_u8(0),
+                Media::Nibbles(tracks) => {
+                    w.put_u8(1);
+                    w.put_u16(tracks.len() as u16);
+                    for track in tracks {
+                        w.put_blob(track);
+                    }
+                }
+                Media::Woz(woz) => {
+                    w.put_u8(2);
+                    w.chunk(*b"WOZC", |w| woz.save(w));
+                }
+            }
+        }
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        use ewm_core::state::Error;
+
+        self.on = r.get_bool()?;
+        let has_off = r.get_bool()?;
+        let off_at = r.get_u64()?;
+        self.off_at = has_off.then_some(off_at);
+        self.mode = match r.get_u8()? {
+            0 => Mode::Read,
+            1 => Mode::Write,
+            other => return Err(Error(format!("unknown Disk II mode {other}"))),
+        };
+        self.latch = r.get_u8()?;
+        self.drive = (r.get_u8()? as usize).min(1);
+        self.skip = r.get_u32()?;
+        for (index, drive) in self.drives.iter_mut().enumerate() {
+            drive.loaded = r.get_bool()?;
+            drive.volume = r.get_u8()?;
+            drive.track = (r.get_u32()? as i32).clamp(0, 69);
+            drive.head = r.get_u64()? as usize;
+            drive.phase = r.get_u8()? as usize;
+            drive.readonly = r.get_bool()?;
+            match r.get_u8()? {
+                0 => drive.media = Media::None,
+                1 => {
+                    // Nibblized tracks replace whatever construction loaded:
+                    // the state's copy carries any in-memory writes.
+                    let count = r.get_u16()? as usize;
+                    let mut tracks = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        tracks.push(r.get_blob()?.to_vec());
+                    }
+                    drive.media = Media::Nibbles(tracks);
+                }
+                2 => {
+                    // WOZ electronics state overlays the image construction
+                    // loaded from the file (read-only media).
+                    let Media::Woz(woz) = &mut drive.media else {
+                        return Err(Error(format!(
+                            "state has WOZ media in drive {index}, the machine does not \
+                             (same-configuration precondition, notes/STATE.md)"
+                        )));
+                    };
+                    let mut c = r.chunk(*b"WOZC")?;
+                    woz.restore(&mut c)?;
+                    c.done()?;
+                }
+                other => return Err(Error(format!("unknown media kind {other}"))),
+            }
+            // Keep the head inside the media it landed on.
+            if let Media::Nibbles(tracks) = &drive.media {
+                let len = tracks
+                    .get(((drive.track / 2).clamp(0, 34)) as usize)
+                    .map_or(0, Vec::len);
+                if len > 0 {
+                    drive.head %= len;
+                } else {
+                    drive.head = 0;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

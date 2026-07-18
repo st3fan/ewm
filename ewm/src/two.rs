@@ -1070,6 +1070,207 @@ impl SoftSwitches for IouE {
 /// device as a `&dyn SoftSwitches` — so no host-facing accessor branches on the
 /// model. (`ram`/`aux_ram` are the one exception: the ][+'s RAM lives in
 /// `Memory`, not in `TwoIo`, so those stay a small direct match.)
+/// ][+ soft switches and game I/O (notes/STATE.md §5): the key latch, the
+/// display switches, buttons, paddle timers, and any undrained speaker
+/// toggles — cycle stamps saved verbatim, never rebased. Not written:
+/// `joystick` (the frontend re-feeds it every frame), `screen_dirty`
+/// (restore marks the screen dirty), and `debug` (config).
+impl ewm_core::state::Persist for TwoIo {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.key);
+        w.put_u8(match self.screen_mode {
+            ScreenMode::Text => 0,
+            ScreenMode::Graphics => 1,
+        });
+        w.put_u8(match self.screen_graphics_mode {
+            GraphicsMode::Lgr => 0,
+            GraphicsMode::Hgr => 1,
+        });
+        w.put_u8(match self.screen_graphics_style {
+            GraphicsStyle::Full => 0,
+            GraphicsStyle::Mixed => 1,
+        });
+        w.put_u8(match self.screen_page {
+            ScreenPage::Page1 => 0,
+            ScreenPage::Page2 => 1,
+        });
+        w.put_bytes(&self.buttons);
+        w.put_u64(self.padl0_time);
+        w.put_u8(self.padl0_value);
+        w.put_u64(self.padl1_time);
+        w.put_u8(self.padl1_value);
+        w.put_u16(self.speaker_toggles.len() as u16);
+        for &t in &self.speaker_toggles {
+            w.put_u64(t);
+        }
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        use ewm_core::state::Error;
+
+        self.key = r.get_u8()?;
+        self.screen_mode = match r.get_u8()? {
+            0 => ScreenMode::Text,
+            1 => ScreenMode::Graphics,
+            other => return Err(Error(format!("unknown screen mode {other}"))),
+        };
+        self.screen_graphics_mode = match r.get_u8()? {
+            0 => GraphicsMode::Lgr,
+            1 => GraphicsMode::Hgr,
+            other => return Err(Error(format!("unknown graphics mode {other}"))),
+        };
+        self.screen_graphics_style = match r.get_u8()? {
+            0 => GraphicsStyle::Full,
+            1 => GraphicsStyle::Mixed,
+            other => return Err(Error(format!("unknown graphics style {other}"))),
+        };
+        self.screen_page = match r.get_u8()? {
+            0 => ScreenPage::Page1,
+            1 => ScreenPage::Page2,
+            other => return Err(Error(format!("unknown screen page {other}"))),
+        };
+        self.buttons.copy_from_slice(r.get_bytes(4)?);
+        self.padl0_time = r.get_u64()?;
+        self.padl0_value = r.get_u8()?;
+        self.padl1_time = r.get_u64()?;
+        self.padl1_value = r.get_u8()?;
+        let toggles = r.get_u16()? as usize;
+        self.speaker_toggles.clear();
+        for _ in 0..toggles {
+            self.speaker_toggles.push(r.get_u64()?);
+        }
+        self.screen_dirty = true;
+        Ok(())
+    }
+}
+
+/// //e MMU/IOU state (notes/STATE.md §5): the key latch, ROM arbitration,
+/// the memory and display soft switches, game I/O, main 48K, the built-in
+/// language card, and the aux card as a framed child (`AuxCard: Persist`).
+/// Not written: the internal/slot ROMs and `lc_rom` (construction data),
+/// `joystick`, `screen_dirty`, `debug` — same reasoning as `TwoIo`.
+impl ewm_core::state::Persist for IouE {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.key);
+        w.put_bool(self.intcxrom);
+        w.put_bool(self.slotc3rom);
+        w.put_bool(self.c800_internal);
+        w.put_bool(self.store80);
+        w.put_bool(self.ramrd);
+        w.put_bool(self.ramwrt);
+        w.put_bool(self.altzp);
+        w.put_bool(self.text);
+        w.put_bool(self.mixed);
+        w.put_bool(self.page2);
+        w.put_bool(self.hires);
+        w.put_bool(self.col80);
+        w.put_bool(self.altcharset);
+        w.put_bool(self.dhires);
+        w.put_bytes(&self.buttons);
+        w.put_u64(self.padl0_time);
+        w.put_u8(self.padl0_value);
+        w.put_u64(self.padl1_time);
+        w.put_u8(self.padl1_value);
+        w.put_u16(self.speaker_toggles.len() as u16);
+        for &t in &self.speaker_toggles {
+            w.put_u64(t);
+        }
+        w.put_blob(&self.main);
+        w.put_blob(&self.lc_d1);
+        w.put_blob(&self.lc_d2);
+        w.put_blob(&self.lc_e);
+        w.put_bool(self.lc_active);
+        w.put_bool(self.lc_bank1);
+        w.put_bool(self.lc_read);
+        w.put_bool(self.lc_write);
+        w.put_u32(self.lc_wrtcount);
+        w.chunk(*b"AUX ", |w| self.aux.save(w));
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.key = r.get_u8()?;
+        self.intcxrom = r.get_bool()?;
+        self.slotc3rom = r.get_bool()?;
+        self.c800_internal = r.get_bool()?;
+        self.store80 = r.get_bool()?;
+        self.ramrd = r.get_bool()?;
+        self.ramwrt = r.get_bool()?;
+        self.altzp = r.get_bool()?;
+        self.text = r.get_bool()?;
+        self.mixed = r.get_bool()?;
+        self.page2 = r.get_bool()?;
+        self.hires = r.get_bool()?;
+        self.col80 = r.get_bool()?;
+        self.altcharset = r.get_bool()?;
+        self.dhires = r.get_bool()?;
+        self.buttons.copy_from_slice(r.get_bytes(4)?);
+        self.padl0_time = r.get_u64()?;
+        self.padl0_value = r.get_u8()?;
+        self.padl1_time = r.get_u64()?;
+        self.padl1_value = r.get_u8()?;
+        let toggles = r.get_u16()? as usize;
+        self.speaker_toggles.clear();
+        for _ in 0..toggles {
+            self.speaker_toggles.push(r.get_u64()?);
+        }
+        crate::alc::restore_ram(&mut self.main, r, "//e main RAM")?;
+        crate::alc::restore_ram(&mut self.lc_d1, r, "//e LC bank 1")?;
+        crate::alc::restore_ram(&mut self.lc_d2, r, "//e LC bank 2")?;
+        crate::alc::restore_ram(&mut self.lc_e, r, "//e LC high")?;
+        self.lc_active = r.get_bool()?;
+        self.lc_bank1 = r.get_bool()?;
+        self.lc_read = r.get_bool()?;
+        self.lc_write = r.get_bool()?;
+        self.lc_wrtcount = r.get_u32()?;
+        let mut aux = r.chunk(*b"AUX ")?;
+        self.aux.restore(&mut aux)?;
+        aux.done()?;
+        self.screen_dirty = true;
+        Ok(())
+    }
+}
+
+/// The machine root (notes/STATE.md §3.3): a small INFO chunk naming the
+/// model — the cheap seatbelt edge of the same-configuration precondition,
+/// ahead of the backlog fingerprint — then the CPU as a framed child, which
+/// carries everything else (Memory owns all devices). `Two`'s other fields
+/// are construction-time wiring with no runtime state of their own.
+impl ewm_core::state::Persist for Two {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.chunk(*b"INFO", |w| {
+            w.put_str(match self.model {
+                TwoType::Apple2 => "2",
+                TwoType::Apple2Plus => "2plus",
+                TwoType::Apple2E => "2e",
+            });
+        });
+        w.chunk(*b"CPU ", |w| self.cpu.save(w));
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        let mut info = r.chunk(*b"INFO")?;
+        let model = info.get_str()?;
+        info.done()?;
+        let ours = match self.model {
+            TwoType::Apple2 => "2",
+            TwoType::Apple2Plus => "2plus",
+            TwoType::Apple2E => "2e",
+        };
+        if model != ours {
+            return Err(ewm_core::state::Error(format!(
+                "state was saved by a {model} machine, this is a {ours} \
+                 (same-configuration precondition, notes/STATE.md)"
+            )));
+        }
+        let mut cpu = r.chunk(*b"CPU ")?;
+        self.cpu.restore(&mut cpu)?;
+        cpu.done()?;
+        // Everything derived re-derives: force a full redraw.
+        self.set_screen_dirty(true);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 enum MachineIo {
     Plus(DeviceHandle<TwoIo>),
@@ -1435,6 +1636,25 @@ impl Two {
     /// to whichever soft-switch device backs this machine.
     pub fn set_debug(&mut self, debug: bool) {
         self.switches_mut().set_debug(debug);
+    }
+
+    /// Save the whole machine to a state file, atomically (`--state`,
+    /// notes/STATE.md §6).
+    pub fn save_state(&self, path: &str) -> Result<(), String> {
+        use ewm_core::state::Persist;
+        let mut w = ewm_core::state::Writer::new();
+        self.save(&mut w);
+        ewm_core::state::write_file(path, w).map_err(|e| e.to_string())
+    }
+
+    /// Restore the whole machine from a state file, replacing the initial
+    /// reset. All-or-nothing: on `Err` the machine must not be run.
+    pub fn restore_state(&mut self, path: &str) -> Result<(), String> {
+        use ewm_core::state::Persist;
+        let bytes = ewm_core::state::read_file(path).map_err(|e| e.to_string())?;
+        let mut r = ewm_core::state::Reader::new(&bytes);
+        self.restore(&mut r).map_err(|e| e.to_string())?;
+        r.done().map_err(|e| e.to_string())
     }
 
     /// Read access to the machine's main RAM for the renderers, which scan the
@@ -1877,6 +2097,7 @@ fn usage() {
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
     eprintln!("  --debug           print debug info");
+    eprintln!("  --state <path>    restore machine state at startup, save it at quit");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
     eprintln!(
         "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
@@ -1918,6 +2139,9 @@ struct Options {
     /// headless and serves it over RFB instead of opening an SDL window
     /// (notes/REMOTE.md).
     serve: Option<ServeOptions>,
+    /// Machine-state file (notes/STATE.md): restore at startup when it
+    /// exists, save at quit.
+    state: Option<String>,
 }
 
 /// Where and how to serve the machine over the network (the runtime form of
@@ -2092,6 +2316,13 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             "--memory" => match it.next().and_then(|s| parse_memory_option(s)) {
                 Some(m) => options.memory.push(m),
                 None => return Err(1),
+            },
+            "--state" => match it.next() {
+                Some(path) => options.state = Some(path.clone()),
+                None => {
+                    usage();
+                    return Err(1);
+                }
             },
             "--trace" => options.trace_path = Some("/dev/stderr".to_string()),
             "--strict" => options.strict = true,
@@ -2289,6 +2520,9 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     }
     if let Some(enabled) = config.debug.enabled {
         options.debug = enabled;
+    }
+    if config.state.path.is_some() {
+        options.state = config.state.path.clone();
     }
     // A remote block with any field present enables headless VNC serving;
     // validate() has already rejected the reserved "rdp" protocol and port 0.
@@ -2557,6 +2791,60 @@ impl RemoteKeys {
     }
 }
 
+/// Apply `--state` at startup: restore when the file exists (replacing the
+/// initial reset), cold boot otherwise. A restore failure is fatal — never
+/// run a half-restored machine (notes/STATE.md §6).
+fn restore_at_startup(two: &mut Two, state: Option<&str>) -> Result<(), String> {
+    let Some(path) = state else { return Ok(()) };
+    if !std::path::Path::new(path).exists() {
+        eprintln!("[STATE] {path} does not exist yet; cold booting");
+        return Ok(());
+    }
+    two.restore_state(path)
+        .map_err(|e| format!("cannot restore state from {path}: {e}"))?;
+    eprintln!("[STATE] restored from {path}");
+    Ok(())
+}
+
+/// Save at quit (`--state`); a failure exits nonzero and leaves any previous
+/// state file intact (the save is atomic).
+fn save_at_quit(two: &Two, state: Option<&str>) -> i32 {
+    let Some(path) = state else { return 0 };
+    match two.save_state(path) {
+        Ok(()) => {
+            eprintln!("[STATE] saved to {path}");
+            0
+        }
+        Err(e) => {
+            eprintln!("[STATE] cannot save to {path}: {e}");
+            1
+        }
+    }
+}
+
+/// SIGINT/SIGTERM → an atomic the headless serve loop polls each frame, so
+/// a remote machine saves its state and exits cleanly (notes/STATE.md §6).
+/// Raw libc declarations, no new dependency — the platform libc is already
+/// linked; the handler only stores a relaxed atomic (async-signal-safe).
+/// The SDL frontend does not use this: its window delivers quit events.
+static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn request_stop(_sig: i32) {
+    STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn install_stop_handlers() {
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+    }
+    const SIGINT: i32 = 2;
+    const SIGTERM: i32 = 15;
+    unsafe {
+        signal(SIGINT, request_stop);
+        signal(SIGTERM, request_stop);
+    }
+}
+
 /// Boot the machine headless and serve it over RFB (VNC): the SDL frame loop's
 /// shape without SDL. Step the CPU a frame's worth of cycles, render into
 /// `Scr`, publish the framebuffer, and drain client input between frames
@@ -2606,6 +2894,11 @@ fn serve(mut options: Options) -> i32 {
         }
     }
     two.cpu.reset();
+    let state_path = options.state.clone();
+    if let Err(e) = restore_at_startup(&mut two, state_path.as_deref()) {
+        eprintln!("[STATE] {e}");
+        return 1;
+    }
 
     // Fix the headless renderer to RGBA8888 so frames ship to the RFB wire
     // format (big-endian RGBA) with no per-pixel conversion (see rfb.rs).
@@ -2670,11 +2963,17 @@ fn serve(mut options: Options) -> i32 {
         }
     }
 
+    install_stop_handlers();
+
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
     let mut keys = RemoteKeys::default();
     let mut phase: u32 = 1;
     let mut next_frame = std::time::Instant::now();
     loop {
+        if STOP.load(std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("[RFB] shutting down");
+            return save_at_quit(&two, state_path.as_deref());
+        }
         while let Some(event) = server.try_recv_input() {
             keys.apply(&mut two, event);
         }
@@ -2905,9 +3204,13 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    // Reset things to a known state
+    // Reset things to a known state — or to the saved state (--state).
 
     two.cpu.reset();
+    if let Err(e) = restore_at_startup(&mut two, options.state.as_deref()) {
+        eprintln!("[STATE] {e}");
+        return 1;
+    }
 
     video.text_input().start(canvas.window());
 
@@ -3565,7 +3868,7 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    0
+    save_at_quit(&two, options.state.as_deref())
 }
 
 #[cfg(test)]
@@ -3934,6 +4237,17 @@ mod tests {
         assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn state_flag_parses_and_config_maps() {
+        assert_eq!(opts(&[]).state, None);
+        assert_eq!(
+            opts(&["--state", "/tmp/m.state"]).state.as_deref(),
+            Some("/tmp/m.state")
+        );
+        let missing: Vec<String> = vec!["--state".to_string()];
+        assert!(matches!(parse_options(&missing), Err(1)));
     }
 
     /// A remote client types faster than the one-byte keyboard latch can be

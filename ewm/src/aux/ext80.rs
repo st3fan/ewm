@@ -57,6 +57,17 @@ impl AuxCard for Ext80Col {
     }
 }
 
+/// The full 64K auxiliary bank (notes/STATE.md §5).
+impl ewm_core::state::Persist for Ext80Col {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        self.bank.save_state(w);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.bank.restore_state(r)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

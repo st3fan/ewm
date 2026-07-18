@@ -106,3 +106,43 @@ impl Device for Pia {
         }
     }
 }
+
+/// PIA registers and the undrained output queue (notes/STATE.md §5) — the
+/// queue is normally empty at the frame boundary, but saving it costs
+/// nothing and loses nothing.
+impl ewm_core::state::Persist for Pia {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_u8(self.ina);
+        w.put_u8(self.outa);
+        w.put_u8(self.ddra);
+        w.put_u8(self.ctla);
+        w.put_u8(self.inb);
+        w.put_u8(self.outb);
+        w.put_u8(self.ddrb);
+        w.put_u8(self.ctlb);
+        w.put_u16(self.out.len() as u16);
+        for &(ddr, v) in &self.out {
+            w.put_u8(ddr);
+            w.put_u8(v);
+        }
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.ina = r.get_u8()?;
+        self.outa = r.get_u8()?;
+        self.ddra = r.get_u8()?;
+        self.ctla = r.get_u8()?;
+        self.inb = r.get_u8()?;
+        self.outb = r.get_u8()?;
+        self.ddrb = r.get_u8()?;
+        self.ctlb = r.get_u8()?;
+        let count = r.get_u16()? as usize;
+        self.out.clear();
+        for _ in 0..count {
+            let ddr = r.get_u8()?;
+            let v = r.get_u8()?;
+            self.out.push((ddr, v));
+        }
+        Ok(())
+    }
+}

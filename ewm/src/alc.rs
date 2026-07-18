@@ -172,3 +172,48 @@ impl Device for Alc {
         }
     }
 }
+
+/// Banking state and card RAM (notes/STATE.md §5); the shadowed machine ROM
+/// is construction data and not written.
+impl ewm_core::state::Persist for Alc {
+    fn save(&self, w: &mut ewm_core::state::Writer) {
+        w.put_bool(self.active);
+        w.put_bool(self.bank1);
+        w.put_bool(self.read);
+        w.put_bool(self.write);
+        w.put_u32(self.wrtcount);
+        w.put_blob(&self.ram1);
+        w.put_blob(&self.ram2);
+        w.put_blob(&self.ram3);
+    }
+
+    fn restore(&mut self, r: &mut ewm_core::state::Reader) -> ewm_core::state::Result<()> {
+        self.active = r.get_bool()?;
+        self.bank1 = r.get_bool()?;
+        self.read = r.get_bool()?;
+        self.write = r.get_bool()?;
+        self.wrtcount = r.get_u32()?;
+        restore_ram(&mut self.ram1, r, "language card RAM1")?;
+        restore_ram(&mut self.ram2, r, "language card RAM2")?;
+        restore_ram(&mut self.ram3, r, "language card RAM3")?;
+        Ok(())
+    }
+}
+
+/// Copy a saved blob over a fixed-size RAM buffer, size-checked.
+pub(crate) fn restore_ram(
+    ram: &mut [u8],
+    r: &mut ewm_core::state::Reader,
+    what: &str,
+) -> ewm_core::state::Result<()> {
+    let data = r.get_blob()?;
+    if data.len() != ram.len() {
+        return Err(ewm_core::state::Error(format!(
+            "{what} size mismatch: state has {} bytes, machine has {}",
+            data.len(),
+            ram.len()
+        )));
+    }
+    ram.copy_from_slice(data);
+    Ok(())
+}

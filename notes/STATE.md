@@ -270,12 +270,30 @@ construction.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| S0 | This plan; `--state` / config `state.path` parsing (validates; "not built yet" error) | S | Not started |
-| S1 | `state.rs` container: Writer/Reader, chunk nesting, atomic file save, error type; unit vectors | S | Not started |
-| S2 | `Persist` trait; impls for `Cpu` + `Memory` (base RAM, Ram regions) — **no supertrait yet**, devices skipped; round-trip test of a cardless machine | M | Not started |
-| S3 | The supertrait flip: `Device: Persist` + `AuxCard: Persist` and **all** device impls (TwoIo, IouE+aux cards, Alc, Saturn, Dsk incl. media, Hdd, Liron, Clk-empty); per-component round-trips | L | Not started |
-| S4 | Lifecycle: startup restore-instead-of-reset, SDL quit save, serve SIGINT/SIGTERM save; fatal-error paths; docs | M | Not started |
-| S5 | The determinism gate + CLI end-to-end test; REMOTE.md note on suspend/resume | S | Not started |
+| S0 | This plan; `--state` / config `state.path` parsing | S | Done (in S4) |
+| S1 | `state.rs` container: Writer/Reader, chunk nesting, atomic file save, error type; unit vectors | S | Done |
+| S2 | `Persist` trait; impls for `Cpu` + `Memory` (base RAM, Ram regions) — **no supertrait yet**, devices skipped; round-trip test of a cardless machine | M | Done |
+| S3 | The supertrait flip: `Device: Persist` + `AuxCard: Persist` and **all** device impls; full-machine round-trips | L | Done |
+| S4 | Lifecycle: startup restore-instead-of-reset, SDL quit save, serve SIGINT/SIGTERM save; fatal-error paths; docs | M | Done |
+| S5 | The determinism gate + end-to-end test; REMOTE.md note on suspend/resume | S | Done |
+
+
+### As built (deviations worth recording)
+
+- **The S0 stub never existed.** All phases landed in one PR, so the
+  "state persistence not built yet" placeholder was pointless; the CLI and
+  config surface shipped inside S4, where it works.
+- **A model seatbelt shipped early.** The `INFO` chunk names the model and
+  restore rejects a mismatch — a two-line edge of the backlog fingerprint
+  that was too cheap to defer. The full config fingerprint remains backlog.
+- **`Clk` and `Pia` save slightly more than planned**: the Thunderclock's
+  latched time string mid-read (a suspended ProDOS clock read resumes
+  correctly) and the PIA's undrained output queue. Both cost bytes, not
+  complexity.
+- **The determinism gate saves mid-boot** (motor on, arm seeking) rather
+  than at the idle prompt — the harsher variant of §8, and it passes: the
+  restored twin stays cycle- and pixel-identical through millions of
+  further cycles and both machines finish booting to identical screens.
 
 ---
 
