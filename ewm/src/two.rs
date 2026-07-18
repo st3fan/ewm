@@ -1638,6 +1638,25 @@ impl Two {
         self.switches_mut().set_debug(debug);
     }
 
+    /// Save the whole machine to a state file, atomically (`--state`,
+    /// notes/STATE.md §6).
+    pub fn save_state(&self, path: &str) -> Result<(), String> {
+        use ewm_core::state::Persist;
+        let mut w = ewm_core::state::Writer::new();
+        self.save(&mut w);
+        ewm_core::state::write_file(path, w).map_err(|e| e.to_string())
+    }
+
+    /// Restore the whole machine from a state file, replacing the initial
+    /// reset. All-or-nothing: on `Err` the machine must not be run.
+    pub fn restore_state(&mut self, path: &str) -> Result<(), String> {
+        use ewm_core::state::Persist;
+        let bytes = ewm_core::state::read_file(path).map_err(|e| e.to_string())?;
+        let mut r = ewm_core::state::Reader::new(&bytes);
+        self.restore(&mut r).map_err(|e| e.to_string())?;
+        r.done().map_err(|e| e.to_string())
+    }
+
     /// Read access to the machine's main RAM for the renderers, which scan the
     /// text and hires pages directly (the C renderers read `cpu->ram`). On the
     /// //e this is the main bank; the display pages live there until 80STORE
@@ -2078,6 +2097,7 @@ fn usage() {
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
     eprintln!("  --debug           print debug info");
+    eprintln!("  --state <path>    restore machine state at startup, save it at quit");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
     eprintln!(
         "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
@@ -2119,6 +2139,9 @@ struct Options {
     /// headless and serves it over RFB instead of opening an SDL window
     /// (notes/REMOTE.md).
     serve: Option<ServeOptions>,
+    /// Machine-state file (notes/STATE.md): restore at startup when it
+    /// exists, save at quit.
+    state: Option<String>,
 }
 
 /// Where and how to serve the machine over the network (the runtime form of
@@ -2293,6 +2316,13 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             "--memory" => match it.next().and_then(|s| parse_memory_option(s)) {
                 Some(m) => options.memory.push(m),
                 None => return Err(1),
+            },
+            "--state" => match it.next() {
+                Some(path) => options.state = Some(path.clone()),
+                None => {
+                    usage();
+                    return Err(1);
+                }
             },
             "--trace" => options.trace_path = Some("/dev/stderr".to_string()),
             "--strict" => options.strict = true,
@@ -2490,6 +2520,9 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     }
     if let Some(enabled) = config.debug.enabled {
         options.debug = enabled;
+    }
+    if config.state.path.is_some() {
+        options.state = config.state.path.clone();
     }
     // A remote block with any field present enables headless VNC serving;
     // validate() has already rejected the reserved "rdp" protocol and port 0.
@@ -2758,6 +2791,60 @@ impl RemoteKeys {
     }
 }
 
+/// Apply `--state` at startup: restore when the file exists (replacing the
+/// initial reset), cold boot otherwise. A restore failure is fatal — never
+/// run a half-restored machine (notes/STATE.md §6).
+fn restore_at_startup(two: &mut Two, state: Option<&str>) -> Result<(), String> {
+    let Some(path) = state else { return Ok(()) };
+    if !std::path::Path::new(path).exists() {
+        eprintln!("[STATE] {path} does not exist yet; cold booting");
+        return Ok(());
+    }
+    two.restore_state(path)
+        .map_err(|e| format!("cannot restore state from {path}: {e}"))?;
+    eprintln!("[STATE] restored from {path}");
+    Ok(())
+}
+
+/// Save at quit (`--state`); a failure exits nonzero and leaves any previous
+/// state file intact (the save is atomic).
+fn save_at_quit(two: &Two, state: Option<&str>) -> i32 {
+    let Some(path) = state else { return 0 };
+    match two.save_state(path) {
+        Ok(()) => {
+            eprintln!("[STATE] saved to {path}");
+            0
+        }
+        Err(e) => {
+            eprintln!("[STATE] cannot save to {path}: {e}");
+            1
+        }
+    }
+}
+
+/// SIGINT/SIGTERM → an atomic the headless serve loop polls each frame, so
+/// a remote machine saves its state and exits cleanly (notes/STATE.md §6).
+/// Raw libc declarations, no new dependency — the platform libc is already
+/// linked; the handler only stores a relaxed atomic (async-signal-safe).
+/// The SDL frontend does not use this: its window delivers quit events.
+static STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn request_stop(_sig: i32) {
+    STOP.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn install_stop_handlers() {
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: extern "C" fn(i32)) -> usize;
+    }
+    const SIGINT: i32 = 2;
+    const SIGTERM: i32 = 15;
+    unsafe {
+        signal(SIGINT, request_stop);
+        signal(SIGTERM, request_stop);
+    }
+}
+
 /// Boot the machine headless and serve it over RFB (VNC): the SDL frame loop's
 /// shape without SDL. Step the CPU a frame's worth of cycles, render into
 /// `Scr`, publish the framebuffer, and drain client input between frames
@@ -2807,6 +2894,11 @@ fn serve(mut options: Options) -> i32 {
         }
     }
     two.cpu.reset();
+    let state_path = options.state.clone();
+    if let Err(e) = restore_at_startup(&mut two, state_path.as_deref()) {
+        eprintln!("[STATE] {e}");
+        return 1;
+    }
 
     // Fix the headless renderer to RGBA8888 so frames ship to the RFB wire
     // format (big-endian RGBA) with no per-pixel conversion (see rfb.rs).
@@ -2871,11 +2963,17 @@ fn serve(mut options: Options) -> i32 {
         }
     }
 
+    install_stop_handlers();
+
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
     let mut keys = RemoteKeys::default();
     let mut phase: u32 = 1;
     let mut next_frame = std::time::Instant::now();
     loop {
+        if STOP.load(std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("[RFB] shutting down");
+            return save_at_quit(&two, state_path.as_deref());
+        }
         while let Some(event) = server.try_recv_input() {
             keys.apply(&mut two, event);
         }
@@ -3106,9 +3204,13 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    // Reset things to a known state
+    // Reset things to a known state — or to the saved state (--state).
 
     two.cpu.reset();
+    if let Err(e) = restore_at_startup(&mut two, options.state.as_deref()) {
+        eprintln!("[STATE] {e}");
+        return 1;
+    }
 
     video.text_input().start(canvas.window());
 
@@ -3766,7 +3868,7 @@ pub fn main(args: &[String]) -> i32 {
         }
     }
 
-    0
+    save_at_quit(&two, options.state.as_deref())
 }
 
 #[cfg(test)]
@@ -4135,6 +4237,17 @@ mod tests {
         assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn state_flag_parses_and_config_maps() {
+        assert_eq!(opts(&[]).state, None);
+        assert_eq!(
+            opts(&["--state", "/tmp/m.state"]).state.as_deref(),
+            Some("/tmp/m.state")
+        );
+        let missing: Vec<String> = vec!["--state".to_string()];
+        assert!(matches!(parse_options(&missing), Err(1)));
     }
 
     /// A remote client types faster than the one-byte keyboard latch can be

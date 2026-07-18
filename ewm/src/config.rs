@@ -46,6 +46,9 @@ pub struct Config {
     /// and is reachable over the network instead of opening an SDL window.
     #[serde(default)]
     pub remote: Remote,
+    /// Machine-state persistence: restore at startup, save at quit.
+    #[serde(default)]
+    pub state: State,
 }
 
 /// The machine's physical build.
@@ -380,6 +383,18 @@ pub struct Remote {
     pub password: Option<String>,
 }
 
+/// Machine-state persistence (notes/STATE.md): with a path set, the
+/// machine restores from it at startup (when the file exists) and saves
+/// back to it at quit — suspend/resume. Requires the same hardware
+/// configuration across runs (mismatch detection is backlog).
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct State {
+    /// The state file, resolved relative to the config file.
+    pub path: Option<String>,
+}
+
 /// The remote-console protocol (`remote.protocol`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
@@ -677,6 +692,9 @@ fn resolve_paths(config: &mut Config, base: &Path) {
         resolve(base, &mut region.path);
     }
     if let Some(p) = &mut config.debug.trace {
+        resolve(base, p);
+    }
+    if let Some(p) = &mut config.state.path {
         resolve(base, p);
     }
 }

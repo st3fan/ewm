@@ -67,6 +67,13 @@
         "web": null,
         "websocket": null
       }
+    },
+    "state": {
+      "description": "Machine-state persistence: restore at startup, save at quit.",
+      "$ref": "#/$defs/State",
+      "default": {
+        "path": null
+      }
     }
   },
   "additionalProperties": false,
@@ -606,6 +613,20 @@
           ]
         }
       ]
+    },
+    "State": {
+      "description": "Machine-state persistence (notes/STATE.md): with a path set, the\nmachine restores from it at startup (when the file exists) and saves\nback to it at quit — suspend/resume. Requires the same hardware\nconfiguration across runs (mismatch detection is backlog).",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "The state file, resolved relative to the config file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

@@ -169,3 +169,40 @@ fn restore_rejects_a_different_model() {
         .to_string();
     assert!(err.contains("2plus"), "{err}");
 }
+
+/// The S4 file surface: `Two::save_state` / `restore_state` round-trip
+/// through an actual state file, atomically.
+#[test]
+fn state_file_round_trip() {
+    let dir = std::env::temp_dir().join(format!("ewm-state-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("test dir");
+    let path = dir.join("machine.state");
+    let path = path.to_str().expect("utf-8 path");
+
+    let mut m = Machine::boot_with_system_master();
+    m.step_until(400_000_000, "the DOS banner", |two| {
+        let text = two.text_screen();
+        text.contains("DOS VERSION 3.3") && text.contains(']')
+    });
+    // The e2e from the plan: park a variable, save, restore, ask for it.
+    m.type_line("X=42");
+    m.step(2_000_000);
+    m.two.save_state(path).expect("save");
+
+    let mut twin = Machine::boot_with_system_master();
+    twin.two.restore_state(path).expect("restore");
+    twin.type_line("PRINT X");
+    twin.step(2_000_000);
+    let text = twin.two.text_screen();
+    assert!(
+        text.contains("42"),
+        "X lost across the file; screen was:\n{text}"
+    );
+
+    // Corrupt file: rejected, machine not run.
+    std::fs::write(path, b"garbage").expect("clobber");
+    let mut broken = Machine::boot_with_system_master();
+    assert!(broken.two.restore_state(path).is_err());
+
+    std::fs::remove_dir_all(&dir).ok();
+}
