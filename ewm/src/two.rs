@@ -1952,6 +1952,9 @@ struct TwoCtx<'a> {
     scanlines: &'a mut Scanlines,
     /// Set by a "…: choice" row to reopen the palette as that submenu.
     open_submenu: &'a mut Option<Submenu>,
+    /// Set by the "Reboot (Power off/on)" row; the frame loop performs the
+    /// power cycle (it owns the machine and the options).
+    reboot: &'a mut bool,
 }
 
 /// The palette's choice submenus (VS Code quick-pick style).
@@ -2115,8 +2118,10 @@ struct Options {
     slots: BTreeMap<u8, config::SlotCard>,
     monitor: MonitorStyle,
     scanlines: Scanlines,
-    /// The //e auxiliary-slot card (None = the default extended 80-col card).
-    aux: Option<Box<dyn AuxCard>>,
+    /// The //e auxiliary-slot card as its validated `--aux` token (None =
+    /// the default extended 80-col card). Kept as a token and parsed at
+    /// each power-on, so a reboot can construct a fresh card.
+    aux: Option<String>,
     /// Seconds to hold the machine before it starts executing (the window is
     /// up and rendering) — for debugging and video recording.
     boot_delay: f64,
@@ -2290,12 +2295,16 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     })
                     .unwrap_or(Scanlines::Light);
             }
-            "--aux" => match it.next().map(|v| crate::aux::parse(v)) {
-                Some(Ok(card)) => options.aux = Some(card),
-                Some(Err(e)) => {
-                    eprintln!("{e}");
-                    usage();
-                    return Err(1);
+            "--aux" => match it.next() {
+                Some(token) => {
+                    // Validate now, store the token: it is parsed again at
+                    // each power-on (a reboot builds a fresh card).
+                    if let Err(e) = crate::aux::parse(token) {
+                        eprintln!("{e}");
+                        usage();
+                        return Err(1);
+                    }
+                    options.aux = Some(token.clone());
                 }
                 None => {
                     usage();
@@ -2473,7 +2482,8 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
             Some(size) => format!("{}:{size}", aux.card.flag_token()),
             None => aux.card.flag_token().to_string(),
         };
-        options.aux = Some(crate::aux::parse(&token)?);
+        crate::aux::parse(&token)?; // validate; parsed again at power-on
+        options.aux = Some(token);
     }
     if let Some(slots) = config.machine.slots {
         // A present slots object replaces the table wholesale (an absent one
@@ -2558,7 +2568,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
 /// Build the machine `main()` runs from the parsed options: construct from
 /// the slot table, then mount the media the table names. Also the machine
 /// half of the headless boot-gate test.
-fn build_machine(options: &mut Options) -> Result<Two, String> {
+fn build_machine(options: &Options) -> Result<Two, String> {
     // Slot 0 never becomes a SlotDevice: it is the ][+ memory-expansion
     // socket, consumed here as a machine-level Slot0. On the //e the
     // language card is built in, so the default table's slot 0 entry is
@@ -2591,7 +2601,8 @@ fn build_machine(options: &mut Options) -> Result<Two, String> {
             | config::SlotCard::Empty => None,
         })
         .collect();
-    let mut two = Two::new_with_slots(options.model, options.aux.take(), slot0, &table)?;
+    let aux = options.aux.as_deref().map(crate::aux::parse).transpose()?;
+    let mut two = Two::new_with_slots(options.model, aux, slot0, &table)?;
     for (&slot, card) in &options.slots {
         match card {
             config::SlotCard::Diskii { drive1, drive2 } => {
@@ -2628,6 +2639,32 @@ fn build_machine(options: &mut Options) -> Result<Two, String> {
             | config::SlotCard::Empty => {}
         }
     }
+    Ok(two)
+}
+
+/// Everything a power-on does: build the machine from the options, attach
+/// the extra `--memory` regions, and apply the machine-level settings. Both
+/// frontends boot through this — and the reboot path (Cmd-Shift-R, the
+/// palette's "Reboot") is literally this function run again: a power cycle
+/// constructs the exact machine a quit and restart would.
+fn power_on_machine(options: &Options) -> Result<Two, String> {
+    let mut two = build_machine(options)?;
+    for m in &options.memory {
+        eprintln!(
+            "[EWM] Adding {} ${:04X} {}",
+            if m.rom { "ROM" } else { "RAM" },
+            m.address,
+            m.path
+        );
+        let data = std::fs::read(&m.path).map_err(|e| format!("cannot read {}: {e}", m.path))?;
+        if m.rom {
+            two.add_rom(m.address, data);
+        } else {
+            two.add_ram(m.address, data);
+        }
+    }
+    two.set_debug(options.debug);
+    two.cpu.strict = options.strict;
     Ok(two)
 }
 
@@ -2875,29 +2912,13 @@ fn serve(mut options: Options) -> i32 {
     };
     let speed = options.speed;
 
-    let mut two = match build_machine(&mut options) {
+    let mut two = match power_on_machine(&options) {
         Ok(two) => two,
         Err(e) => {
             eprintln!("[TWO] Could not create the machine: {e}");
             return 1;
         }
     };
-    two.set_debug(options.debug);
-    for m in &options.memory {
-        let data = match std::fs::read(&m.path) {
-            Ok(data) => data,
-            Err(e) => {
-                eprintln!("[EWM] Cannot read {}: {e}", m.path);
-                return 1;
-            }
-        };
-        if m.rom {
-            two.add_rom(m.address, data);
-        } else {
-            two.add_ram(m.address, data);
-        }
-    }
-    two.cpu.strict = options.strict;
     if let Some(path) = &options.trace_path {
         match std::fs::File::create(path) {
             Ok(file) => two.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
@@ -3030,7 +3051,7 @@ fn serve(mut options: Options) -> i32 {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    let mut options = match parse_options(args) {
+    let options = match parse_options(args) {
         Ok(options) => options,
         Err(code) => return code,
     };
@@ -3132,14 +3153,13 @@ pub fn main(args: &[String]) -> i32 {
 
     // Create and configure the Apple II
 
-    let mut two = match build_machine(&mut options) {
+    let mut two = match power_on_machine(&options) {
         Ok(two) => two,
         Err(e) => {
             eprintln!("[TWO] Could not create the machine: {e}");
             return 1;
         }
     };
-    two.set_debug(options.debug);
 
     // WozBug: arm --break breakpoints and start the line server. The
     // frame loop drains its commands between frames.
@@ -3188,28 +3208,6 @@ pub fn main(args: &[String]) -> i32 {
     let mut status_tty = Tty::new(sdl::green(&canvas));
     status_tty.cursor_enabled = false;
 
-    for m in &options.memory {
-        eprintln!(
-            "[EWM] Adding {} ${:04X} {}",
-            if m.rom { "ROM" } else { "RAM" },
-            m.address,
-            m.path
-        );
-        let data = match std::fs::read(&m.path) {
-            Ok(data) => data,
-            Err(e) => {
-                eprintln!("[MEM] Failed to add memory from {}: {e}", m.path);
-                return 1;
-            }
-        };
-        if m.rom {
-            two.add_rom(m.address, data);
-        } else {
-            two.add_ram(m.address, data);
-        }
-    }
-
-    two.cpu.strict = options.strict;
     if let Some(path) = &options.trace_path {
         match std::fs::File::create(path) {
             Ok(file) => two.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
@@ -3304,6 +3302,7 @@ pub fn main(args: &[String]) -> i32 {
     }
     let mut phase: u32 = 1;
     let mut paused = restored_banner.is_some();
+    let mut reboot_requested = false;
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
     // Emulated CPU speed, seeded from the config (if any) and switchable
@@ -3455,6 +3454,7 @@ pub fn main(args: &[String]) -> i32 {
                                         let mut ctx = TwoCtx {
                                             two: &mut two,
                                             paused: &mut paused,
+                                            reboot: &mut reboot_requested,
                                             window: canvas.window_mut(),
                                             speed: &mut speed,
                                             snd: &mut snd,
@@ -3553,9 +3553,14 @@ pub fn main(args: &[String]) -> i32 {
                             // Cmd-R, not Cmd-Esc: AppKit claims Cmd-Esc as a
                             // cancel key equivalent on macOS, so SDL never
                             // sees it.
+                            // Cmd-R warm reset; Cmd-Shift-R power off/on.
                             Keycode::R => {
-                                eprintln!("[SDL] Reset");
-                                two.cpu.reset();
+                                if keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD) {
+                                    reboot_requested = true;
+                                } else {
+                                    eprintln!("[SDL] Reset");
+                                    two.cpu.reset();
+                                }
                             }
                             // Cmd-P: pause/unpause, same toggle as the
                             // palette's Pause command.
@@ -3596,6 +3601,10 @@ pub fn main(args: &[String]) -> i32 {
                                     TwoAction::Run(|ctx| {
                                         ctx.two.cpu.reset();
                                     }),
+                                );
+                                palette.add_command(
+                                    "Reboot (Power off/on)",
+                                    TwoAction::Run(|ctx| *ctx.reboot = true),
                                 );
                                 palette.add_command(
                                     if paused { "Unpause" } else { "Pause" },
@@ -3709,6 +3718,39 @@ pub fn main(args: &[String]) -> i32 {
 
         // WozBug: execute queued debugger commands against the machine
         // (works running or stopped), and announce breakpoint hits.
+        // Cmd-Shift-R / palette "Reboot": power off/on. Construct the same
+        // machine a quit and restart would, carrying over only the host-side
+        // debug attachments (the open trace sink, armed breakpoints).
+        if reboot_requested {
+            reboot_requested = false;
+            eprintln!("[SDL] Reboot (power off/on)");
+            let trace = two.cpu.trace.take();
+            let breakpoints: Vec<u16> = two.cpu.breakpoints().to_vec();
+            two = match power_on_machine(&options) {
+                Ok(fresh) => fresh,
+                Err(e) => {
+                    eprintln!("[TWO] Could not reboot the machine: {e}");
+                    return 1;
+                }
+            };
+            two.cpu.trace = trace;
+            for addr in breakpoints {
+                two.cpu.add_breakpoint(addr);
+            }
+            two.cpu.reset();
+            // A fresh machine is a fresh cycle domain: restart the audio
+            // stream and the MHz second. A power-on always runs unpaused.
+            snd = audio.as_ref().and_then(|audio| Snd::new(audio).ok());
+            if speed != SPEED_NORMAL
+                && let Some(snd) = snd.as_mut()
+            {
+                snd.set_cpu_frequency(speed as u64);
+            }
+            counter = 0;
+            paused = false;
+            restored_banner = None;
+        }
+
         if let Some(server) = &wozbug_server {
             while let Ok(line) = server.commands.try_recv() {
                 let reply = wozbug.execute(&mut two, &line);
@@ -4000,8 +4042,9 @@ mod tests {
     fn config_populates_options() {
         let o = opts(&["--config", fixture!("full.json")]);
         assert_eq!(o.model, TwoType::Apple2E);
-        let aux = o.aux.as_ref().expect("aux card from config");
-        assert!(aux.label().contains("RamWorks III"), "{}", aux.label());
+        // The aux card travels as its validated token (parsed per power-on).
+        let aux = o.aux.as_deref().expect("aux token from config");
+        assert!(aux.starts_with("ramworksiii"), "{aux}");
         // The config's slot table replaced the default one.
         assert_eq!(o.slots.len(), 3);
         assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
@@ -4168,7 +4211,7 @@ mod tests {
         // The boot gate: a config naming the DOS 3.3 disk boots it (its
         // relative path resolves against the config's directory, not the
         // CWD). build_machine is the same code main() runs.
-        let mut o = opts(&["--config", fixture!("boot-dos33.json")]);
+        let o = opts(&["--config", fixture!("boot-dos33.json")]);
         // The --set spelling produces the same machine (path as given).
         let via_set = opts(&[
             "--set",
@@ -4178,7 +4221,7 @@ mod tests {
             ),
         ]);
         assert_eq!(via_set.slots.get(&6), o.slots.get(&6));
-        let mut two = build_machine(&mut o).expect("machine must construct");
+        let mut two = build_machine(&o).expect("machine must construct");
         two.cpu.reset();
 
         let mut spent = 0u64;
@@ -4288,6 +4331,19 @@ mod tests {
         assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn power_on_machine_is_rerunnable_for_reboot() {
+        // The aux token survives construction (it is parsed per power-on),
+        // so a reboot builds the same machine — aux card included. Before
+        // the token change, build_machine consumed the parsed card and a
+        // second build would silently fall back to the default aux.
+        let o = opts(&["--model", "2e", "--aux", "ramworksiii:128k"]);
+        let first = power_on_machine(&o).expect("first power-on");
+        let second = power_on_machine(&o).expect("reboot power-on");
+        assert_eq!(first.model(), second.model());
+        assert_eq!(o.aux.as_deref(), Some("ramworksiii:128k"));
     }
 
     #[test]
