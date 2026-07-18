@@ -217,6 +217,13 @@ construction.
   → normal reset. **Restore failure is fatal**: print why and exit — never
   run a half-restored machine. (All-or-nothing comes free: restore happens
   before the first step, so the failure path has nothing to unwind.)
+- **Paused start (SDL)**: a machine restored from a state file starts
+  **paused**, with the pause screen naming the save it resumed from
+  ("RESTORED FROM SAVE STATE" + the file's save time, taken from its mtime
+  — which the atomic write-then-rename stamps at the moment of saving).
+  The first unpause (command palette) dismisses it; later manual pauses
+  show the plain PAUSED box. Headless serve has no pause UI, so a restored
+  machine runs immediately there.
 - **Quit paths**:
   - SDL frontend: the existing quit event / window close → save, then exit.
   - Headless serve loop: install SIGINT/SIGTERM handlers that set an
