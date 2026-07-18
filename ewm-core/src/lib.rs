@@ -8,3 +8,4 @@ pub mod cpu;
 pub mod fmt;
 pub mod ins;
 pub mod mem;
+pub mod state;
