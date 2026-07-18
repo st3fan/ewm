@@ -15,16 +15,20 @@
            padding: 5px 10px; background: #000;
            border-bottom: 1px solid #1e321e; flex: none; user-select: none; }
     #status { font-size: 12px; color: #7fd47f; flex: 1; }
-    #mute { font-size: 14px; background: none; border: 1px solid #1e321e;
+    #bar button { font-size: 12px; background: none; border: 1px solid #1e321e;
             border-radius: 3px; color: #7fd47f; cursor: pointer;
-            padding: 1px 7px; }
-    #mute:hover { border-color: #7fd47f; }
+            padding: 2px 9px; font-family: inherit; }
+    #bar button:hover { border-color: #7fd47f; }
+    #mute { font-size: 14px !important; }
     #screen { flex: 1; overflow: hidden; }
   </style>
 </head>
 <body>
   <div id="bar">
     <div id="status">connecting&hellip;</div>
+    <button id="reset" title="Ctrl-Reset (warm)">Reset</button>
+    <button id="reboot" title="Power off/on (cold boot)">Reboot</button>
+    <button id="pause">Pause</button>
     <button id="mute" title="speaker">&#x1F50A;</button>
   </div>
   <div id="screen"></div>
@@ -71,6 +75,31 @@
     });
     // Expose live stats for debugging (chunks/bytes received, signal seen).
     window.ewmAudio = audio.stats;
+
+    // Machine control buttons: POST to /control/<action> on this same port
+    // (notes/VNC.md §2). Reset and Reboot are one-shots; Pause toggles, and
+    // its label tracks this page's own presses (best effort across viewers).
+    const control = (action) =>
+      fetch('/control/' + action, { method: 'POST' }).catch(() => {});
+    document.getElementById('reset').addEventListener('click', () => control('reset'));
+    document.getElementById('reboot').addEventListener('click', () => {
+      if (confirm('Reboot (power off/on)? Unsaved work in the machine is lost.'))
+        control('reboot');
+    });
+    let paused = false;
+    const pause = document.getElementById('pause');
+    pause.addEventListener('click', () => {
+      control('pause');
+      paused = !paused;
+      pause.textContent = paused ? 'Resume' : 'Pause';
+    });
+    // A reset/reboot always comes up running, so drop any local paused label.
+    for (const id of ['reset', 'reboot']) {
+      document.getElementById(id).addEventListener('click', () => {
+        paused = false;
+        pause.textContent = 'Pause';
+      });
+    }
   </script>
 </body>
 </html>
