@@ -362,6 +362,9 @@ pub struct Remote {
     pub bind: Option<String>,
     /// Plain-TCP RFB (VNC) port. Defaults to 5901.
     pub port: Option<u16>,
+    /// RFB-over-WebSocket port for browser clients: noVNC connects straight
+    /// to it, no websockify bridge. Absent means no WebSocket listener.
+    pub websocket: Option<u16>,
     /// Serve the console read-only: ignore all keyboard and pointer input.
     pub view_only: Option<bool>,
     /// VNC-auth password. When set, clients must authenticate with the RFB DES
@@ -635,6 +638,14 @@ fn validate(config: &Config) -> Result<(), String> {
     }
     if config.remote.port == Some(0) {
         return Err("remote.port: must be at least 1".into());
+    }
+    if config.remote.websocket == Some(0) {
+        return Err("remote.websocket: must be at least 1".into());
+    }
+    if config.remote.websocket.is_some()
+        && config.remote.websocket == config.remote.port.or(Some(5901))
+    {
+        return Err("remote.websocket: must differ from remote.port".into());
     }
     Ok(())
 }
