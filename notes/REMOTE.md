@@ -359,7 +359,7 @@ a pure `Vec<u32>`.
 | 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
 | 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
 | 4 | Embedded **WebSocket** transport (hand-rolled `ws.rs`, not `tungstenite` — see §14) → noVNC connects directly, no websockify | M | **Prototype** ✅ |
-| 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | Not started |
+| 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | **Prototype** ✅ (console; hub deferred to Phase 6, where the machine list exists) |
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
 | B1 | *(optional Track B)* `ironrdp-server` RDP frontend | L | Optional |
@@ -394,6 +394,17 @@ built:
   browser delivers a whole typed word within one frame, so each byte feeds only
   after the ROM consumed the previous one (strobe via `$C010`) — otherwise every
   key but the last is overwritten. Free side effect: type-ahead while booting.
+- **`web.rs` + `novnc/`** *(Phase 5)* — the embedded web console. noVNC's
+  engine (`core/` + `vendor/pako`, pinned **v1.6.0**, MPL-2.0 — license
+  vendored alongside, see `ewm/novnc/README.md`) plus EWM's own minimal
+  console page are embedded into the binary by `ewm/build.rs` and served for
+  plain HTTP requests **on the WebSocket port** — one port carries the page
+  and its RFB stream, the Proxmox shape, and the page connects back to
+  wherever it was served from so nothing needs configuring. Strictly opt-in
+  tiers: `--serve vnc://…` = native VNC only; `?ws=PORT` adds the raw
+  websocket (bring-your-own noVNC, plain HTTP → `426`); `?web=PORT` serves
+  the console too (`remote.web` in config). No filesystem access at runtime;
+  the asset table is static and literal (no path traversal to have).
 - **`ws.rs`** *(Phase 4)* — a hand-rolled WebSocket (RFC 6455) server transport:
   HTTP upgrade (SHA-1 + base64, tested against the RFC vectors), binary-frame
   encode/decode with client-mask enforcement, ping→pong, close echo. Exposed as
@@ -435,14 +446,15 @@ cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=
 # Expose to the LAN (still weak auth — see §10, keep it behind a tunnel):
 #   --serve 'vnc://0.0.0.0:5901?password=secret'
 
-# Browser (Phase 4): add ?ws=<port> and point stock noVNC at it directly —
-# no websockify. (The self-hosted console page is Phase 5; until then serve
-# the noVNC files with any static server.)
-cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?ws=5701' \
+# Browser (Phase 5): ?web=<port> serves the embedded console — a live Apple II
+# in a tab with no external tooling at all:
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?web=5701' \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
-git clone --depth 1 https://github.com/novnc/noVNC /tmp/noVNC
-python3 -m http.server 8800 -d /tmp/noVNC &
-open 'http://127.0.0.1:8800/vnc.html?autoconnect=true&host=127.0.0.1&port=5701'
+open http://127.0.0.1:5701/
+
+# Or bring your own noVNC against the raw websocket (Phase 4, no console page):
+#   --serve 'vnc://127.0.0.1:5901?ws=5701'
+# then point any noVNC's vnc.html at host=127.0.0.1&port=5701.
 ```
 
 ---
@@ -507,6 +519,16 @@ machine's WebSocket. Add a minimal **hub** index (static or a tiny endpoint)
 that lists running machines and links to each console — the Proxmox node-view
 feel. **Gate:** `http://host:5701/` shows a live, interactive Apple II with no
 external tooling.
+
+*As built (prototype):* `novnc/` vendors the pinned engine (v1.6.0 `core/` +
+`vendor/pako`, ~700 KB — `app/`'s full UI chrome is skipped in favour of a
+small EWM console page); `build.rs` embeds the tree; `web.rs` serves it. The
+console is **opt-in** (`web`/`?web=PORT`) — a machine can run VNC-only, or
+VNC + raw websocket, or VNC + console; without `web` the WS port answers
+plain HTTP with `426` exactly as in Phase 4. The **hub** index moved to
+Phase 6: a per-machine process has no machine list to serve, the orchestrator
+does. Gate run in a real Chrome tab: `http://127.0.0.1:5701/` booted the DOS
+3.3 System Master and `CATALOG` typed at browser speed listed the disk.
 
 ### Phase 6 — Multi-VM orchestration
 A `systemd` template unit `ewm-vnc@.service` (instance name = config file →

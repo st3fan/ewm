@@ -120,6 +120,9 @@ pub struct Options {
     /// Optional RFB-over-WebSocket port for browser clients (noVNC connects
     /// straight here, no websockify — Phase 4).
     pub websocket: Option<u16>,
+    /// Serve the embedded noVNC console (`web.rs`) for plain HTTP requests on
+    /// the WebSocket port (Phase 5). Off: plain HTTP gets `426`.
+    pub web: bool,
     /// The desktop name sent in `ServerInit`.
     pub name: String,
     /// Drop all client input at the source.
@@ -166,13 +169,24 @@ impl Server {
         ));
         let (input_tx, input) = std::sync::mpsc::channel();
         let view_only = options.view_only;
+        let web = options.web;
 
         let tcp_channel = channel.clone();
         let tcp_input = input_tx.clone();
-        std::thread::spawn(move || accept(listener, tcp_channel, tcp_input, view_only, false));
+        std::thread::spawn(move || {
+            accept(listener, tcp_channel, tcp_input, view_only, Transport::Tcp)
+        });
         if let Some(ws_listener) = ws_listener {
             let ws_channel = channel.clone();
-            std::thread::spawn(move || accept(ws_listener, ws_channel, input_tx, view_only, true));
+            std::thread::spawn(move || {
+                accept(
+                    ws_listener,
+                    ws_channel,
+                    input_tx,
+                    view_only,
+                    Transport::WebSocket { web },
+                )
+            });
         }
 
         Ok((
@@ -202,25 +216,33 @@ impl Server {
     }
 }
 
+/// What a listener speaks: raw RFB, or RFB inside WebSocket frames — the
+/// latter optionally doubling as the web-console HTTP endpoint (Phase 5).
+#[derive(Clone, Copy)]
+enum Transport {
+    Tcp,
+    WebSocket { web: bool },
+}
+
 /// Accept connections forever, spawning a handler thread per client so several
 /// viewers can watch the same machine at once (RFB shared-desktop).
-/// `websocket` selects the transport this listener speaks.
 fn accept(
     listener: TcpListener,
     channel: Arc<Channel>,
     input_tx: Sender<InputEvent>,
     view_only: bool,
-    websocket: bool,
+    transport: Transport,
 ) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let channel = channel.clone();
         let input_tx = input_tx.clone();
         std::thread::spawn(move || {
-            let result = if websocket {
-                handle_ws(stream, channel, input_tx, view_only)
-            } else {
-                handle_tcp(stream, channel, input_tx, view_only)
+            let result = match transport {
+                Transport::Tcp => handle_tcp(stream, channel, input_tx, view_only),
+                Transport::WebSocket { web } => {
+                    handle_ws(stream, channel, input_tx, view_only, web)
+                }
             };
             if let Err(e) = result {
                 // A dropped client is normal; log at debug volume only.
@@ -244,16 +266,31 @@ fn handle_tcp(
     run(reader, writer, stream, channel, input_tx, view_only)
 }
 
-/// One browser client: the HTTP→WebSocket upgrade, then the identical RFB
+/// One browser connection. A WebSocket upgrade becomes the identical RFB
 /// byte stream framed in WebSocket binary messages (`ws::WsReader`/`WsWriter`
 /// implement `Read`/`Write`, so the state machine below is shared verbatim).
+/// A plain HTTP request is the web console (Phase 5) when enabled — the same
+/// port serves the page and its RFB stream, the Proxmox shape — or `426`.
 fn handle_ws(
     mut stream: TcpStream,
     channel: Arc<Channel>,
     input_tx: Sender<InputEvent>,
     view_only: bool,
+    web: bool,
 ) -> io::Result<()> {
-    crate::ws::upgrade(&mut stream)?;
+    let request = crate::ws::read_http_request(&mut stream)?;
+    if !request.is_upgrade() {
+        return if web {
+            crate::web::respond(&mut stream, &request.path)
+        } else {
+            crate::ws::refuse_plain_http(&mut stream)?;
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "plain HTTP on the WebSocket port (no web console enabled)",
+            ))
+        };
+    }
+    crate::ws::accept_upgrade(&mut stream, &request)?;
     let (reader, writer) = crate::ws::split(&stream)?;
     run(reader, writer, stream, channel, input_tx, view_only)
 }
@@ -666,6 +703,7 @@ mod tests {
                 bind: "127.0.0.1".into(),
                 port: 0,
                 websocket: websocket.then_some(0),
+                web: websocket, // tests exercise the console alongside WS
                 name: name.into(),
                 view_only,
                 password,
@@ -973,5 +1011,67 @@ mod tests {
         // The plain-TCP listener still serves native clients in parallel.
         let mut tcp = TcpStream::connect(("127.0.0.1", server.port())).expect("tcp connect");
         do_handshake(&mut tcp);
+    }
+
+    /// Fetch one URL from the web-console port with a plain HTTP GET and
+    /// return the full response (headers + body as lossy text).
+    fn http_get(port: u16, path: &str) -> String {
+        let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        client
+            .write_all(format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+            .expect("request");
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).expect("response");
+        String::from_utf8_lossy(&response).into_owned()
+    }
+
+    /// Phase 5: the WebSocket port doubles as the web console — the page,
+    /// the noVNC engine modules, a 404 — while the upgrade keeps working.
+    #[test]
+    fn web_console_serves_novnc_beside_the_upgrade() {
+        let (server, _publisher) = start_server("EWM web", false, None, true);
+        let port = server.websocket_port().expect("ws port");
+
+        let page = http_get(port, "/");
+        assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+        assert!(page.contains("Content-Type: text/html"), "{page}");
+        assert!(
+            page.contains("core/rfb.js"),
+            "console page loads the engine"
+        );
+
+        let engine = http_get(port, "/core/rfb.js");
+        assert!(engine.starts_with("HTTP/1.1 200 OK"), "engine served");
+        assert!(engine.contains("Content-Type: text/javascript"), "{}", {
+            engine.lines().take(6).collect::<Vec<_>>().join(" | ")
+        });
+
+        assert!(http_get(port, "/no-such-file").starts_with("HTTP/1.1 404"));
+
+        // The same port still speaks RFB-over-WebSocket.
+        let mut ws = WsClient::connect(port);
+        assert_eq!(ws.read_bytes(12), b"RFB 003.008\n");
+    }
+
+    /// Without the web console the WebSocket port answers plain HTTP with
+    /// `426 Upgrade Required`, as in Phase 4.
+    #[test]
+    fn websocket_port_without_web_console_refuses_plain_http() {
+        let (server, _publisher) = Server::start(
+            Options {
+                bind: "127.0.0.1".into(),
+                port: 0,
+                websocket: Some(0),
+                web: false,
+                name: "EWM".into(),
+                view_only: false,
+                password: None,
+            },
+            280,
+            192,
+        )
+        .expect("bind");
+        let response = http_get(server.websocket_port().expect("ws port"), "/");
+        assert!(response.starts_with("HTTP/1.1 426"), "{response}");
     }
 }

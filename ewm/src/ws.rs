@@ -123,38 +123,52 @@ pub fn accept_key(key: &str) -> String {
     base64(&sha1(format!("{key}{GUID}").as_bytes()))
 }
 
-/// Serve the HTTP side of the WebSocket upgrade: read the request, check it
-/// is a WebSocket upgrade, and answer `101 Switching Protocols`. A plain HTTP
-/// request gets `426 Upgrade Required` (the noVNC console page is Phase 5)
-/// and an error. The request path is ignored, so noVNC's default
-/// `/websockify` path works unmodified.
-pub fn upgrade(stream: &mut TcpStream) -> io::Result<()> {
+/// One parsed HTTP request on the WebSocket port: either a WebSocket upgrade
+/// (→ RFB) or a plain request (→ the Phase 5 web console, or `426`).
+pub struct Request {
+    /// The request path (`GET <path> HTTP/1.1`).
+    pub path: String,
+    /// `Some(Sec-WebSocket-Key)` when this is a well-formed GET + upgrade.
+    key: Option<String>,
+    /// The client offered the "binary" subprotocol (older noVNC), which we
+    /// must echo or the browser drops the connection client-side.
+    binary: bool,
+}
+
+impl Request {
+    /// Whether this request asks for the WebSocket upgrade.
+    pub fn is_upgrade(&self) -> bool {
+        self.key.is_some()
+    }
+}
+
+/// Read and parse one HTTP request from the socket (headers only).
+pub fn read_http_request(stream: &mut TcpStream) -> io::Result<Request> {
     let request = read_request(stream)?;
     let text = String::from_utf8_lossy(&request);
 
+    let path = text.split_whitespace().nth(1).unwrap_or("/").to_string();
     let upgrade_ok = header(&text, "upgrade")
         .is_some_and(|v| v.to_ascii_lowercase().contains("websocket"))
         && text.starts_with("GET ");
-    let key = header(&text, "sec-websocket-key");
-    let (Some(key), true) = (key, upgrade_ok) else {
-        let _ = stream.write_all(
-            b"HTTP/1.1 426 Upgrade Required\r\n\
-              Connection: close\r\n\
-              Content-Type: text/plain\r\n\r\n\
-              This is EWM's RFB-over-WebSocket port; connect with noVNC.\n",
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "not a WebSocket upgrade request",
-        ));
+    let key = match header(&text, "sec-websocket-key") {
+        Some(key) if upgrade_ok => Some(key.to_string()),
+        _ => None,
     };
-
-    // noVNC releases differ: some offer the "binary" subprotocol, current ones
-    // offer none. If it was offered we must echo it, or the browser drops the
-    // connection client-side.
     let binary = header(&text, "sec-websocket-protocol")
         .is_some_and(|v| v.split(',').any(|p| p.trim() == "binary"));
+    Ok(Request { path, key, binary })
+}
 
+/// Answer a WebSocket upgrade with `101 Switching Protocols`. The request
+/// path is ignored, so noVNC's default `/websockify` path works unmodified.
+pub fn accept_upgrade(stream: &mut TcpStream, request: &Request) -> io::Result<()> {
+    let key = request.key.as_deref().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "not a WebSocket upgrade request",
+        )
+    })?;
     let mut response = format!(
         "HTTP/1.1 101 Switching Protocols\r\n\
          Upgrade: websocket\r\n\
@@ -162,11 +176,23 @@ pub fn upgrade(stream: &mut TcpStream) -> io::Result<()> {
          Sec-WebSocket-Accept: {}\r\n",
         accept_key(key)
     );
-    if binary {
+    if request.binary {
         response.push_str("Sec-WebSocket-Protocol: binary\r\n");
     }
     response.push_str("\r\n");
     stream.write_all(response.as_bytes())
+}
+
+/// Answer a plain HTTP request on a WebSocket-only port (no web console):
+/// `426 Upgrade Required`, with a hint.
+pub fn refuse_plain_http(stream: &mut TcpStream) -> io::Result<()> {
+    stream.write_all(
+        b"HTTP/1.1 426 Upgrade Required\r\n\
+          Connection: close\r\n\
+          Content-Type: text/plain\r\n\r\n\
+          This is EWM's RFB-over-WebSocket port; connect with noVNC,\n\
+          or start the machine with the web console (--serve ...?web=PORT).\n",
+    )
 }
 
 /// Read the HTTP request up to and including the blank line. Byte-at-a-time,
@@ -469,7 +495,10 @@ mod tests {
         let port = listener.local_addr().expect("addr").port();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
-            upgrade(&mut stream)
+            let request = read_http_request(&mut stream)?;
+            assert_eq!(request.path, "/websockify");
+            assert!(request.is_upgrade());
+            accept_upgrade(&mut stream, &request)
         });
         let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
         client
@@ -499,12 +528,15 @@ mod tests {
     }
 
     #[test]
-    fn plain_http_request_gets_426() {
+    fn plain_http_request_parses_and_gets_426() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().expect("accept");
-            upgrade(&mut stream)
+            let request = read_http_request(&mut stream).expect("parse");
+            assert_eq!(request.path, "/");
+            assert!(!request.is_upgrade());
+            refuse_plain_http(&mut stream).expect("426");
         });
         let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
         client
@@ -513,7 +545,7 @@ mod tests {
         let mut response = String::new();
         client.read_to_string(&mut response).expect("response");
         assert!(response.starts_with("HTTP/1.1 426"), "{response}");
-        assert!(server.join().expect("join").is_err());
+        server.join().expect("join");
     }
 
     #[test]

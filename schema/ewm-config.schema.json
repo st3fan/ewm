@@ -64,6 +64,7 @@
         "port": null,
         "protocol": null,
         "view_only": null,
+        "web": null,
         "websocket": null
       }
     }
@@ -410,6 +411,13 @@
         },
         "view_only": {
           "description": "Serve the console read-only: ignore all keyboard and pointer input.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "web": {
+          "description": "Serve the embedded web console (a vendored noVNC page) for plain HTTP\nrequests on the WebSocket port, so `http://host:port/` is a live\nconsole with no external tooling. Implies a WebSocket listener (on\n5701 when `websocket` is absent). Off by default.",
           "type": [
             "boolean",
             "null"

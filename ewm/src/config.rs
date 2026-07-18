@@ -365,6 +365,11 @@ pub struct Remote {
     /// RFB-over-WebSocket port for browser clients: noVNC connects straight
     /// to it, no websockify bridge. Absent means no WebSocket listener.
     pub websocket: Option<u16>,
+    /// Serve the embedded web console (a vendored noVNC page) for plain HTTP
+    /// requests on the WebSocket port, so `http://host:port/` is a live
+    /// console with no external tooling. Implies a WebSocket listener (on
+    /// 5701 when `websocket` is absent). Off by default.
+    pub web: Option<bool>,
     /// Serve the console read-only: ignore all keyboard and pointer input.
     pub view_only: Option<bool>,
     /// VNC-auth password. When set, clients must authenticate with the RFB DES

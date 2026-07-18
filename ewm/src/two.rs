@@ -1881,7 +1881,8 @@ fn usage() {
     eprintln!(
         "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
     );
-    eprintln!("                    add ?ws=5701 for browser clients (noVNC, no websockify)");
+    eprintln!("                    ?web=5701 adds the browser console (http://host:5701/),");
+    eprintln!("                    ?ws=5701 the raw websocket only (bring your own noVNC)");
 }
 
 #[derive(Default)]
@@ -1927,6 +1928,9 @@ struct ServeOptions {
     /// RFB-over-WebSocket port for browser clients (noVNC connects straight
     /// to it, no websockify); `None` means no WebSocket listener.
     websocket: Option<u16>,
+    /// Serve the embedded web console on the WebSocket port; implies a
+    /// WebSocket listener (on `WS_DEFAULT_PORT`) when none is configured.
+    web: bool,
     view_only: bool,
     /// VNC-auth password (`None` → the `None` security type). Required by
     /// clients that refuse `None`, such as macOS Screen Sharing.
@@ -1939,6 +1943,7 @@ impl Default for ServeOptions {
             bind: "127.0.0.1".to_string(),
             port: RFB_DEFAULT_PORT,
             websocket: None,
+            web: false,
             view_only: false,
             password: None,
         }
@@ -2157,11 +2162,12 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
 }
 
 /// Parse a `--serve` URL onto a base (usually the config's `remote` block):
-/// `vnc://[bind][:port][?ws=5701&password=…&view_only=1]`, e.g.
-/// `vnc://0.0.0.0:5901?ws=5701`, `vnc://:5901` (default bind), or
-/// `vnc://127.0.0.1` (default port). `ws` adds the RFB-over-WebSocket
-/// listener for browser noVNC (bare `ws` uses 5701); `web=` is reserved for
-/// the Phase 5 console page. Only the `vnc` scheme is implemented.
+/// `vnc://[bind][:port][?ws=5701&web=5701&password=…&view_only=1]`, e.g.
+/// `vnc://0.0.0.0:5901?web=5701`, `vnc://:5901` (default bind), or
+/// `vnc://127.0.0.1` (default port). `ws` adds the raw RFB-over-WebSocket
+/// listener for bring-your-own noVNC (bare `ws` uses 5701); `web` also
+/// serves the embedded console page on that port (`web=PORT` is sugar for
+/// `web&ws=PORT`). Only the `vnc` scheme is implemented.
 fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, String> {
     let rest = url
         .strip_prefix("vnc://")
@@ -2201,7 +2207,22 @@ fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, Strin
                 }
                 serve.websocket = Some(port);
             }
-            "web" => {} // reserved for the Phase 5 console page
+            // The embedded web console: bare `web` (or a truth value) turns
+            // it on; a number is sugar for "on, on this WebSocket port".
+            "web" => match value {
+                "" | "1" | "true" => serve.web = true,
+                "0" | "false" => serve.web = false,
+                port => {
+                    let port: u16 = port
+                        .parse()
+                        .map_err(|_| format!("invalid web port {port:?}"))?;
+                    if port == 0 {
+                        return Err("web port must be at least 1".to_string());
+                    }
+                    serve.web = true;
+                    serve.websocket = Some(port);
+                }
+            },
             "" => {}
             other => return Err(format!("unknown option {other:?}")),
         }
@@ -2276,6 +2297,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         || remote.bind.is_some()
         || remote.port.is_some()
         || remote.websocket.is_some()
+        || remote.web.is_some()
         || remote.view_only.is_some()
         || remote.password.is_some()
     {
@@ -2287,6 +2309,9 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
             serve.port = port;
         }
         serve.websocket = remote.websocket;
+        if let Some(web) = remote.web {
+            serve.web = web;
+        }
         if let Some(view_only) = remote.view_only {
             serve.view_only = view_only;
         }
@@ -2593,11 +2618,18 @@ fn serve(mut options: Options) -> i32 {
         _ => "EWM Apple ][+",
     };
     let auth = serve.password.is_some();
+    // The web console lives on the WebSocket port, so asking for it without
+    // one gets the default WebSocket port.
+    let websocket = match (serve.websocket, serve.web) {
+        (None, true) => Some(WS_DEFAULT_PORT),
+        (websocket, _) => websocket,
+    };
     let (server, publisher) = match crate::rfb::Server::start(
         crate::rfb::Options {
             bind: serve.bind.clone(),
             port: serve.port,
-            websocket: serve.websocket,
+            websocket,
+            web: serve.web,
             name: name.to_string(),
             view_only: serve.view_only,
             password: serve.password,
@@ -2619,10 +2651,17 @@ fn serve(mut options: Options) -> i32 {
         if serve.view_only { ", view-only" } else { "" }
     );
     if let Some(ws_port) = server.websocket_port() {
-        eprintln!(
-            "[RFB] websocket for browser clients (noVNC) on ws://{}:{ws_port}/",
-            serve.bind
-        );
+        if serve.web {
+            eprintln!(
+                "[RFB] web console on http://{}:{ws_port}/ (same port carries the RFB websocket)",
+                serve.bind
+            );
+        } else {
+            eprintln!(
+                "[RFB] websocket for browser clients (noVNC) on ws://{}:{ws_port}/",
+                serve.bind
+            );
+        }
     }
 
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
@@ -3853,6 +3892,22 @@ mod tests {
         assert!(s.view_only);
         let s = parse_serve("vnc://?ws", ServeOptions::default()).expect("parse");
         assert_eq!(s.websocket, Some(WS_DEFAULT_PORT));
+        assert!(!s.web, "ws alone does not enable the console");
+
+        // The web console: web=PORT is sugar for web + ws=PORT; bare web
+        // leaves the port to the serve-time default.
+        let s = parse_serve("vnc://?web=8080", ServeOptions::default()).expect("parse");
+        assert!(s.web);
+        assert_eq!(s.websocket, Some(8080));
+        let s = parse_serve("vnc://?web", ServeOptions::default()).expect("parse");
+        assert!(s.web);
+        assert_eq!(s.websocket, None);
+        // `0`/`false` read as truth values (console off), not as a port.
+        let s = parse_serve("vnc://?web=false", ServeOptions::default()).expect("parse");
+        assert!(!s.web);
+        let s = parse_serve("vnc://?web=0", ServeOptions::default()).expect("parse");
+        assert!(!s.web);
+        assert!(parse_serve("vnc://?web=x", ServeOptions::default()).is_err());
 
         // A config-supplied base survives an explicit --serve.
         let base = ServeOptions {
