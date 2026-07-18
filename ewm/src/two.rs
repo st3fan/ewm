@@ -2793,17 +2793,31 @@ impl RemoteKeys {
 
 /// Apply `--state` at startup: restore when the file exists (replacing the
 /// initial reset), cold boot otherwise. A restore failure is fatal — never
-/// run a half-restored machine (notes/STATE.md §6).
-fn restore_at_startup(two: &mut Two, state: Option<&str>) -> Result<(), String> {
-    let Some(path) = state else { return Ok(()) };
+/// run a half-restored machine (notes/STATE.md §6). On restore, returns the
+/// save time for the paused-start banner — the file's mtime, which the
+/// atomic save (write + rename) stamps at the moment of saving.
+fn restore_at_startup(two: &mut Two, state: Option<&str>) -> Result<Option<String>, String> {
+    let Some(path) = state else { return Ok(None) };
     if !std::path::Path::new(path).exists() {
         eprintln!("[STATE] {path} does not exist yet; cold booting");
-        return Ok(());
+        return Ok(None);
     }
     two.restore_state(path)
         .map_err(|e| format!("cannot restore state from {path}: {e}"))?;
-    eprintln!("[STATE] restored from {path}");
-    Ok(())
+    let saved_at = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .map(format_saved_at)
+        .unwrap_or_else(|| "UNKNOWN TIME".to_string());
+    eprintln!("[STATE] restored from {path} (saved {saved_at})");
+    Ok(Some(saved_at))
+}
+
+/// `YYYY-MM-DD HH:MM:SS` in local time, for the restored-state banner.
+fn format_saved_at(t: std::time::SystemTime) -> String {
+    chrono::DateTime::<chrono::Local>::from(t)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 /// Save at quit (`--state`); a failure exits nonzero and leaves any previous
@@ -2895,6 +2909,8 @@ fn serve(mut options: Options) -> i32 {
     }
     two.cpu.reset();
     let state_path = options.state.clone();
+    // Headless has no pause UI, so a restored machine runs immediately —
+    // the paused start is an SDL-frontend behavior (see main).
     if let Err(e) = restore_at_startup(&mut two, state_path.as_deref()) {
         eprintln!("[STATE] {e}");
         return 1;
@@ -3207,10 +3223,16 @@ pub fn main(args: &[String]) -> i32 {
     // Reset things to a known state — or to the saved state (--state).
 
     two.cpu.reset();
-    if let Err(e) = restore_at_startup(&mut two, options.state.as_deref()) {
-        eprintln!("[STATE] {e}");
-        return 1;
-    }
+    // A restored machine starts paused, so it does not run off without you:
+    // the pause screen names the save it resumed from, and the command
+    // palette (Cmd-K, Unpause) sets it going.
+    let mut restored_banner = match restore_at_startup(&mut two, options.state.as_deref()) {
+        Ok(banner) => banner,
+        Err(e) => {
+            eprintln!("[STATE] {e}");
+            return 1;
+        }
+    };
 
     video.text_input().start(canvas.window());
 
@@ -3281,7 +3303,7 @@ pub fn main(args: &[String]) -> i32 {
         eprintln!("[TWO] Boot delayed {:.1}s", options.boot_delay);
     }
     let mut phase: u32 = 1;
-    let mut paused = false;
+    let mut paused = restored_banner.is_some();
     let mut status_bar_visible = false;
     let mut frames: u32 = 0;
     // Emulated CPU speed, seeded from the config (if any) and switchable
@@ -3697,6 +3719,11 @@ pub fn main(args: &[String]) -> i32 {
         }
 
         if sdl3::timer::ticks() >= next_frame {
+            if !paused {
+                // First unpause consumes the restored-state banner; manual
+                // pauses from here on show the plain PAUSED box.
+                restored_banner = None;
+            }
             if !paused && !palette_visible && sdl3::timer::ticks() >= boot_at {
                 // Feed the joystick axes to the paddle logic before the burst.
                 two.set_joystick(controller.as_ref().map(|c| {
@@ -3798,11 +3825,23 @@ pub fn main(args: &[String]) -> i32 {
                     let _ = canvas.fill_rect(None);
 
                     status_tty.reset();
-                    status_tty.set_line(8, "          ********************          ");
-                    status_tty.set_line(9, "          *                  *          ");
-                    status_tty.set_line(10, "          * -+-  PAUSED  -+- *          ");
-                    status_tty.set_line(11, "          *                  *          ");
-                    status_tty.set_line(12, "          ********************          ");
+                    if let Some(saved_at) = &restored_banner {
+                        // Started from a saved state (notes/STATE.md §6):
+                        // name the save this machine resumed from.
+                        status_tty.set_line(7, "      ****************************      ");
+                        status_tty.set_line(8, "      *                          *      ");
+                        status_tty.set_line(9, "      * RESTORED FROM SAVE STATE *      ");
+                        let ts = format!("      *{saved_at:^26}*      ");
+                        status_tty.set_line(10, &ts);
+                        status_tty.set_line(11, "      *                          *      ");
+                        status_tty.set_line(12, "      ****************************      ");
+                    } else {
+                        status_tty.set_line(8, "          ********************          ");
+                        status_tty.set_line(9, "          *                  *          ");
+                        status_tty.set_line(10, "          * -+-  PAUSED  -+- *          ");
+                        status_tty.set_line(11, "          *                  *          ");
+                        status_tty.set_line(12, "          ********************          ");
+                    }
                     status_tty.refresh(0, 0);
                     tty_texture
                         .update(
@@ -4237,6 +4276,20 @@ mod tests {
         assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
         assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
+    }
+
+    #[test]
+    fn saved_at_banner_fits_the_forty_column_pause_box() {
+        let t = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_770_000_000);
+        let saved_at = format_saved_at(t);
+        // YYYY-MM-DD HH:MM:SS, local time — shape, not value.
+        assert_eq!(saved_at.len(), 19, "{saved_at}");
+        assert_eq!(saved_at.as_bytes()[4], b'-');
+        assert_eq!(saved_at.as_bytes()[10], b' ');
+        assert_eq!(saved_at.as_bytes()[13], b':');
+        // Centered in the box's 26 inner columns, the line is exactly the
+        // TTY's 40 columns, like every other pause-box line.
+        assert_eq!(format!("      *{saved_at:^26}*      ").len(), 40);
     }
 
     #[test]
