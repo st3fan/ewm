@@ -31,3 +31,4 @@ pub mod tty;
 pub mod two;
 pub mod woz;
 pub mod wozbug;
+pub mod ws;

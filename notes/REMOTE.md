@@ -358,7 +358,7 @@ a pure `Vec<u32>`.
 | 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Deferred (see note) |
 | 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
 | 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
-| 4 | Embedded **WebSocket** transport (`tungstenite`) → noVNC connects directly, no websockify | M | Not started |
+| 4 | Embedded **WebSocket** transport (hand-rolled `ws.rs`, not `tungstenite` — see §14) → noVNC connects directly, no websockify | M | **Prototype** ✅ |
 | 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | Not started |
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
@@ -389,7 +389,20 @@ built:
 - **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
   SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
   translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
-  reset) mirrors the SDL keyboard table.
+  reset) mirrors the SDL keyboard table. Translated bytes are **paced through a
+  queue** (`RemoteKeys::pump`): the Apple II keyboard is a one-byte latch and a
+  browser delivers a whole typed word within one frame, so each byte feeds only
+  after the ROM consumed the previous one (strobe via `$C010`) — otherwise every
+  key but the last is overwritten. Free side effect: type-ahead while booting.
+- **`ws.rs`** *(Phase 4)* — a hand-rolled WebSocket (RFC 6455) server transport:
+  HTTP upgrade (SHA-1 + base64, tested against the RFC vectors), binary-frame
+  encode/decode with client-mask enforcement, ping→pong, close echo. Exposed as
+  `io::Read`/`io::Write` adapters, so `rfb.rs`'s state machine runs over plain
+  TCP or WebSocket **verbatim** — one protocol, two transports, both listeners
+  feeding the same machine. `remote.websocket` / `--serve …?ws=5701` adds the
+  browser port; noVNC connects to it directly, no websockify. (noVNC's
+  `SetPixelFormat` request — little-endian, shifts 0/8/16 — is byte-identical
+  on the wire to our advertised big-endian 24/16/8, so ignoring it is safe.)
 
 Verified end-to-end: booted the DOS 3.3 System Master and a bare Applesoft ][+
 over `vnc://`, typed `PRINT 2+2` and saw `4`. All gates green (`cargo fmt
@@ -421,6 +434,15 @@ cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=
 #   --set remote:password=secret
 # Expose to the LAN (still weak auth — see §10, keep it behind a tunnel):
 #   --serve 'vnc://0.0.0.0:5901?password=secret'
+
+# Browser (Phase 4): add ?ws=<port> and point stock noVNC at it directly —
+# no websockify. (The self-hosted console page is Phase 5; until then serve
+# the noVNC files with any static server.)
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?ws=5701' \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+git clone --depth 1 https://github.com/novnc/noVNC /tmp/noVNC
+python3 -m http.server 8800 -d /tmp/noVNC &
+open 'http://127.0.0.1:8800/vnc.html?autoconnect=true&host=127.0.0.1&port=5701'
 ```
 
 ---
@@ -465,11 +487,18 @@ Track modifier state from key up/down. **Gate:** a keysym→byte unit test
 table; manual parity check against the SDL keyboard.
 
 ### Phase 4 — Embedded WebSocket transport
-Detect a WebSocket `Upgrade` handshake (sync `tungstenite`) on the configured
-`websocket` port and frame RFB inside WS messages, so **noVNC connects
-directly** — no websockify. Keep plain-TCP RFB working in parallel. **Gate:**
-noVNC (pointed straight at `ws://host:5701`) boots and drives a machine in a
-browser.
+Serve the WebSocket `Upgrade` handshake on the configured `websocket` port and
+frame RFB inside WS messages, so **noVNC connects directly** — no websockify.
+Keep plain-TCP RFB working in parallel. **Gate:** noVNC (pointed straight at
+`ws://host:5701`) boots and drives a machine in a browser.
+
+*As built (prototype):* hand-rolled in `ws.rs` rather than pulling in
+`tungstenite` — the plan's original choice would have added ~9 transitive
+crates for a server-side subset (upgrade + binary frames + ping/pong/close)
+that is ~350 lines here, hand-rolled and RFC-vector-tested exactly like
+`des.rs`. `tungstenite` remains the fallback if interop issues surface. The
+transport is `io::Read`/`io::Write` adapters over the socket, so `rfb.rs`'s
+state machine is shared verbatim between TCP and WS.
 
 ### Phase 5 — Vendored web console (the Proxmox-console piece)
 Bundle a pinned, self-contained noVNC build and serve it from a small built-in
@@ -504,8 +533,9 @@ so the Woz Monitor / KRUSADER machines are reachable remotely too. **Gate:**
 
 - **v1 core:** nothing beyond `std::net` + threads (the `wozbug` model) for
   the RFB server itself.
-- **Phase 4:** a sync WebSocket crate (`tungstenite`) — small, no async
-  runtime.
+- **Phase 4:** none — the WebSocket transport is hand-rolled (`ws.rs`,
+  RFC-vector-tested). `tungstenite` (sync, no async runtime) stays listed as
+  the fallback if interop issues ever surface.
 - **Phase 5:** noVNC is a vendored static asset, not a Cargo dependency.
 - **Track B only:** `ironrdp-server` + Tokio, behind a Cargo feature.
 - **References/fallbacks (not linked by default):** Oxide `rfb`,
