@@ -297,6 +297,10 @@ optional nicety for paste-in; deferred past v1.
 
 ## 9. Audio (deferred, path documented)
 
+> **Update:** the WebAudio side-channel is now fully planned in
+> **`notes/VNC.md`** (phases A1–A3), alongside a description of the browser
+> console as built.
+
 RFB has no audio. The speaker beep is dropped over VNC in v1 — acceptable, and
 called out in docs. Two later paths, neither blocking v1:
 
@@ -363,7 +367,7 @@ a pure `Vec<u32>`.
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
 | B1 | *(optional Track B)* `ironrdp-server` RDP frontend | L | Optional |
-| B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Optional |
+| B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Audio planned — see `notes/VNC.md` |
 
 ### Prototype note (branch `claude/remote-console`)
 
