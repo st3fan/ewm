@@ -41,6 +41,33 @@ pub enum InputEvent {
     Key { down: bool, keysym: u32 },
     /// An RFB `PointerEvent`: the button mask and framebuffer coordinates.
     Pointer { mask: u8, x: u16, y: u16 },
+    /// A machine control from the web console's buttons (`/control/*` on the
+    /// web port, notes/VNC.md §2) — not an RFB message; there is no
+    /// standard RFB way to pause or power-cycle.
+    Control(Control),
+}
+
+/// The web console's operator buttons. The emulator loop acts on these
+/// directly (a keyboard event they are not); dropped, like all input, on a
+/// view-only server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    /// Ctrl-Reset: through the reset vector, RAM and DOS hooks intact.
+    Reset,
+    /// Power off/on: rebuild the machine from its options (cold boot).
+    Reboot,
+    /// Toggle pause: freeze/resume CPU stepping.
+    Pause,
+}
+
+/// The control action a `/control/<action>` request path names, if any.
+pub fn control_action(path: &str) -> Option<Control> {
+    match path.split(['?', '#']).next().unwrap_or(path) {
+        "/control/reset" => Some(Control::Reset),
+        "/control/reboot" => Some(Control::Reboot),
+        "/control/pause" => Some(Control::Pause),
+        _ => None,
+    }
 }
 
 /// The shared framebuffer the emulator publishes into and every connection's
@@ -297,6 +324,15 @@ fn handle_ws(
 ) -> io::Result<()> {
     let request = crate::ws::read_http_request(&mut stream)?;
     if !request.is_upgrade() {
+        // The web console's buttons POST to `/control/<action>`; act on the
+        // machine (unless view-only) and answer 204. Available whenever the
+        // WebSocket port is up, page or no page.
+        if let Some(control) = crate::rfb::control_action(&request.path) {
+            if !view_only {
+                let _ = input_tx.send(InputEvent::Control(control));
+            }
+            return stream.write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n");
+        }
         return if web {
             crate::web::respond(&mut stream, &request.path)
         } else {
@@ -1044,13 +1080,47 @@ mod tests {
     /// Fetch one URL from the web-console port with a plain HTTP GET and
     /// return the full response (headers + body as lossy text).
     fn http_get(port: u16, path: &str) -> String {
+        http_request(port, "GET", path)
+    }
+
+    /// One plain HTTP request of any method; returns the full response text.
+    fn http_request(port: u16, method: &str, path: &str) -> String {
         let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect");
         client
-            .write_all(format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+            .write_all(format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
             .expect("request");
         let mut response = Vec::new();
         client.read_to_end(&mut response).expect("response");
         String::from_utf8_lossy(&response).into_owned()
+    }
+
+    #[test]
+    fn control_paths_route_to_actions() {
+        assert_eq!(control_action("/control/reset"), Some(Control::Reset));
+        assert_eq!(control_action("/control/reboot"), Some(Control::Reboot));
+        assert_eq!(control_action("/control/pause"), Some(Control::Pause));
+        assert_eq!(control_action("/control/pause?x=1"), Some(Control::Pause));
+        assert_eq!(control_action("/control/nope"), None);
+        assert_eq!(control_action("/"), None);
+    }
+
+    #[test]
+    fn control_button_posts_reach_the_emulator_and_view_only_drops_them() {
+        // A live server: the web console POST answers 204 and the control
+        // event lands on the input channel.
+        let (server, _publisher) = start_server("EWM", false, None, true);
+        let port = server.websocket_port().expect("ws port");
+        let response = http_request(port, "POST", "/control/reboot");
+        assert!(response.starts_with("HTTP/1.1 204"), "{response}");
+        assert_eq!(recv(&server), InputEvent::Control(Control::Reboot));
+
+        // A view-only server answers 204 too, but swallows the control.
+        let (view_only, _publisher) = start_server("EWM", true, None, true);
+        let vo_port = view_only.websocket_port().expect("ws port");
+        let response = http_request(vo_port, "POST", "/control/reset");
+        assert!(response.starts_with("HTTP/1.1 204"), "{response}");
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(view_only.try_recv_input().is_none());
     }
 
     /// Phase 5: the WebSocket port doubles as the web console — the page,

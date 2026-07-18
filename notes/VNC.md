@@ -78,9 +78,13 @@ Buttons, status UI, and audio all belong to *our* page, next to — not inside �
 the RFB canvas. Nothing about that requires touching a single vendored file,
 now or later:
 
-- **Buttons** (reset, disk swap, machine controls…): plain HTML in our page.
-  Where a button needs a machine action that RFB can't express, that's a tiny
-  EWM-side HTTP endpoint or WS message on our own port — never a noVNC change.
+- **Buttons** (built): Reset, Reboot, Pause sit in the page's top bar and
+  `POST /control/<action>` on the same port — a tiny EWM-side HTTP endpoint
+  (`rfb.rs` routes `/control/*` to an `InputEvent::Control` on the input
+  channel the serve loop already drains), no noVNC change. Reset is
+  Ctrl-Reset, Reboot is a cold boot (`power_on_machine`), Pause freezes CPU
+  stepping (screen keeps publishing, FLASH blink frozen). View-only servers
+  drop control like all input. Disk swap and more slot in the same way.
 - **Audio**: a second WebSocket + Web Audio in our page. noVNC never sees it.
 
 A fork would only become necessary if we wanted to change the *RFB wire

@@ -2752,6 +2752,9 @@ impl RemoteKeys {
             InputEvent::Pointer { mask, .. } => {
                 two.set_button(0, if mask & 1 != 0 { 0x80 } else { 0x00 });
             }
+            // Control events are handled by the serve loop, not here (they
+            // touch the machine's lifecycle, not its keyboard).
+            InputEvent::Control(_) => {}
         }
     }
 
@@ -3005,6 +3008,9 @@ fn serve(mut options: Options) -> i32 {
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
     let mut keys = RemoteKeys::default();
     let mut phase: u32 = 1;
+    // The web console's Pause button (notes/VNC.md §2); freezes CPU stepping
+    // while the framebuffer keeps being published, so the frozen screen shows.
+    let mut paused = false;
     let mut next_frame = std::time::Instant::now();
     loop {
         if STOP.load(std::sync::atomic::Ordering::Relaxed) {
@@ -3012,32 +3018,68 @@ fn serve(mut options: Options) -> i32 {
             return save_at_quit(&two, state_path.as_deref());
         }
         while let Some(event) = server.try_recv_input() {
-            keys.apply(&mut two, event);
+            match event {
+                crate::rfb::InputEvent::Control(control) => match control {
+                    crate::rfb::Control::Reset => {
+                        eprintln!("[RFB] reset");
+                        two.cpu.reset();
+                    }
+                    crate::rfb::Control::Pause => {
+                        paused = !paused;
+                        eprintln!("[RFB] {}", if paused { "paused" } else { "resumed" });
+                    }
+                    crate::rfb::Control::Reboot => {
+                        // Power off/on: rebuild from the same options — what a
+                        // quit and restart would build — carrying over only
+                        // the open trace sink (mirrors the SDL reboot path).
+                        eprintln!("[RFB] reboot (power off/on)");
+                        let trace = two.cpu.trace.take();
+                        match power_on_machine(&options) {
+                            Ok(fresh) => two = fresh,
+                            Err(e) => eprintln!("[TWO] could not reboot: {e}"),
+                        }
+                        two.cpu.trace = trace;
+                        two.cpu.reset();
+                        wave = crate::snd::Wave::new();
+                        wave.set_cpu_frequency(speed as u64);
+                        keys = RemoteKeys::default();
+                        paused = false;
+                    }
+                },
+                other => keys.apply(&mut two, other),
+            }
         }
-        // At most one queued key byte per frame, and only once the ROM has
-        // consumed the previous one — see the RemoteKeys doc comment.
-        keys.pump(&mut two);
 
-        let mut budget = (speed / fps) as i64;
-        while budget > 0 {
-            match two.cpu.step() {
-                0 => break, // breakpoint (WozBug not wired into serve yet)
-                cycles => budget -= cycles as i64,
+        if !paused {
+            // At most one queued key byte per frame, and only once the ROM has
+            // consumed the previous one — see the RemoteKeys doc comment.
+            keys.pump(&mut two);
+
+            let mut budget = (speed / fps) as i64;
+            while budget > 0 {
+                match two.cpu.step() {
+                    0 => break, // breakpoint (WozBug not wired into serve yet)
+                    cycles => budget -= cycles as i64,
+                }
             }
         }
         // RFB has no audio channel; the speaker streams over the /audio
         // WebSocket instead (notes/VNC.md). Rendering must run every frame
-        // to keep the wave's cycle window in step; the hub only pays for
-        // encoding when someone is actually listening.
+        // to keep the wave's cycle window in step (silence while paused); the
+        // hub only pays for encoding when someone is actually listening.
         let toggles = two.drain_speaker_toggles();
         audio.publish(wave.render(&toggles, two.cpu.counter));
 
         scr.update(&two, phase, fps);
         publisher.publish(scr.frame(two.model()));
 
-        phase += 1;
-        if phase >= fps {
-            phase = 0;
+        // Screen time follows machine time: freeze the FLASH blink while
+        // paused, exactly as the SDL loop does.
+        if !paused {
+            phase += 1;
+            if phase >= fps {
+                phase = 0;
+            }
         }
 
         next_frame += frame_time;
