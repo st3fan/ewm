@@ -3224,8 +3224,8 @@ pub fn main(args: &[String]) -> i32 {
 
     two.cpu.reset();
     // A restored machine starts paused, so it does not run off without you:
-    // the pause screen names the save it resumed from, and the command
-    // palette (Cmd-K, Unpause) sets it going.
+    // the pause screen names the save it resumed from; Cmd-P (or the
+    // command palette's Unpause) sets it going.
     let mut restored_banner = match restore_at_startup(&mut two, options.state.as_deref()) {
         Ok(banner) => banner,
         Err(e) => {
@@ -3556,6 +3556,11 @@ pub fn main(args: &[String]) -> i32 {
                             Keycode::R => {
                                 eprintln!("[SDL] Reset");
                                 two.cpu.reset();
+                            }
+                            // Cmd-P: pause/unpause, same toggle as the
+                            // palette's Pause command.
+                            Keycode::P => {
+                                paused = !paused;
                             }
                             Keycode::Return => {
                                 let window = canvas.window_mut();

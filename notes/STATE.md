@@ -221,7 +221,7 @@ construction.
   **paused**, with the pause screen naming the save it resumed from
   ("RESTORED FROM SAVE STATE" + the file's save time, taken from its mtime
   — which the atomic write-then-rename stamps at the moment of saving).
-  The first unpause (command palette) dismisses it; later manual pauses
+  The first unpause (Cmd-P or the command palette) dismisses it; later manual pauses
   show the plain PAUSED box. Headless serve has no pause UI, so a restored
   machine runs immediately there.
 - **Quit paths**:
