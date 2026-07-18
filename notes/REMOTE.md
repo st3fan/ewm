@@ -389,7 +389,11 @@ built:
 - **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
   SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
   translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
-  reset) mirrors the SDL keyboard table.
+  reset) mirrors the SDL keyboard table. Translated bytes are **paced through a
+  queue** (`RemoteKeys::pump`): the Apple II keyboard is a one-byte latch and a
+  browser delivers a whole typed word within one frame, so each byte feeds only
+  after the ROM consumed the previous one (strobe via `$C010`) — otherwise every
+  key but the last is overwritten. Free side effect: type-ahead while booting.
 - **`ws.rs`** *(Phase 4)* — a hand-rolled WebSocket (RFC 6455) server transport:
   HTTP upgrade (SHA-1 + base64, tested against the RFC vectors), binary-frame
   encode/decode with client-mask enforcement, ping→pong, close echo. Exposed as
