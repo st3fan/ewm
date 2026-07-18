@@ -206,3 +206,51 @@ fn state_file_round_trip() {
 
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// The S5 determinism gate (notes/STATE.md §8), the state analogue of the
+/// golden-BMP tests: save **mid-boot** — motor on, arm seeking, DOS half
+/// loaded, the harshest moment — restore into a fresh twin, then run BOTH
+/// machines millions of further cycles. If any component forgot a field,
+/// the trajectories diverge and the screens (text and rendered pixels)
+/// stop matching.
+#[test]
+fn mid_boot_restore_is_deterministic_for_seconds_of_execution() {
+    use ewm::scr::{PixelLayout, SCR_HEIGHT, Scr, frame_width};
+
+    let mut m = Machine::boot_with_system_master();
+    m.step(3_000_000); // ~3 emulated seconds into the boot: mid-load
+
+    let mut twin = Machine::boot_with_system_master();
+    round_trip(&m.two, &mut twin.two);
+    assert_eq!(twin.two.cpu.counter, m.two.cpu.counter);
+
+    // Run both to the DOS prompt and beyond, comparing along the way.
+    for leg in 0..5 {
+        m.step(2_000_000);
+        twin.step(2_000_000);
+        assert_eq!(
+            twin.two.text_screen(),
+            m.two.text_screen(),
+            "trajectories diverged on leg {leg}"
+        );
+        assert_eq!(twin.two.cpu.counter, m.two.cpu.counter);
+        assert_eq!(twin.two.cpu.pc, m.two.cpu.pc);
+    }
+    assert!(
+        m.two.text_screen().contains("DOS VERSION 3.3"),
+        "the original should have finished booting; screen was:\n{}",
+        m.two.text_screen()
+    );
+
+    // Pixel-level equality through the pure renderer, both machines.
+    let mut scr_m = Scr::new(PixelLayout::Argb8888);
+    let mut scr_t = Scr::new(PixelLayout::Argb8888);
+    scr_m.update(&m.two, 0, 30);
+    scr_t.update(&twin.two, 0, 30);
+    assert_eq!(
+        scr_m.frame(m.two.model()),
+        scr_t.frame(twin.two.model()),
+        "rendered framebuffers diverged"
+    );
+    assert_eq!(frame_width(m.two.model()) * SCR_HEIGHT, 280 * 192);
+}

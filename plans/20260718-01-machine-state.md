@@ -3,7 +3,7 @@
 - **Design doc:** `notes/STATE.md` (architecture, trait design, format,
   component inventory, hazards — read it first; this plan is the execution
   roadmap and does not repeat the rationale)
-- **Status:** not started
+- **Status:** implemented (PR pending); see *as built* notes in notes/STATE.md
 - **Target:** `main`, one PR per phase unless decided otherwise at kickoff
 
 Start the emulator with `--state=/some/mystate`: restore that state at
@@ -20,12 +20,12 @@ untouched. Update the phase table below as phases land; record deviations as
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| S0 | Plan + CLI/config surface | S | Plan done; CLI pending |
-| S1 | `state.rs` chunk container | S | Not started |
-| S2 | `Persist` trait + Cpu/Memory | M | Not started |
-| S3 | The supertrait flip: all devices | L | Not started |
-| S4 | Lifecycle wiring | M | Not started |
-| S5 | Determinism gate + e2e | S | Not started |
+| S0 | Plan + CLI/config surface | S | Done (CLI landed inside S4 — see as-built note) |
+| S1 | `state.rs` chunk container | S | Done |
+| S2 | `Persist` trait + Cpu/Memory | M | Done |
+| S3 | The supertrait flip: all devices | L | Done |
+| S4 | Lifecycle wiring | M | Done |
+| S5 | Determinism gate + e2e | S | Done |
 
 ### S0 — Plan + CLI/config surface
 
