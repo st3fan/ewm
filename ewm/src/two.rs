@@ -3671,13 +3671,13 @@ pub fn main(args: &[String]) -> i32 {
                                 // Choice rows open submenus, like VS Code
                                 // quick-picks.
                                 palette.add_submenu_command(
-                                    format!("Monitor Style: {}", monitor_style.label()),
+                                    format!("Display Style: {}", monitor_style.label()),
                                     TwoAction::Run(|ctx| {
                                         *ctx.open_submenu = Some(Submenu::MonitorStyle)
                                     }),
                                 );
                                 palette.add_submenu_command(
-                                    format!("Scanlines: {}", scanlines.label()),
+                                    format!("Display Scanlines: {}", scanlines.label()),
                                     TwoAction::Run(|ctx| {
                                         *ctx.open_submenu = Some(Submenu::Scanlines)
                                     }),
@@ -3697,9 +3697,12 @@ pub fn main(args: &[String]) -> i32 {
                                 // Speed opens a submenu, like the other
                                 // choice rows.
                                 palette.add_submenu_command(
-                                    format!("Speed: {}", speed_label(speed)),
+                                    format!("CPU Speed: {}", speed_label(speed)),
                                     TwoAction::Run(|ctx| *ctx.open_submenu = Some(Submenu::Speed)),
                                 );
+                                // The top-level menu is alphabetical; the
+                                // choice submenus keep their natural order.
+                                palette.sort_commands();
                                 palette_visible = true;
                             }
                             _ => {}
