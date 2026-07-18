@@ -17,6 +17,12 @@
 //! response to the client's `FramebufferUpdateRequest`. Client keyboard and
 //! pointer events arrive back on an `mpsc` channel the emulator drains between
 //! frames — exactly the `wozbug::Server::commands` shape.
+//!
+//! Two transports, one protocol (Phase 4): the plain-TCP port serves native
+//! VNC clients, and an optional second port serves the same RFB byte stream
+//! inside WebSocket frames so a browser's noVNC connects directly (`ws.rs`
+//! supplies `Read`/`Write` adapters; the state machine here is shared
+//! verbatim). Both feed one machine: same framebuffer, same input channel.
 
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -104,41 +110,89 @@ impl Publisher {
     }
 }
 
-/// A running RFB server: the listener and its clients live on background
+/// How and where [`Server::start`] listens — the RFB half of the machine's
+/// `remote` config.
+pub struct Options {
+    /// Address to bind (both listeners). Default posture is localhost.
+    pub bind: String,
+    /// Plain-TCP RFB port for native VNC clients (0 = ephemeral, tests).
+    pub port: u16,
+    /// Optional RFB-over-WebSocket port for browser clients (noVNC connects
+    /// straight here, no websockify — Phase 4).
+    pub websocket: Option<u16>,
+    /// The desktop name sent in `ServerInit`.
+    pub name: String,
+    /// Drop all client input at the source.
+    pub view_only: bool,
+    /// When set, require VNC authentication (the DES challenge) instead of
+    /// offering the `None` security type.
+    pub password: Option<String>,
+}
+
+/// A running RFB server: the listeners and their clients live on background
 /// threads; the emulator keeps a [`Publisher`] to push frames and this
 /// `Server` to drain input between frames.
 pub struct Server {
     input: Receiver<InputEvent>,
     port: u16,
+    websocket_port: Option<u16>,
 }
 
 impl Server {
-    /// Bind `bind:port` (port 0 picks an ephemeral port — tests) and start
-    /// accepting clients. Returns the `Server` (drain input from it) and a
-    /// [`Publisher`] (push frames into it). `view_only` drops all client
-    /// input at the source; `password`, when set, requires VNC authentication
-    /// (the DES challenge) instead of offering the `None` security type.
-    pub fn start(
-        bind: &str,
-        port: u16,
-        width: u16,
-        height: u16,
-        name: &str,
-        view_only: bool,
-        password: Option<String>,
-    ) -> io::Result<(Server, Publisher)> {
-        let listener = TcpListener::bind((bind, port))?;
+    /// Bind the plain-TCP port (and the WebSocket port, when configured) and
+    /// start accepting clients. Returns the `Server` (drain input from it)
+    /// and a [`Publisher`] (push frames into it). Both transports feed the
+    /// same machine: the same framebuffer out, the same input channel back.
+    pub fn start(options: Options, width: u16, height: u16) -> io::Result<(Server, Publisher)> {
+        let listener = TcpListener::bind((options.bind.as_str(), options.port))?;
         let port = listener.local_addr()?.port();
-        let channel = Arc::new(Channel::new(width, height, name.to_string(), password));
+        let ws_listener = match options.websocket {
+            Some(ws_port) => Some(
+                TcpListener::bind((options.bind.as_str(), ws_port))
+                    .map_err(|e| io::Error::new(e.kind(), format!("websocket port: {e}")))?,
+            ),
+            None => None,
+        };
+        let websocket_port = match &ws_listener {
+            Some(listener) => Some(listener.local_addr()?.port()),
+            None => None,
+        };
+
+        let channel = Arc::new(Channel::new(
+            width,
+            height,
+            options.name.clone(),
+            options.password,
+        ));
         let (input_tx, input) = std::sync::mpsc::channel();
-        let accept_channel = channel.clone();
-        std::thread::spawn(move || accept(listener, accept_channel, input_tx, view_only));
-        Ok((Server { input, port }, Publisher { channel }))
+        let view_only = options.view_only;
+
+        let tcp_channel = channel.clone();
+        let tcp_input = input_tx.clone();
+        std::thread::spawn(move || accept(listener, tcp_channel, tcp_input, view_only, false));
+        if let Some(ws_listener) = ws_listener {
+            let ws_channel = channel.clone();
+            std::thread::spawn(move || accept(ws_listener, ws_channel, input_tx, view_only, true));
+        }
+
+        Ok((
+            Server {
+                input,
+                port,
+                websocket_port,
+            },
+            Publisher { channel },
+        ))
     }
 
-    /// The bound port (useful when 0 was passed).
+    /// The bound plain-TCP port (useful when 0 was passed).
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The bound WebSocket port, when one was configured.
+    pub fn websocket_port(&self) -> Option<u16> {
+        self.websocket_port
     }
 
     /// Pop one pending input event, or `None`. The emulator loop drains this
@@ -150,18 +204,25 @@ impl Server {
 
 /// Accept connections forever, spawning a handler thread per client so several
 /// viewers can watch the same machine at once (RFB shared-desktop).
+/// `websocket` selects the transport this listener speaks.
 fn accept(
     listener: TcpListener,
     channel: Arc<Channel>,
     input_tx: Sender<InputEvent>,
     view_only: bool,
+    websocket: bool,
 ) {
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         let channel = channel.clone();
         let input_tx = input_tx.clone();
         std::thread::spawn(move || {
-            if let Err(e) = handle(stream, channel, input_tx, view_only) {
+            let result = if websocket {
+                handle_ws(stream, channel, input_tx, view_only)
+            } else {
+                handle_tcp(stream, channel, input_tx, view_only)
+            };
+            if let Err(e) = result {
                 // A dropped client is normal; log at debug volume only.
                 if e.kind() != io::ErrorKind::UnexpectedEof {
                     eprintln!("[RFB] connection closed: {e}");
@@ -171,18 +232,50 @@ fn accept(
     }
 }
 
-/// One client: RFB handshake, then split into a reader thread (client
-/// messages → input channel + update requests) and this thread as the writer
-/// (frames → the socket).
-fn handle(
+/// One native client: the RFB byte stream straight over TCP.
+fn handle_tcp(
+    stream: TcpStream,
+    channel: Arc<Channel>,
+    input_tx: Sender<InputEvent>,
+    view_only: bool,
+) -> io::Result<()> {
+    let reader = stream.try_clone()?;
+    let writer = stream.try_clone()?;
+    run(reader, writer, stream, channel, input_tx, view_only)
+}
+
+/// One browser client: the HTTP→WebSocket upgrade, then the identical RFB
+/// byte stream framed in WebSocket binary messages (`ws::WsReader`/`WsWriter`
+/// implement `Read`/`Write`, so the state machine below is shared verbatim).
+fn handle_ws(
     mut stream: TcpStream,
     channel: Arc<Channel>,
     input_tx: Sender<InputEvent>,
     view_only: bool,
 ) -> io::Result<()> {
-    handshake(&mut stream, &channel)?;
+    crate::ws::upgrade(&mut stream)?;
+    let (reader, writer) = crate::ws::split(&stream)?;
+    run(reader, writer, stream, channel, input_tx, view_only)
+}
 
-    let reader = stream.try_clone()?;
+/// One client, transport-agnostic: RFB handshake, then a reader thread
+/// (client messages → input channel + update requests) while this thread
+/// writes frames. `raw` is the underlying socket, kept for the shutdown that
+/// unblocks the reader when the writer stops.
+fn run<R, W>(
+    mut reader: R,
+    mut writer: W,
+    raw: TcpStream,
+    channel: Arc<Channel>,
+    input_tx: Sender<InputEvent>,
+    view_only: bool,
+) -> io::Result<()>
+where
+    R: Read + Send + 'static,
+    W: Write,
+{
+    handshake(&mut reader, &mut writer, &channel)?;
+
     let pending = Arc::new(Mutex::new(Pending::default()));
     let alive = Arc::new(AtomicBool::new(true));
 
@@ -200,12 +293,12 @@ fn handle(
         );
     });
 
-    let result = write_loop(&mut stream, &channel, &pending, &alive);
+    let result = write_loop(&mut writer, &channel, &pending, &alive);
 
     // Whatever ended the writer, tear the connection down so the reader's
     // blocked `read` returns and the thread joins.
     alive.store(false, Ordering::Relaxed);
-    let _ = stream.shutdown(std::net::Shutdown::Both);
+    let _ = raw.shutdown(std::net::Shutdown::Both);
     let _ = reader_thread.join();
     result
 }
@@ -218,19 +311,23 @@ const SEC_VNC: u8 = 2;
 /// The RFB 3.x handshake through `ServerInit`: ProtocolVersion, security
 /// negotiation (`None`, or VNC auth when a password is set), `ClientInit`,
 /// then our geometry and pixel format.
-fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
+fn handshake<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    channel: &Channel,
+) -> io::Result<()> {
     // ProtocolVersion: offer 3.8; read the client's choice.
-    stream.write_all(b"RFB 003.008\n")?;
+    writer.write_all(b"RFB 003.008\n")?;
     let mut version = [0u8; 12];
-    stream.read_exact(&mut version)?;
+    reader.read_exact(&mut version)?;
     let minor = parse_minor(&version);
 
-    negotiate_security(stream, minor, channel)?;
+    negotiate_security(reader, writer, minor, channel)?;
 
     // ClientInit: one shared-flag byte we accept and ignore (all viewers
     // share the one machine).
     let mut shared = [0u8; 1];
-    stream.read_exact(&mut shared)?;
+    reader.read_exact(&mut shared)?;
 
     // ServerInit: width, height, PIXEL_FORMAT, name.
     let mut init = Vec::with_capacity(24 + channel.name.len());
@@ -239,7 +336,7 @@ fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
     init.extend_from_slice(&PIXEL_FORMAT);
     init.extend_from_slice(&(channel.name.len() as u32).to_be_bytes());
     init.extend_from_slice(channel.name.as_bytes());
-    stream.write_all(&init)?;
+    writer.write_all(&init)?;
     Ok(())
 }
 
@@ -248,7 +345,12 @@ fn handshake(stream: &mut TcpStream, channel: &Channel) -> io::Result<()> {
 /// list or the 3.3 dictated word, then runs the DES challenge (VNC) and sends
 /// `SecurityResult`. Returns `Err` if the client picks an unoffered type or
 /// authentication fails, which closes the connection.
-fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> io::Result<()> {
+fn negotiate_security<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    minor: u32,
+    channel: &Channel,
+) -> io::Result<()> {
     let sec_type = if channel.password.is_some() {
         SEC_VNC
     } else {
@@ -258,12 +360,12 @@ fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> 
     // Announce the type: 3.7+ offers a list the client selects from; 3.3 is
     // dictated as a single 32-bit word.
     let selected = if minor >= 7 {
-        stream.write_all(&[1u8, sec_type])?;
+        writer.write_all(&[1u8, sec_type])?;
         let mut selection = [0u8; 1];
-        stream.read_exact(&mut selection)?;
+        reader.read_exact(&mut selection)?;
         selection[0]
     } else {
-        stream.write_all(&(sec_type as u32).to_be_bytes())?;
+        writer.write_all(&(sec_type as u32).to_be_bytes())?;
         sec_type
     };
     if selected != sec_type {
@@ -275,14 +377,14 @@ fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> 
 
     if sec_type == SEC_VNC {
         let password = channel.password.as_deref().unwrap_or_default();
-        let ok = vnc_auth(stream, password)?;
-        stream.write_all(&(if ok { 0u32 } else { 1u32 }).to_be_bytes())?;
+        let ok = vnc_auth(reader, writer, password)?;
+        writer.write_all(&(if ok { 0u32 } else { 1u32 }).to_be_bytes())?;
         if !ok {
             // 3.8 carries a reason string with the failure.
             if minor >= 8 {
                 let reason = b"Authentication failed";
-                stream.write_all(&(reason.len() as u32).to_be_bytes())?;
-                stream.write_all(reason)?;
+                writer.write_all(&(reason.len() as u32).to_be_bytes())?;
+                writer.write_all(reason)?;
             }
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -292,7 +394,7 @@ fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> 
     } else if minor >= 8 {
         // `None`: `SecurityResult` (OK) is a 3.8-and-later addition; 3.3/3.7
         // proceed straight to `ClientInit`.
-        stream.write_all(&0u32.to_be_bytes())?;
+        writer.write_all(&0u32.to_be_bytes())?;
     }
     Ok(())
 }
@@ -300,11 +402,11 @@ fn negotiate_security(stream: &mut TcpStream, minor: u32, channel: &Channel) -> 
 /// Run the VNC DES challenge: send 16 random bytes, read the client's DES-
 /// encrypted reply, and compare it to our own encryption under the password
 /// key. Returns whether they match.
-fn vnc_auth(stream: &mut TcpStream, password: &str) -> io::Result<bool> {
+fn vnc_auth<R: Read, W: Write>(reader: &mut R, writer: &mut W, password: &str) -> io::Result<bool> {
     let challenge = random_challenge();
-    stream.write_all(&challenge)?;
+    writer.write_all(&challenge)?;
     let mut response = [0u8; 16];
-    stream.read_exact(&mut response)?;
+    reader.read_exact(&mut response)?;
 
     let key = des_key(password);
     let mut expected = [0u8; 16];
@@ -393,8 +495,8 @@ struct Pending {
 /// Read client messages until the socket closes: decode each fully (so the
 /// stream stays framed), forward input, and record framebuffer-update
 /// requests for the writer.
-fn read_loop(
-    mut reader: TcpStream,
+fn read_loop<R: Read>(
+    mut reader: R,
     pending: Arc<Mutex<Pending>>,
     alive: Arc<AtomicBool>,
     channel: Arc<Channel>,
@@ -412,8 +514,8 @@ fn read_loop(
 
 /// Read and act on one client message. Every branch consumes exactly the
 /// message's bytes so the next read starts on a message boundary.
-fn handle_message(
-    reader: &mut TcpStream,
+fn handle_message<R: Read>(
+    reader: &mut R,
     pending: &Mutex<Pending>,
     channel: &Channel,
     input_tx: &Sender<InputEvent>,
@@ -487,7 +589,7 @@ fn handle_message(
 }
 
 /// Discard exactly `n` bytes from the stream.
-fn skip(reader: &mut TcpStream, n: usize) -> io::Result<()> {
+fn skip<R: Read>(reader: &mut R, n: usize) -> io::Result<()> {
     io::copy(&mut reader.take(n as u64), &mut io::sink())?;
     Ok(())
 }
@@ -496,8 +598,8 @@ fn skip(reader: &mut TcpStream, n: usize) -> io::Result<()> {
 /// outstanding: immediately for a non-incremental request, otherwise as soon
 /// as the frame generation advances. Blocks on the `dirty` condvar between
 /// sends, with a short timeout as a lost-wakeup safety net.
-fn write_loop(
-    stream: &mut TcpStream,
+fn write_loop<W: Write>(
+    writer: &mut W,
     channel: &Channel,
     pending: &Mutex<Pending>,
     alive: &AtomicBool,
@@ -526,7 +628,7 @@ fn write_loop(
         last_sent = frame.generation;
         let update = frame_update(channel.width, channel.height, &frame.bytes);
         drop(frame);
-        stream.write_all(&update)?;
+        writer.write_all(&update)?;
     }
     Ok(())
 }
@@ -552,13 +654,34 @@ mod tests {
     use super::*;
     use std::io::{BufReader, Read, Write};
 
+    /// Start a 280×192 test server on ephemeral ports.
+    fn start_server(
+        name: &str,
+        view_only: bool,
+        password: Option<String>,
+        websocket: bool,
+    ) -> (Server, Publisher) {
+        Server::start(
+            Options {
+                bind: "127.0.0.1".into(),
+                port: 0,
+                websocket: websocket.then_some(0),
+                name: name.into(),
+                view_only,
+                password,
+            },
+            280,
+            192,
+        )
+        .expect("bind")
+    }
+
     /// Drive the full handshake over a loopback socket and assert the first
     /// `FramebufferUpdate` decodes to the advertised geometry — the RFB
     /// analogue of `wozbug`'s `server_round_trip`.
     #[test]
     fn handshake_and_first_update() {
-        let (server, publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM test", false, None).expect("bind");
+        let (server, publisher) = start_server("EWM test", false, None, false);
         let mut client =
             TcpStream::connect(("127.0.0.1", server.port())).expect("connect to server");
 
@@ -623,8 +746,7 @@ mod tests {
     #[test]
     fn view_only_drops_input() {
         // A view-only server must not surface client key/pointer events.
-        let (server, _publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM", true, None).expect("bind");
+        let (server, _publisher) = start_server("EWM", true, None, false);
         let mut client = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
         do_handshake(&mut client);
         client
@@ -636,8 +758,7 @@ mod tests {
 
     #[test]
     fn key_and_pointer_events_reach_the_emulator() {
-        let (server, _publisher) =
-            Server::start("127.0.0.1", 0, 280, 192, "EWM", false, None).expect("bind");
+        let (server, _publisher) = start_server("EWM", false, None, false);
         let mut client = TcpStream::connect(("127.0.0.1", server.port())).expect("connect");
         do_handshake(&mut client);
 
@@ -725,16 +846,7 @@ mod tests {
 
     #[test]
     fn vnc_auth_accepts_the_right_password() {
-        let (server, _publisher) = Server::start(
-            "127.0.0.1",
-            0,
-            280,
-            192,
-            "EWM",
-            false,
-            Some("sekret".into()),
-        )
-        .expect("bind");
+        let (server, _publisher) = start_server("EWM", false, Some("sekret".into()), false);
         let (mut client, result) = vnc_auth_result(server.port(), "sekret");
         assert_eq!(result, 0, "correct password should authenticate");
         // The handshake continues into ClientInit → ServerInit.
@@ -746,17 +858,120 @@ mod tests {
 
     #[test]
     fn vnc_auth_rejects_a_wrong_password() {
-        let (server, _publisher) = Server::start(
-            "127.0.0.1",
-            0,
-            280,
-            192,
-            "EWM",
-            false,
-            Some("sekret".into()),
-        )
-        .expect("bind");
+        let (server, _publisher) = start_server("EWM", false, Some("sekret".into()), false);
         let (_client, result) = vnc_auth_result(server.port(), "not-it");
         assert_eq!(result, 1, "wrong password should fail authentication");
+    }
+
+    /// A mock browser: masks its frames like a real WebSocket client and
+    /// treats server frames as a byte stream, mirroring noVNC.
+    struct WsClient {
+        stream: TcpStream,
+        buf: Vec<u8>,
+        pos: usize,
+    }
+
+    impl WsClient {
+        /// Connect and complete the HTTP→WebSocket upgrade.
+        fn connect(port: u16) -> WsClient {
+            let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect ws");
+            stream
+                .write_all(
+                    b"GET /websockify HTTP/1.1\r\n\
+                      Host: localhost\r\n\
+                      Upgrade: websocket\r\n\
+                      Connection: Upgrade\r\n\
+                      Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                      Sec-WebSocket-Version: 13\r\n\r\n",
+                )
+                .expect("upgrade request");
+            let mut response = String::new();
+            let mut byte = [0u8; 1];
+            while !response.ends_with("\r\n\r\n") {
+                stream.read_exact(&mut byte).expect("upgrade response");
+                response.push(byte[0] as char);
+            }
+            assert!(response.starts_with("HTTP/1.1 101"), "{response}");
+            assert!(
+                response.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="),
+                "{response}"
+            );
+            WsClient {
+                stream,
+                buf: Vec::new(),
+                pos: 0,
+            }
+        }
+
+        /// Send RFB bytes in one masked binary frame.
+        fn send(&mut self, payload: &[u8]) {
+            crate::ws::write_masked_frame(&mut self.stream, crate::ws::OP_BINARY, payload)
+                .expect("client frame");
+        }
+
+        /// Read exactly `n` RFB bytes, de-framing server messages as needed.
+        fn read_bytes(&mut self, n: usize) -> Vec<u8> {
+            let mut out = Vec::with_capacity(n);
+            while out.len() < n {
+                if self.pos == self.buf.len() {
+                    let (_, opcode, payload) =
+                        crate::ws::read_frame(&mut self.stream, false).expect("server frame");
+                    assert_eq!(opcode, crate::ws::OP_BINARY, "server sends binary frames");
+                    self.buf = payload;
+                    self.pos = 0;
+                }
+                let take = (self.buf.len() - self.pos).min(n - out.len());
+                out.extend_from_slice(&self.buf[self.pos..self.pos + take]);
+                self.pos += take;
+            }
+            out
+        }
+    }
+
+    /// The Phase 4 wire gate: the identical RFB session — handshake, input,
+    /// framebuffer — through the WebSocket transport, alongside plain TCP.
+    #[test]
+    fn websocket_transport_serves_the_same_rfb_session() {
+        let (server, publisher) = start_server("EWM ws", false, None, true);
+        let ws_port = server.websocket_port().expect("ws port bound");
+        let mut client = WsClient::connect(ws_port);
+
+        // RFB handshake, byte-identical to the TCP path, inside WS frames.
+        assert_eq!(client.read_bytes(12), b"RFB 003.008\n");
+        client.send(b"RFB 003.008\n");
+        assert_eq!(client.read_bytes(2), [1, SEC_NONE]);
+        client.send(&[SEC_NONE]);
+        assert_eq!(client.read_bytes(4), 0u32.to_be_bytes());
+        client.send(&[1u8]); // ClientInit: shared
+        let init = client.read_bytes(24);
+        let width = u16::from_be_bytes([init[0], init[1]]);
+        let height = u16::from_be_bytes([init[2], init[3]]);
+        assert_eq!((width, height), (280, 192));
+        let name_len = u32::from_be_bytes([init[20], init[21], init[22], init[23]]) as usize;
+        assert_eq!(client.read_bytes(name_len), b"EWM ws");
+
+        // Input events cross the transport into the emulator channel.
+        client.send(&[4u8, 1, 0, 0, 0, 0, 0, 0x42]);
+        assert_eq!(
+            recv(&server),
+            InputEvent::Key {
+                down: true,
+                keysym: 0x42
+            }
+        );
+
+        // Publish a frame and request it: one Raw FramebufferUpdate.
+        publisher.publish(&vec![0xAABBCCDDu32; 280 * 192]);
+        client.send(&[3u8, 0, 0, 0, 0, 0, 0x01, 0x18, 0x00, 0xC0]);
+        let header = client.read_bytes(16);
+        assert_eq!(header[0], 0, "FramebufferUpdate");
+        let encoding = i32::from_be_bytes([header[12], header[13], header[14], header[15]]);
+        assert_eq!(encoding, 0, "Raw");
+        let pixels = client.read_bytes(280 * 192 * 4);
+        assert_eq!(&pixels[0..4], &0xAABBCCDDu32.to_be_bytes());
+
+        // The plain-TCP listener still serves native clients in parallel.
+        let mut tcp = TcpStream::connect(("127.0.0.1", server.port())).expect("tcp connect");
+        do_handshake(&mut tcp);
     }
 }
