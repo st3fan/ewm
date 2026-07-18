@@ -203,11 +203,11 @@ console page will, but so could a recorder script.
 
 ## 6. Phases
 
-| Phase | Description | Gate |
-|---|---|---|
-| A1 | `Wave` public; `AudioPublisher`; `/audio` route on the WS port; header + PCM framing | A scripted WS client receives the header and non-zero PCM while the machine beeps (`PRINT CHR$(7)`); unit tests for framing and drop-oldest backpressure |
-| A2 | `audio.js` + AudioWorklet in the console page; gesture arming; 🔊/🔇 toggle | **Hear the DOS 3.3 boot beep in a browser tab** served entirely by the EWM binary |
-| A3 | Polish: reconnect with the page, level indicator, `?audio=0` opt-out if wanted | Manual |
+| Phase | Description | Gate | Status |
+|---|---|---|---|
+| A1 | `Wave` public; audio `Hub`; `/audio` route on the WS port; header + PCM framing | A scripted WS client receives the header and non-zero PCM while the machine beeps (`PRINT CHR$(7)`); unit tests for framing and drop-oldest backpressure | **Prototype** ✅ (gate run: peak 8000 — the full speaker rail — during the bell) |
+| A2 | `audio.js` + AudioWorklet in the console page; gesture arming; 🔊/🔇 toggle | **Hear the beep in a browser tab** served entirely by the EWM binary | **Prototype** ✅ (in-page stats confirmed the bell's PCM reached the worklet; audible check is the human half) |
+| A3 | Polish: reconnect with the page, level indicator, `?audio=0` opt-out if wanted | Manual | Not started |
 
 Each phase is one PR into `remote-console`, gates green
 (`cargo fmt --check`, `clippy -D warnings`, `cargo test`), SDL path untouched.

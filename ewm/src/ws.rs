@@ -396,6 +396,15 @@ impl Read for WsReader {
     }
 }
 
+impl WsWriter {
+    /// Send one text frame through the shared writer — the audio channel's
+    /// JSON header (`audio.rs`); the RFB stream itself is all binary.
+    pub fn write_text(&mut self, text: &str) -> io::Result<()> {
+        let mut w = self.writer.lock().expect("ws writer mutex");
+        write_frame(&mut *w, OP_TEXT, text.as_bytes())
+    }
+}
+
 impl Write for WsWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let mut w = self.writer.lock().expect("ws writer mutex");

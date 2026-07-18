@@ -32,8 +32,9 @@ const SND_PRIME_SAMPLES: usize = (SND_SAMPLE_RATE as usize) * 64 / 1000;
 const SND_QUEUE_CAP_BYTES: i32 = (SND_SAMPLE_RATE * 2 / 10) as i32;
 
 /// The pure synthesis half: toggles in, samples out. Kept free of SDL so
-/// the waveform is unit-testable.
-struct Wave {
+/// the waveform is unit-testable — and so the headless remote console can
+/// stream the speaker without an audio device (notes/VNC.md §4).
+pub struct Wave {
     /// Current output level; jumps to a rail on a toggle and decays toward
     /// zero between them, like the AC-coupled cone.
     level: f32,
@@ -49,8 +50,14 @@ struct Wave {
     buffer: Vec<i16>,
 }
 
+impl Default for Wave {
+    fn default() -> Wave {
+        Wave::new()
+    }
+}
+
 impl Wave {
-    fn new() -> Wave {
+    pub fn new() -> Wave {
         Wave {
             level: 0.0,
             polarity: false,
@@ -58,6 +65,11 @@ impl Wave {
             cpu_frequency: SND_CPU_FREQUENCY,
             buffer: Vec::with_capacity(SND_BUFFER_SIZE),
         }
+    }
+
+    /// Track the emulated CPU speed (Hz) — see [`Snd::set_cpu_frequency`].
+    pub fn set_cpu_frequency(&mut self, hz: u64) {
+        self.cpu_frequency = hz.max(1);
     }
 
     fn sample_index(&self, cpu_counter: u64) -> usize {
@@ -77,7 +89,7 @@ impl Wave {
 
     /// Render one frame: replay the cycle-stamped toggles into samples up
     /// to `cpu_counter`, decaying between edges.
-    fn render(&mut self, toggles: &[u64], cpu_counter: u64) -> &[i16] {
+    pub fn render(&mut self, toggles: &[u64], cpu_counter: u64) -> &[i16] {
         self.buffer.clear();
         for &cycle in toggles {
             let index = self.sample_index(cycle);
@@ -132,7 +144,7 @@ impl Snd {
     /// keeps each frame's sample count real-time and pitches the sound up
     /// instead of flooding the queue.
     pub fn set_cpu_frequency(&mut self, hz: u64) {
-        self.wave.cpu_frequency = hz.max(1);
+        self.wave.set_cpu_frequency(hz);
     }
 
     /// Queue one frame of samples. When the queue is comfortably full an
