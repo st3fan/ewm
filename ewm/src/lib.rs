@@ -29,6 +29,7 @@ pub mod sdl;
 pub mod snd;
 pub mod tty;
 pub mod two;
+pub mod web;
 pub mod woz;
 pub mod wozbug;
 pub mod ws;

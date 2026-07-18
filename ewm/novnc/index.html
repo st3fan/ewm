@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<!-- EWM's minimal web console (notes/REMOTE.md Phase 5): loads the vendored
+     noVNC engine (core/rfb.js) and connects straight back to the host and
+     port this page was served from, so nothing needs configuring. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EWM</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #101010; }
+    body { display: flex; flex-direction: column;
+           font-family: ui-monospace, Menlo, Consolas, monospace; }
+    #status { padding: 5px 10px; font-size: 12px; color: #7fd47f;
+              background: #000; border-bottom: 1px solid #1e321e;
+              flex: none; user-select: none; }
+    #screen { flex: 1; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="status">connecting&hellip;</div>
+  <div id="screen"></div>
+  <script type="module">
+    import RFB from './core/rfb.js';
+
+    const status = document.getElementById('status');
+    const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const url = scheme + location.host + '/websockify';
+
+    const rfb = new RFB(document.getElementById('screen'), url);
+    rfb.scaleViewport = true;   // scale the low-res frame up to the window
+    rfb.background = '#101010';
+
+    rfb.addEventListener('connect', () => {
+      status.textContent = 'connected — click the screen and type';
+    });
+    rfb.addEventListener('desktopname', (e) => {
+      document.title = e.detail.name;
+      status.textContent = e.detail.name + ' — click the screen and type';
+    });
+    rfb.addEventListener('credentialsrequired', () => {
+      rfb.sendCredentials({ password: prompt('VNC password:') ?? '' });
+    });
+    rfb.addEventListener('securityfailure', (e) => {
+      status.textContent = 'authentication failed: ' + (e.detail.reason ?? '');
+    });
+    rfb.addEventListener('disconnect', (e) => {
+      status.textContent = e.detail.clean
+        ? 'disconnected'
+        : 'connection failed — is the machine still running?';
+    });
+  </script>
+</body>
+</html>
