@@ -13,11 +13,12 @@ and pass all verification gates (`cargo fmt --check`, `cargo clippy
 existing SDL frontends must stay **byte-for-byte** unchanged in behaviour —
 the golden-BMP tests are the tripwire.
 
-> **Branch:** All remote-console work happens on the long-lived
-> **`claude/remote-console`** integration branch, kept separate from `master`
-> until the feature is complete. Each sub-phase is cut *from* that branch and
-> opened as a PR *into* it (never into `master`). One final PR promotes the
-> integration branch to `master`. **One sub-phase = one PR.**
+> **Branch:** All remote-console work lands on the long-lived
+> **`remote-console`** integration branch, kept separate from `main` until the
+> feature is complete. Work branches (`claude/remote-console*`) are cut *from*
+> that branch and opened as PRs *into* it (never into `main`) — the prototype
+> PR #262 is the first. One final PR promotes the integration branch to
+> `main`. **One sub-phase = one PR.**
 
 Scope note: this is a **Linux-first** feature and may lean on a Linux/X11
 host for deployment tooling, exactly as the task allows. Nothing in the core
@@ -353,16 +354,74 @@ a pure `Vec<u32>`.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | Not started |
-| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Not started |
-| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | Not started |
-| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | Not started |
+| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | **Prototype** ✅ |
+| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Deferred (see note) |
+| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
+| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
 | 4 | Embedded **WebSocket** transport (`tungstenite`) → noVNC connects directly, no websockify | M | Not started |
 | 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | Not started |
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
 | B1 | *(optional Track B)* `ironrdp-server` RDP frontend | L | Optional |
 | B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Optional |
+
+### Prototype note (branch `claude/remote-console`)
+
+A first working prototype landed on this branch, collapsing Phases 0/2/3 into
+one pass so the feature is **tryable now** with a native VNC client. What was
+built:
+
+- **`remote` config block + `--serve vnc://host:port`** (`config.rs`, `two.rs`).
+  Boots headless when present; `"rdp"` and port 0 are rejected in `validate()`.
+- **`rfb.rs`** — a hand-rolled RFB 3.8/3.7/3.3 server on `std::net`, **Raw**
+  encoding, one handler thread per client (multiple viewers of one machine),
+  `mpsc` input back to the emulator, big-endian-RGBA pixels shipped with
+  `u32::to_be_bytes` (no per-pixel conversion). Security is `None` by default,
+  or **VNC authentication** (the RFB DES challenge, RFC 6143 §7.2.2) when a
+  password is set — which is what lets **macOS Screen Sharing** connect, since
+  it refuses the `None` type. Unit-tested: full-handshake round-trip + first
+  `FramebufferUpdate` decode, key/pointer delivery, view-only, and VNC-auth
+  accept/reject.
+- **`des.rs`** — a tiny from-scratch DES (FIPS 46-3, ECB, encrypt-only) for the
+  VNC-auth challenge, unit-tested against the textbook and all-zero vectors, and
+  cross-checked end-to-end against OpenSSL's DES (an OpenSSL-computed auth
+  response is accepted by the server, so the wire format matches a reference).
+- **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
+  SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
+  translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
+  reset) mirrors the SDL keyboard table.
+
+Verified end-to-end: booted the DOS 3.3 System Master and a bare Applesoft ][+
+over `vnc://`, typed `PRINT 2+2` and saw `4`. All gates green (`cargo fmt
+--check`, `clippy -D warnings`, `cargo test` incl. the golden-BMP tripwires).
+
+**Deliberate shortcut vs. the plan:** Phase 1's full `Driver`/`SdlFrontend`
+refactor is **deferred**. Instead the prototype adds a *parallel* headless path
+(an early branch in `two::main` → `serve()`) that reuses `build_machine()` and
+`Scr` directly. This leaves the SDL loop **byte-for-byte untouched** (lowest risk
+to the golden tests) at the cost of a small amount of duplicated frame-loop
+logic. The right follow-up is to do Phase 1 properly and re-express both `serve()`
+and the SDL loop over one `Driver` — then continue with Phase 4 (WebSocket) and
+Phase 5 (vendored noVNC) for the true browser/Proxmox experience.
+
+**Try it:**
+
+```
+# macOS Screen Sharing refuses "None" auth, so give it a password:
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?password=secret' \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+# then, in another terminal:
+open vnc://127.0.0.1:5901          # enter the password when prompted
+# or embed it:  open vnc://:secret@127.0.0.1:5901
+
+# Other clients (TigerVNC, RealVNC) accept "None", so a password is optional:
+cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=empty
+
+# The password can also come from the config `remote` block or a --set:
+#   --set remote:password=secret
+# Expose to the LAN (still weak auth — see §10, keep it behind a tunnel):
+#   --serve 'vnc://0.0.0.0:5901?password=secret'
+```
 
 ---
 

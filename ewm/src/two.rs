@@ -1877,6 +1877,10 @@ fn usage() {
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
     eprintln!("  --debug           print debug info");
+    eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
+    eprintln!(
+        "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password)"
+    );
 }
 
 #[derive(Default)]
@@ -1908,7 +1912,36 @@ struct Options {
     strict: bool,
     debug: bool,
     screenshot: Option<String>,
+    /// Remote-console (VNC) serving. When set, `main` boots the machine
+    /// headless and serves it over RFB instead of opening an SDL window
+    /// (notes/REMOTE.md).
+    serve: Option<ServeOptions>,
 }
+
+/// Where and how to serve the machine over the network (the runtime form of
+/// the `remote` config block / `--serve` flag).
+struct ServeOptions {
+    bind: String,
+    port: u16,
+    view_only: bool,
+    /// VNC-auth password (`None` → the `None` security type). Required by
+    /// clients that refuse `None`, such as macOS Screen Sharing.
+    password: Option<String>,
+}
+
+impl Default for ServeOptions {
+    fn default() -> ServeOptions {
+        ServeOptions {
+            bind: "127.0.0.1".to_string(),
+            port: RFB_DEFAULT_PORT,
+            view_only: false,
+            password: None,
+        }
+    }
+}
+
+/// The default plain-TCP RFB port when `--serve vnc://…` gives no port.
+const RFB_DEFAULT_PORT: u16 = 5901;
 
 /// The default slot table in config terms: the classic layout with no media
 /// inserted (`default_slots()` is the machine-level equivalent).
@@ -2063,6 +2096,22 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                         .unwrap_or(WOZBUG_DEFAULT_PORT),
                 );
             }
+            "--serve" => match it.next() {
+                // Start from any serve options the config already supplied so a
+                // config password/view-only survives an explicit --serve.
+                Some(url) => match parse_serve(url, options.serve.take().unwrap_or_default()) {
+                    Ok(serve) => options.serve = Some(serve),
+                    Err(e) => {
+                        eprintln!("--serve {url}: {e}");
+                        usage();
+                        return Err(1);
+                    }
+                },
+                None => {
+                    usage();
+                    return Err(1);
+                }
+            },
             "--break" => match it.next() {
                 Some(list) => {
                     for part in list.split(',') {
@@ -2098,6 +2147,45 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         }
     }
     Ok(options)
+}
+
+/// Parse a `--serve` URL onto a base (usually the config's `remote` block):
+/// `vnc://[bind][:port][?password=…&view_only=1]`, e.g. `vnc://0.0.0.0:5901`,
+/// `vnc://:5901` (default bind), or `vnc://127.0.0.1` (default port). The query
+/// carries the password and view-only flag; `ws=`/`web=` keys are reserved for
+/// later phases and ignored. Only the `vnc` scheme is implemented.
+fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, String> {
+    let rest = url
+        .strip_prefix("vnc://")
+        .ok_or("only vnc:// is supported (rdp is a later, optional track)")?;
+    let (authority, query) = match rest.split_once('?') {
+        Some((authority, query)) => (authority, Some(query)),
+        None => (rest, None),
+    };
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    if !host.is_empty() {
+        serve.bind = host.to_string();
+    }
+    if let Some(port) = port {
+        serve.port = port.parse().map_err(|_| format!("invalid port {port:?}"))?;
+        if serve.port == 0 {
+            return Err("port must be at least 1".to_string());
+        }
+    }
+    for pair in query.into_iter().flat_map(|q| q.split('&')) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        match key {
+            "password" => serve.password = (!value.is_empty()).then(|| value.to_string()),
+            "view_only" | "viewonly" => serve.view_only = matches!(value, "1" | "true"),
+            "ws" | "web" => {} // reserved for later phases
+            "" => {}
+            other => return Err(format!("unknown option {other:?}")),
+        }
+    }
+    Ok(serve)
 }
 
 /// Seed `Options` from a loaded config file (pass 1 of `parse_options`).
@@ -2159,6 +2247,28 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     }
     if let Some(enabled) = config.debug.enabled {
         options.debug = enabled;
+    }
+    // A remote block with any field present enables headless VNC serving;
+    // validate() has already rejected the reserved "rdp" protocol and port 0.
+    let remote = &config.remote;
+    if remote.protocol.is_some()
+        || remote.bind.is_some()
+        || remote.port.is_some()
+        || remote.view_only.is_some()
+        || remote.password.is_some()
+    {
+        let mut serve = ServeOptions::default();
+        if let Some(bind) = &remote.bind {
+            serve.bind = bind.clone();
+        }
+        if let Some(port) = remote.port {
+            serve.port = port;
+        }
+        if let Some(view_only) = remote.view_only {
+            serve.view_only = view_only;
+        }
+        serve.password = remote.password.clone();
+        options.serve = Some(serve);
     }
     Ok(())
 }
@@ -2287,11 +2397,213 @@ fn pixels_to_bytes(pixels: &[u32]) -> Vec<u8> {
     bytes
 }
 
+/// Modifier state for translating RFB key events, mirroring the SDL loop's
+/// `keymod` tracking. There is one machine, so one shared modifier state even
+/// when several viewers type at once.
+#[derive(Default)]
+struct RemoteKeys {
+    ctrl: bool,
+}
+
+impl RemoteKeys {
+    /// Apply one RFB input event to the machine. X11 keysyms re-target the SDL
+    /// keyboard table (notes/REMOTE.md §7); the left pointer button maps to the
+    /// Open-Apple / paddle-0 button.
+    fn apply(&mut self, two: &mut Two, event: crate::rfb::InputEvent) {
+        use crate::rfb::InputEvent;
+        match event {
+            InputEvent::Key { down, keysym } => self.key(two, down, keysym),
+            InputEvent::Pointer { mask, .. } => {
+                two.set_button(0, if mask & 1 != 0 { 0x80 } else { 0x00 });
+            }
+        }
+    }
+
+    /// Translate one X11 keysym press/release to the machine's keyboard latch.
+    fn key(&mut self, two: &mut Two, down: bool, keysym: u32) {
+        match keysym {
+            0xffe3 | 0xffe4 => {
+                self.ctrl = down; // Control_L / Control_R
+                return;
+            }
+            0xffc9 if down && self.ctrl => {
+                two.cpu.reset(); // Ctrl+F12: the reset gesture
+                return;
+            }
+            _ => {}
+        }
+        if !down {
+            return;
+        }
+        // Ctrl+letter → 1..26, whatever case the client reports.
+        if self.ctrl {
+            if keysym <= 0x7f {
+                let upper = (keysym as u8).to_ascii_uppercase();
+                if upper.is_ascii_uppercase() {
+                    two.key(upper - b'A' + 1);
+                }
+            }
+            return;
+        }
+        let byte = match keysym {
+            0xff0d | 0xff8d => 0x0d, // Return / KP_Enter
+            0xff08 | 0xff51 => 0x08, // BackSpace / Left
+            0xff53 => 0x15,          // Right
+            0xff52 => 0x0b,          // Up
+            0xff54 => 0x0a,          // Down
+            0xff1b => 0x1b,          // Escape
+            0xffff => 0x7f,          // Delete
+            0xff09 => {
+                // Tab, mirroring the SDL loop's quirk (TAB also sends DEL).
+                two.key(0x09);
+                0x7f
+            }
+            0x20..=0x7e => {
+                let b = keysym as u8;
+                // The ][+ ROM expects upper case; the //e passes it through.
+                if two.model() == TwoType::Apple2E {
+                    b
+                } else {
+                    b.to_ascii_uppercase()
+                }
+            }
+            _ => return,
+        };
+        two.key(byte);
+    }
+}
+
+/// Boot the machine headless and serve it over RFB (VNC): the SDL frame loop's
+/// shape without SDL. Step the CPU a frame's worth of cycles, render into
+/// `Scr`, publish the framebuffer, and drain client input between frames
+/// (notes/REMOTE.md Phase 2). Diverges — runs until the process is killed.
+fn serve(mut options: Options) -> i32 {
+    let serve = options
+        .serve
+        .take()
+        .expect("serve() called without a serve config");
+    let fps = if options.fps == 0 {
+        TWO_FPS_DEFAULT
+    } else {
+        options.fps
+    };
+    let speed = options.speed;
+
+    let mut two = match build_machine(&mut options) {
+        Ok(two) => two,
+        Err(e) => {
+            eprintln!("[TWO] Could not create the machine: {e}");
+            return 1;
+        }
+    };
+    two.set_debug(options.debug);
+    for m in &options.memory {
+        let data = match std::fs::read(&m.path) {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("[EWM] Cannot read {}: {e}", m.path);
+                return 1;
+            }
+        };
+        if m.rom {
+            two.add_rom(m.address, data);
+        } else {
+            two.add_ram(m.address, data);
+        }
+    }
+    two.cpu.strict = options.strict;
+    if let Some(path) = &options.trace_path {
+        match std::fs::File::create(path) {
+            Ok(file) => two.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
+            Err(e) => {
+                eprintln!("Cannot open trace file {path}: {e}");
+                return 1;
+            }
+        }
+    }
+    two.cpu.reset();
+
+    // Fix the headless renderer to RGBA8888 so frames ship to the RFB wire
+    // format (big-endian RGBA) with no per-pixel conversion (see rfb.rs).
+    let mut scr = Scr::new(PixelLayout::Rgba8888);
+    scr.set_monitor_style(options.monitor);
+
+    let width = frame_width(two.model()) as u16;
+    let name = match two.model() {
+        TwoType::Apple2E => "EWM Apple //e",
+        _ => "EWM Apple ][+",
+    };
+    let auth = serve.password.is_some();
+    let (server, publisher) = match crate::rfb::Server::start(
+        &serve.bind,
+        serve.port,
+        width,
+        SCR_HEIGHT as u16,
+        name,
+        serve.view_only,
+        serve.password,
+    ) {
+        Ok(pair) => pair,
+        Err(e) => {
+            eprintln!("[RFB] cannot listen on {}:{}: {e}", serve.bind, serve.port);
+            return 1;
+        }
+    };
+    eprintln!(
+        "[RFB] serving {name} on vnc://{}:{} ({} auth{})",
+        serve.bind,
+        server.port(),
+        if auth { "VNC password" } else { "no" },
+        if serve.view_only { ", view-only" } else { "" }
+    );
+
+    let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
+    let mut keys = RemoteKeys::default();
+    let mut phase: u32 = 1;
+    let mut next_frame = std::time::Instant::now();
+    loop {
+        while let Some(event) = server.try_recv_input() {
+            keys.apply(&mut two, event);
+        }
+
+        let mut budget = (speed / fps) as i64;
+        while budget > 0 {
+            match two.cpu.step() {
+                0 => break, // breakpoint (WozBug not wired into serve yet)
+                cycles => budget -= cycles as i64,
+            }
+        }
+        // RFB has no audio channel (v1): drain and drop the speaker toggles.
+        let _ = two.drain_speaker_toggles();
+
+        scr.update(&two, phase, fps);
+        publisher.publish(scr.frame(two.model()));
+
+        phase += 1;
+        if phase >= fps {
+            phase = 0;
+        }
+
+        next_frame += frame_time;
+        let now = std::time::Instant::now();
+        if now < next_frame {
+            std::thread::sleep(next_frame - now);
+        } else if now > next_frame + std::time::Duration::from_secs(1) {
+            next_frame = now; // resync after a long stall
+        }
+    }
+}
+
 pub fn main(args: &[String]) -> i32 {
     let mut options = match parse_options(args) {
         Ok(options) => options,
         Err(code) => return code,
     };
+    // A remote block or --serve boots headless over VNC instead of opening an
+    // SDL window (notes/REMOTE.md).
+    if options.serve.is_some() {
+        return serve(options);
+    }
     let fps = options.fps;
     let pad = sdl::window_padding();
 
