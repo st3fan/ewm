@@ -8,11 +8,13 @@
 //! `one::main`, `two::main`, and the `boo` bootloader menu.
 
 pub mod alc;
+pub mod audio;
 pub mod aux;
 pub mod boo;
 pub mod chr;
 pub mod clk;
 pub mod config;
+pub mod des;
 pub mod dsk;
 pub mod hdd;
 pub mod led;
@@ -21,11 +23,14 @@ pub mod media;
 pub mod one;
 pub mod palette;
 pub mod pia;
+pub mod rfb;
 pub mod saturn;
 pub mod scr;
 pub mod sdl;
 pub mod snd;
 pub mod tty;
 pub mod two;
+pub mod web;
 pub mod woz;
 pub mod wozbug;
+pub mod ws;

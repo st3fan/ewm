@@ -13,11 +13,12 @@ and pass all verification gates (`cargo fmt --check`, `cargo clippy
 existing SDL frontends must stay **byte-for-byte** unchanged in behaviour —
 the golden-BMP tests are the tripwire.
 
-> **Branch:** All remote-console work happens on the long-lived
-> **`claude/remote-console`** integration branch, kept separate from `master`
-> until the feature is complete. Each sub-phase is cut *from* that branch and
-> opened as a PR *into* it (never into `master`). One final PR promotes the
-> integration branch to `master`. **One sub-phase = one PR.**
+> **Branch:** All remote-console work lands on the long-lived
+> **`remote-console`** integration branch, kept separate from `main` until the
+> feature is complete. Work branches (`claude/remote-console*`) are cut *from*
+> that branch and opened as PRs *into* it (never into `main`) — the prototype
+> PR #262 is the first. One final PR promotes the integration branch to
+> `main`. **One sub-phase = one PR.**
 
 Scope note: this is a **Linux-first** feature and may lean on a Linux/X11
 host for deployment tooling, exactly as the task allows. Nothing in the core
@@ -296,6 +297,10 @@ optional nicety for paste-in; deferred past v1.
 
 ## 9. Audio (deferred, path documented)
 
+> **Update:** the WebAudio side-channel is now fully planned in
+> **`notes/VNC.md`** (phases A1–A3), alongside a description of the browser
+> console as built.
+
 RFB has no audio. The speaker beep is dropped over VNC in v1 — acceptable, and
 called out in docs. Two later paths, neither blocking v1:
 
@@ -353,16 +358,108 @@ a pure `Vec<u32>`.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | Not started |
-| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Not started |
-| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | Not started |
-| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | Not started |
-| 4 | Embedded **WebSocket** transport (`tungstenite`) → noVNC connects directly, no websockify | M | Not started |
-| 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | Not started |
+| 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | **Prototype** ✅ |
+| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Deferred (see note) |
+| 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
+| 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
+| 4 | Embedded **WebSocket** transport (hand-rolled `ws.rs`, not `tungstenite` — see §14) → noVNC connects directly, no websockify | M | **Prototype** ✅ |
+| 5 | Vendored **noVNC web page** + tiny built-in HTTP handler; per-machine console + a "hub" index (Proxmox-console feel) | M | **Prototype** ✅ (console; hub deferred to Phase 6, where the machine list exists) |
 | 6 | **Multi-VM orchestration**: `ewm-vnc@.service` systemd template / `scripts/ewm-farm.sh`; config→port; docs | M | Not started |
 | 7 | `one` (Apple 1 / Replica 1) served through the same frontend | S | Not started |
 | B1 | *(optional Track B)* `ironrdp-server` RDP frontend | L | Optional |
-| B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Optional |
+| B2 | *(optional)* Audio side-channel (WebAudio) and/or Guacamole deployment recipe | M | Audio planned — see `notes/VNC.md` |
+
+### Prototype note (branch `claude/remote-console`)
+
+A first working prototype landed on this branch, collapsing Phases 0/2/3 into
+one pass so the feature is **tryable now** with a native VNC client. What was
+built:
+
+- **`remote` config block + `--serve vnc://host:port`** (`config.rs`, `two.rs`).
+  Boots headless when present; `"rdp"` and port 0 are rejected in `validate()`.
+- **`rfb.rs`** — a hand-rolled RFB 3.8/3.7/3.3 server on `std::net`, **Raw**
+  encoding, one handler thread per client (multiple viewers of one machine),
+  `mpsc` input back to the emulator, big-endian-RGBA pixels shipped with
+  `u32::to_be_bytes` (no per-pixel conversion). Security is `None` by default,
+  or **VNC authentication** (the RFB DES challenge, RFC 6143 §7.2.2) when a
+  password is set — which is what lets **macOS Screen Sharing** connect, since
+  it refuses the `None` type. Unit-tested: full-handshake round-trip + first
+  `FramebufferUpdate` decode, key/pointer delivery, view-only, and VNC-auth
+  accept/reject.
+- **`des.rs`** — a tiny from-scratch DES (FIPS 46-3, ECB, encrypt-only) for the
+  VNC-auth challenge, unit-tested against the textbook and all-zero vectors, and
+  cross-checked end-to-end against OpenSSL's DES (an OpenSSL-computed auth
+  response is accepted by the server, so the wire format matches a reference).
+- **Headless serve loop** in `two::serve()` — the SDL frame loop's shape without
+  SDL, reusing `build_machine()` and the pure `Scr` renderer. Keysym→byte
+  translation (printable, arrows, Return, ESC, Tab/Del, Ctrl-letter, Ctrl+F12
+  reset) mirrors the SDL keyboard table. Translated bytes are **paced through a
+  queue** (`RemoteKeys::pump`): the Apple II keyboard is a one-byte latch and a
+  browser delivers a whole typed word within one frame, so each byte feeds only
+  after the ROM consumed the previous one (strobe via `$C010`) — otherwise every
+  key but the last is overwritten. Free side effect: type-ahead while booting.
+- **`web.rs` + `novnc/`** *(Phase 5)* — the embedded web console. noVNC's
+  engine (`core/` + `vendor/pako`, pinned **v1.6.0**, MPL-2.0 — license
+  vendored alongside, see `ewm/novnc/README.md`) plus EWM's own minimal
+  console page are embedded into the binary by `ewm/build.rs` and served for
+  plain HTTP requests **on the WebSocket port** — one port carries the page
+  and its RFB stream, the Proxmox shape, and the page connects back to
+  wherever it was served from so nothing needs configuring. Strictly opt-in
+  tiers: `--serve vnc://…` = native VNC only; `?ws=PORT` adds the raw
+  websocket (bring-your-own noVNC, plain HTTP → `426`); `?web=PORT` serves
+  the console too (`remote.web` in config). No filesystem access at runtime;
+  the asset table is static and literal (no path traversal to have).
+- **`ws.rs`** *(Phase 4)* — a hand-rolled WebSocket (RFC 6455) server transport:
+  HTTP upgrade (SHA-1 + base64, tested against the RFC vectors), binary-frame
+  encode/decode with client-mask enforcement, ping→pong, close echo. Exposed as
+  `io::Read`/`io::Write` adapters, so `rfb.rs`'s state machine runs over plain
+  TCP or WebSocket **verbatim** — one protocol, two transports, both listeners
+  feeding the same machine. `remote.websocket` / `--serve …?ws=5701` adds the
+  browser port; noVNC connects to it directly, no websockify. (noVNC's
+  `SetPixelFormat` request — little-endian, shifts 0/8/16 — is byte-identical
+  on the wire to our advertised big-endian 24/16/8, so ignoring it is safe.)
+
+Verified end-to-end: booted the DOS 3.3 System Master and a bare Applesoft ][+
+over `vnc://`, typed `PRINT 2+2` and saw `4`. All gates green (`cargo fmt
+--check`, `clippy -D warnings`, `cargo test` incl. the golden-BMP tripwires).
+
+**Deliberate shortcut vs. the plan:** Phase 1's full `Driver`/`SdlFrontend`
+refactor is **deferred**. Instead the prototype adds a *parallel* headless path
+(an early branch in `two::main` → `serve()`) that reuses `build_machine()` and
+`Scr` directly. This leaves the SDL loop **byte-for-byte untouched** (lowest risk
+to the golden tests) at the cost of a small amount of duplicated frame-loop
+logic. The right follow-up is to do Phase 1 properly and re-express both `serve()`
+and the SDL loop over one `Driver` — then continue with Phase 4 (WebSocket) and
+Phase 5 (vendored noVNC) for the true browser/Proxmox experience.
+
+**Try it:**
+
+```
+# macOS Screen Sharing refuses "None" auth, so give it a password:
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?password=secret' \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+# then, in another terminal:
+open vnc://127.0.0.1:5901          # enter the password when prompted
+# or embed it:  open vnc://:secret@127.0.0.1:5901
+
+# Other clients (TigerVNC, RealVNC) accept "None", so a password is optional:
+cargo run -p ewm -- two --serve vnc://127.0.0.1:5901 --set machine:slots:6:card=empty
+
+# The password can also come from the config `remote` block or a --set:
+#   --set remote:password=secret
+# Expose to the LAN (still weak auth — see §10, keep it behind a tunnel):
+#   --serve 'vnc://0.0.0.0:5901?password=secret'
+
+# Browser (Phase 5): ?web=<port> serves the embedded console — a live Apple II
+# in a tab with no external tooling at all:
+cargo run -p ewm -- two --serve 'vnc://127.0.0.1:5901?web=5701' \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+open http://127.0.0.1:5701/
+
+# Or bring your own noVNC against the raw websocket (Phase 4, no console page):
+#   --serve 'vnc://127.0.0.1:5901?ws=5701'
+# then point any noVNC's vnc.html at host=127.0.0.1&port=5701.
+```
 
 ---
 
@@ -406,11 +503,18 @@ Track modifier state from key up/down. **Gate:** a keysym→byte unit test
 table; manual parity check against the SDL keyboard.
 
 ### Phase 4 — Embedded WebSocket transport
-Detect a WebSocket `Upgrade` handshake (sync `tungstenite`) on the configured
-`websocket` port and frame RFB inside WS messages, so **noVNC connects
-directly** — no websockify. Keep plain-TCP RFB working in parallel. **Gate:**
-noVNC (pointed straight at `ws://host:5701`) boots and drives a machine in a
-browser.
+Serve the WebSocket `Upgrade` handshake on the configured `websocket` port and
+frame RFB inside WS messages, so **noVNC connects directly** — no websockify.
+Keep plain-TCP RFB working in parallel. **Gate:** noVNC (pointed straight at
+`ws://host:5701`) boots and drives a machine in a browser.
+
+*As built (prototype):* hand-rolled in `ws.rs` rather than pulling in
+`tungstenite` — the plan's original choice would have added ~9 transitive
+crates for a server-side subset (upgrade + binary frames + ping/pong/close)
+that is ~350 lines here, hand-rolled and RFC-vector-tested exactly like
+`des.rs`. `tungstenite` remains the fallback if interop issues surface. The
+transport is `io::Read`/`io::Write` adapters over the socket, so `rfb.rs`'s
+state machine is shared verbatim between TCP and WS.
 
 ### Phase 5 — Vendored web console (the Proxmox-console piece)
 Bundle a pinned, self-contained noVNC build and serve it from a small built-in
@@ -419,6 +523,16 @@ machine's WebSocket. Add a minimal **hub** index (static or a tiny endpoint)
 that lists running machines and links to each console — the Proxmox node-view
 feel. **Gate:** `http://host:5701/` shows a live, interactive Apple II with no
 external tooling.
+
+*As built (prototype):* `novnc/` vendors the pinned engine (v1.6.0 `core/` +
+`vendor/pako`, ~700 KB — `app/`'s full UI chrome is skipped in favour of a
+small EWM console page); `build.rs` embeds the tree; `web.rs` serves it. The
+console is **opt-in** (`web`/`?web=PORT`) — a machine can run VNC-only, or
+VNC + raw websocket, or VNC + console; without `web` the WS port answers
+plain HTTP with `426` exactly as in Phase 4. The **hub** index moved to
+Phase 6: a per-machine process has no machine list to serve, the orchestrator
+does. Gate run in a real Chrome tab: `http://127.0.0.1:5701/` booted the DOS
+3.3 System Master and `CATALOG` typed at browser speed listed the disk.
 
 ### Phase 6 — Multi-VM orchestration
 A `systemd` template unit `ewm-vnc@.service` (instance name = config file →
@@ -445,8 +559,9 @@ so the Woz Monitor / KRUSADER machines are reachable remotely too. **Gate:**
 
 - **v1 core:** nothing beyond `std::net` + threads (the `wozbug` model) for
   the RFB server itself.
-- **Phase 4:** a sync WebSocket crate (`tungstenite`) — small, no async
-  runtime.
+- **Phase 4:** none — the WebSocket transport is hand-rolled (`ws.rs`,
+  RFC-vector-tested). `tungstenite` (sync, no async runtime) stays listed as
+  the fallback if interop issues ever surface.
 - **Phase 5:** noVNC is a vendored static asset, not a Cargo dependency.
 - **Track B only:** `ironrdp-server` + Tokio, behind a Cargo feature.
 - **References/fallbacks (not linked by default):** Oxide `rfb`,

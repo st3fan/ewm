@@ -42,6 +42,10 @@ pub struct Config {
     /// Debugging aids.
     #[serde(default)]
     pub debug: Debug,
+    /// Remote-console (VNC) server. When present the machine boots headless
+    /// and is reachable over the network instead of opening an SDL window.
+    #[serde(default)]
+    pub remote: Remote,
 }
 
 /// The machine's physical build.
@@ -343,6 +347,50 @@ pub struct Debug {
     pub enabled: Option<bool>,
 }
 
+/// Remote-console (VNC) server settings. Presence of a `protocol` or `port`
+/// makes `ewm two` boot headless and serve the screen over RFB (VNC) rather
+/// than opening a local window. See notes/REMOTE.md.
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(deny_unknown_fields)]
+pub struct Remote {
+    /// Remote-console protocol. Only `"vnc"` is implemented; `"rdp"` is
+    /// reserved for a later optional track (notes/REMOTE.md Track B).
+    pub protocol: Option<RemoteProtocol>,
+    /// Address to bind. Defaults to `127.0.0.1` (localhost only); set
+    /// `"0.0.0.0"` to expose the machine to the network.
+    pub bind: Option<String>,
+    /// Plain-TCP RFB (VNC) port. Defaults to 5901.
+    pub port: Option<u16>,
+    /// RFB-over-WebSocket port for browser clients: noVNC connects straight
+    /// to it, no websockify bridge. Absent means no WebSocket listener.
+    pub websocket: Option<u16>,
+    /// Serve the embedded web console (a vendored noVNC page) for plain HTTP
+    /// requests on the WebSocket port, so `http://host:port/` is a live
+    /// console with no external tooling. Implies a WebSocket listener (on
+    /// 5701 when `websocket` is absent). Off by default.
+    pub web: Option<bool>,
+    /// Serve the console read-only: ignore all keyboard and pointer input.
+    pub view_only: Option<bool>,
+    /// VNC-auth password. When set, clients must authenticate with the RFB DES
+    /// challenge (only the first 8 characters are significant); this is what
+    /// lets clients that refuse the "None" security type — notably macOS
+    /// Screen Sharing — connect. The scheme is weak (notes/REMOTE.md §10):
+    /// keep the machine on localhost or behind a tunnel/proxy regardless.
+    pub password: Option<String>,
+}
+
+/// The remote-console protocol (`remote.protocol`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteProtocol {
+    /// RFB / VNC (RFC 6143) — the implemented v1 protocol.
+    Vnc,
+    /// RDP — reserved, not implemented.
+    Rdp,
+}
+
 /// Load a machine configuration: read the file, parse it, validate it
 /// semantically, and resolve relative paths against the file's directory.
 pub fn load(path: &str) -> Result<Config, String> {
@@ -589,6 +637,20 @@ fn validate(config: &Config) -> Result<(), String> {
         && delay < 0.0
     {
         return Err("boot.delay: must be >= 0".into());
+    }
+    if config.remote.protocol == Some(RemoteProtocol::Rdp) {
+        return Err("remote.protocol: \"rdp\" is not implemented yet (VNC only)".into());
+    }
+    if config.remote.port == Some(0) {
+        return Err("remote.port: must be at least 1".into());
+    }
+    if config.remote.websocket == Some(0) {
+        return Err("remote.websocket: must be at least 1".into());
+    }
+    if config.remote.websocket.is_some()
+        && config.remote.websocket == config.remote.port.or(Some(5901))
+    {
+        return Err("remote.websocket: must differ from remote.port".into());
     }
     Ok(())
 }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!-- EWM's minimal web console (notes/REMOTE.md Phase 5): loads the vendored
+     noVNC engine (core/rfb.js) and connects straight back to the host and
+     port this page was served from, so nothing needs configuring. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EWM</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #101010; }
+    body { display: flex; flex-direction: column;
+           font-family: ui-monospace, Menlo, Consolas, monospace; }
+    #bar { display: flex; align-items: center; gap: 10px;
+           padding: 5px 10px; background: #000;
+           border-bottom: 1px solid #1e321e; flex: none; user-select: none; }
+    #status { font-size: 12px; color: #7fd47f; flex: 1; }
+    #mute { font-size: 14px; background: none; border: 1px solid #1e321e;
+            border-radius: 3px; color: #7fd47f; cursor: pointer;
+            padding: 1px 7px; }
+    #mute:hover { border-color: #7fd47f; }
+    #screen { flex: 1; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="bar">
+    <div id="status">connecting&hellip;</div>
+    <button id="mute" title="speaker">&#x1F50A;</button>
+  </div>
+  <div id="screen"></div>
+  <script type="module">
+    import RFB from './core/rfb.js';
+    import * as audio from './audio.js';
+
+    const status = document.getElementById('status');
+    const scheme = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const url = scheme + location.host + '/websockify';
+
+    const rfb = new RFB(document.getElementById('screen'), url);
+    rfb.scaleViewport = true;   // scale the low-res frame up to the window
+    rfb.background = '#101010';
+
+    rfb.addEventListener('connect', () => {
+      status.textContent = 'connected — click the screen and type';
+    });
+    rfb.addEventListener('desktopname', (e) => {
+      document.title = e.detail.name;
+      status.textContent = e.detail.name + ' — click the screen and type';
+    });
+    rfb.addEventListener('credentialsrequired', () => {
+      rfb.sendCredentials({ password: prompt('VNC password:') ?? '' });
+    });
+    rfb.addEventListener('securityfailure', (e) => {
+      status.textContent = 'authentication failed: ' + (e.detail.reason ?? '');
+    });
+    rfb.addEventListener('disconnect', (e) => {
+      status.textContent = e.detail.clean
+        ? 'disconnected'
+        : 'connection failed — is the machine still running?';
+    });
+
+    // Speaker: browsers refuse audio before a user gesture, so the first
+    // click or keypress (the one that focuses the screen anyway) arms the
+    // pipeline (notes/VNC.md §4.4). The button toggles mute.
+    const mute = document.getElementById('mute');
+    const arm = () => audio.arm();
+    document.addEventListener('pointerdown', arm, { capture: true });
+    document.addEventListener('keydown', arm, { capture: true });
+    mute.addEventListener('click', () => {
+      mute.innerHTML = audio.toggleMute() ? '&#x1F507;' : '&#x1F50A;';
+    });
+    // Expose live stats for debugging (chunks/bytes received, signal seen).
+    window.ewmAudio = audio.stats;
+  </script>
+</body>
+</html>
