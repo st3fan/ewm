@@ -13,7 +13,6 @@ use crate::clk::{Clk, clk_rom};
 use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{Hdd, hdd_rom};
-use crate::led::{LED_STRIP_HEIGHT, LED_STRIP_WIDTH, render_led_strip};
 use crate::liron::{Liron, liron_rom};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::saturn::Saturn;
@@ -23,7 +22,7 @@ use crate::scr::{
 };
 use crate::sdl;
 use crate::snd::Snd;
-use crate::tty::{TTY_PIXEL_HEIGHT, TTY_PIXEL_WIDTH, Tty};
+use crate::tty::TTY_PIXEL_WIDTH;
 use ewm_core::cpu::{Cpu, Model};
 use ewm_core::mem::{Device, DeviceHandle, Memory};
 use sdl3::event::Event;
@@ -2944,6 +2943,7 @@ fn serve(mut options: Options) -> i32 {
     // format (big-endian RGBA) with no per-pixel conversion (see rfb.rs).
     let mut scr = Scr::new(PixelLayout::Rgba8888);
     scr.set_monitor_style(options.monitor);
+    let mut compositor = crate::overlay::Compositor::new(PixelLayout::Rgba8888);
 
     let width = frame_width(two.model()) as u16;
     let name = match two.model() {
@@ -3070,8 +3070,26 @@ fn serve(mut options: Options) -> i32 {
         let toggles = two.drain_speaker_toggles();
         audio.publish(wave.render(&toggles, two.cpu.counter));
 
+        // Compose the same passive overlays the SDL window shows (drive
+        // lights, and the PAUSED box when paused) into the published frame —
+        // the shared compositor, so a browser sees them too (Phase 1).
         scr.update(&two, phase, fps);
-        publisher.publish(scr.frame(two.model()));
+        let lit = two.drive_lights(two.cpu.counter);
+        let overlays = crate::overlay::Overlays {
+            drive_lights: (lit[0] || lit[1]).then_some(lit),
+            pause: if paused {
+                crate::overlay::Pause::Paused
+            } else {
+                crate::overlay::Pause::Running
+            },
+        };
+        let frame = compositor.compose(
+            scr.frame(two.model()),
+            frame_width(two.model()),
+            SCR_HEIGHT,
+            &overlays,
+        );
+        publisher.publish(frame);
 
         // Screen time follows machine time: freeze the FLASH blink while
         // paused, exactly as the SDL loop does.
@@ -3231,6 +3249,7 @@ pub fn main(args: &[String]) -> i32 {
     };
     let mut scr = Scr::new(layout);
     scr.set_monitor_style(options.monitor);
+    let mut compositor = crate::overlay::Compositor::new(layout);
 
     let mut snd = audio.as_ref().and_then(|audio| match Snd::new(audio) {
         Ok(snd) => Some(snd),
@@ -3246,9 +3265,6 @@ pub fn main(args: &[String]) -> i32 {
     {
         snd.set_cpu_frequency(options.speed as u64);
     }
-
-    let mut status_tty = Tty::new(sdl::green(&canvas));
-    status_tty.cursor_enabled = false;
 
     if let Some(path) = &options.trace_path {
         match std::fs::File::create(path) {
@@ -3292,20 +3308,6 @@ pub fn main(args: &[String]) -> i32 {
         .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, STATUS_BAR_HEIGHT)
         .expect("Failed to create status bar texture");
     bar_texture.set_scale_mode(ScaleMode::Nearest);
-    let mut tty_texture = texture_creator
-        .create_texture_streaming(format, TTY_PIXEL_WIDTH as u32, TTY_PIXEL_HEIGHT as u32)
-        .expect("Failed to create tty texture");
-    tty_texture.set_blend_mode(BlendMode::Blend);
-    tty_texture.set_scale_mode(ScaleMode::Nearest);
-
-    // The disk activity LEDs, drawn over the lower-right corner of the
-    // screen while a drive's light is lit (the transparent background makes
-    // the rest of the strip invisible).
-    let mut led_texture = texture_creator
-        .create_texture_streaming(format, LED_STRIP_WIDTH as u32, LED_STRIP_HEIGHT as u32)
-        .expect("Failed to create led texture");
-    led_texture.set_blend_mode(BlendMode::Blend);
-    led_texture.set_scale_mode(ScaleMode::Nearest);
 
     // The command palette renders at window resolution, not the emulated 3x.
     let mut palette: Palette<TwoAction> = Palette::new(layout);
@@ -3856,12 +3858,27 @@ pub fn main(args: &[String]) -> i32 {
                 scr.update(&two, phase, fps);
                 two.set_screen_dirty(false);
 
+                // Compose the passive overlays (drive lights, pause box) into
+                // one screen frame via the shared compositor — the same frame
+                // the headless VNC path publishes (Phase 1). Scanlines, the
+                // status bar, and the palette remain SDL window chrome below.
+                let lit = two.drive_lights(two.cpu.counter);
+                let overlays = crate::overlay::Overlays {
+                    drive_lights: (lit[0] || lit[1]).then_some(lit),
+                    pause: if paused {
+                        match &restored_banner {
+                            Some(at) => crate::overlay::Pause::Restored(at.clone()),
+                            None => crate::overlay::Pause::Paused,
+                        }
+                    } else {
+                        crate::overlay::Pause::Running
+                    },
+                };
+                let frame =
+                    compositor.compose(scr.frame(two.model()), render_width, SCR_HEIGHT, &overlays);
+
                 texture
-                    .update(
-                        None,
-                        &pixels_to_bytes(scr.frame(two.model())),
-                        render_width * 4,
-                    )
+                    .update(None, &pixels_to_bytes(frame), render_width * 4)
                     .expect("Failed to update texture");
                 let screen_dst = Rect::new(
                     pad as i32,
@@ -3888,59 +3905,6 @@ pub fn main(args: &[String]) -> i32 {
                         STATUS_BAR_HEIGHT * 3,
                     );
                     let _ = canvas.copy(&bar_texture, None, dst);
-                }
-
-                // Disk activity LEDs in the lower-right corner: only drawn
-                // while the motor runs (spin-down included) — the selected
-                // drive red, the other grey; hidden entirely when idle.
-                let lit = two.drive_lights(two.cpu.counter);
-                if lit[0] || lit[1] {
-                    let strip = render_led_strip(lit, layout);
-                    led_texture
-                        .update(None, &pixels_to_bytes(&strip), LED_STRIP_WIDTH * 4)
-                        .expect("Failed to update led texture");
-                    let margin = 4; // logical pixels, scaled 3x like the screen
-                    let dst = Rect::new(
-                        pad as i32 + (SCR_WIDTH as i32 - margin - LED_STRIP_WIDTH as i32) * 3,
-                        pad as i32 + (SCR_HEIGHT as i32 - margin - LED_STRIP_HEIGHT as i32) * 3,
-                        LED_STRIP_WIDTH as u32 * 3,
-                        LED_STRIP_HEIGHT as u32 * 3,
-                    );
-                    let _ = canvas.copy(&led_texture, None, dst);
-                }
-
-                if paused {
-                    canvas.set_blend_mode(BlendMode::Blend);
-                    canvas.set_draw_color(Color::RGBA(0, 0, 0, 224));
-                    let _ = canvas.fill_rect(None);
-
-                    status_tty.reset();
-                    if let Some(saved_at) = &restored_banner {
-                        // Started from a saved state (notes/STATE.md §6):
-                        // name the save this machine resumed from.
-                        status_tty.set_line(7, "      ****************************      ");
-                        status_tty.set_line(8, "      *                          *      ");
-                        status_tty.set_line(9, "      * RESTORED FROM SAVE STATE *      ");
-                        let ts = format!("      *{saved_at:^26}*      ");
-                        status_tty.set_line(10, &ts);
-                        status_tty.set_line(11, "      *                          *      ");
-                        status_tty.set_line(12, "      ****************************      ");
-                    } else {
-                        status_tty.set_line(8, "          ********************          ");
-                        status_tty.set_line(9, "          *                  *          ");
-                        status_tty.set_line(10, "          * -+-  PAUSED  -+- *          ");
-                        status_tty.set_line(11, "          *                  *          ");
-                        status_tty.set_line(12, "          ********************          ");
-                    }
-                    status_tty.refresh(0, 0);
-                    tty_texture
-                        .update(
-                            None,
-                            &pixels_to_bytes(&status_tty.pixels),
-                            TTY_PIXEL_WIDTH * 4,
-                        )
-                        .expect("Failed to update tty texture");
-                    let _ = canvas.copy(&tty_texture, None, screen_dst);
                 }
 
                 if palette_visible {

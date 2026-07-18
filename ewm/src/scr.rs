@@ -154,6 +154,17 @@ impl PixelLayout {
             PixelLayout::Rgb888 => (r << 16) | (g << 8) | b,
         }
     }
+
+    /// The (r, g, b) channels of a packed pixel — the inverse of `pack`, for
+    /// the overlay compositor's blending (the alpha byte is dropped).
+    pub fn unpack_rgb(self, p: u32) -> (u8, u8, u8) {
+        match self {
+            PixelLayout::Argb8888 | PixelLayout::Rgb888 => {
+                ((p >> 16) as u8, (p >> 8) as u8, p as u8)
+            }
+            PixelLayout::Rgba8888 => ((p >> 24) as u8, (p >> 16) as u8, (p >> 8) as u8),
+        }
+    }
 }
 
 static TXT_LINE_OFFSETS: [usize; 24] = [
