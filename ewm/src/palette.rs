@@ -111,6 +111,15 @@ impl<A: Copy> Palette<A> {
 
     /// A command that leads to another menu; its row carries a right-aligned
     /// triangle to say so.
+    /// Sort the registered commands by label, case-insensitively. The
+    /// top-level menu calls this after registration so commands appear
+    /// alphabetically; choice submenus keep their natural order (speeds
+    /// ascending, scanlines off/light/heavy) and do not.
+    pub fn sort_commands(&mut self) {
+        self.commands
+            .sort_by_key(|command| command.label.to_ascii_lowercase());
+    }
+
     pub fn add_submenu_command(&mut self, label: impl Into<String>, action: A) {
         self.commands.push(Command {
             label: label.into(),
@@ -302,6 +311,31 @@ impl<A: Copy> Palette<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The top-level menu sorts case-insensitively by label; dynamic labels
+    /// (Pause vs Unpause) land wherever they alphabetize.
+    #[test]
+    fn sort_commands_orders_labels_case_insensitively() {
+        let mut palette = Palette::<u32>::new(PixelLayout::Argb8888);
+        palette.open();
+        palette.add_command("Reset", 1);
+        palette.add_submenu_command("CPU Speed: 1.023 MHz", 2);
+        palette.add_command("Unpause", 3);
+        palette.add_submenu_command("Display Style: Green", 4);
+        palette.add_command("Enter Full Screen", 5);
+        palette.sort_commands();
+        let labels: Vec<&str> = palette.commands.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "CPU Speed: 1.023 MHz",
+                "Display Style: Green",
+                "Enter Full Screen",
+                "Reset",
+                "Unpause",
+            ]
+        );
+    }
 
     /// The vendored Inter must contain the submenu triangle (it has no
     /// U+25B8, which is why SUBMENU_MARK is a scaled-down U+25B6).
