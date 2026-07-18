@@ -1879,8 +1879,9 @@ fn usage() {
     eprintln!("  --debug           print debug info");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
     eprintln!(
-        "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password)"
+        "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
     );
+    eprintln!("                    add ?ws=5701 for browser clients (noVNC, no websockify)");
 }
 
 #[derive(Default)]
@@ -1923,6 +1924,9 @@ struct Options {
 struct ServeOptions {
     bind: String,
     port: u16,
+    /// RFB-over-WebSocket port for browser clients (noVNC connects straight
+    /// to it, no websockify); `None` means no WebSocket listener.
+    websocket: Option<u16>,
     view_only: bool,
     /// VNC-auth password (`None` → the `None` security type). Required by
     /// clients that refuse `None`, such as macOS Screen Sharing.
@@ -1934,6 +1938,7 @@ impl Default for ServeOptions {
         ServeOptions {
             bind: "127.0.0.1".to_string(),
             port: RFB_DEFAULT_PORT,
+            websocket: None,
             view_only: false,
             password: None,
         }
@@ -1942,6 +1947,8 @@ impl Default for ServeOptions {
 
 /// The default plain-TCP RFB port when `--serve vnc://…` gives no port.
 const RFB_DEFAULT_PORT: u16 = 5901;
+/// The default WebSocket port when `--serve …?ws` gives no explicit value.
+const WS_DEFAULT_PORT: u16 = 5701;
 
 /// The default slot table in config terms: the classic layout with no media
 /// inserted (`default_slots()` is the machine-level equivalent).
@@ -2150,10 +2157,11 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
 }
 
 /// Parse a `--serve` URL onto a base (usually the config's `remote` block):
-/// `vnc://[bind][:port][?password=…&view_only=1]`, e.g. `vnc://0.0.0.0:5901`,
-/// `vnc://:5901` (default bind), or `vnc://127.0.0.1` (default port). The query
-/// carries the password and view-only flag; `ws=`/`web=` keys are reserved for
-/// later phases and ignored. Only the `vnc` scheme is implemented.
+/// `vnc://[bind][:port][?ws=5701&password=…&view_only=1]`, e.g.
+/// `vnc://0.0.0.0:5901?ws=5701`, `vnc://:5901` (default bind), or
+/// `vnc://127.0.0.1` (default port). `ws` adds the RFB-over-WebSocket
+/// listener for browser noVNC (bare `ws` uses 5701); `web=` is reserved for
+/// the Phase 5 console page. Only the `vnc` scheme is implemented.
 fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, String> {
     let rest = url
         .strip_prefix("vnc://")
@@ -2180,7 +2188,20 @@ fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, Strin
         match key {
             "password" => serve.password = (!value.is_empty()).then(|| value.to_string()),
             "view_only" | "viewonly" => serve.view_only = matches!(value, "1" | "true"),
-            "ws" | "web" => {} // reserved for later phases
+            "ws" => {
+                let port = if value.is_empty() {
+                    WS_DEFAULT_PORT
+                } else {
+                    value
+                        .parse()
+                        .map_err(|_| format!("invalid ws port {value:?}"))?
+                };
+                if port == 0 {
+                    return Err("ws port must be at least 1".to_string());
+                }
+                serve.websocket = Some(port);
+            }
+            "web" => {} // reserved for the Phase 5 console page
             "" => {}
             other => return Err(format!("unknown option {other:?}")),
         }
@@ -2254,6 +2275,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     if remote.protocol.is_some()
         || remote.bind.is_some()
         || remote.port.is_some()
+        || remote.websocket.is_some()
         || remote.view_only.is_some()
         || remote.password.is_some()
     {
@@ -2264,6 +2286,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         if let Some(port) = remote.port {
             serve.port = port;
         }
+        serve.websocket = remote.websocket;
         if let Some(view_only) = remote.view_only {
             serve.view_only = view_only;
         }
@@ -2535,13 +2558,16 @@ fn serve(mut options: Options) -> i32 {
     };
     let auth = serve.password.is_some();
     let (server, publisher) = match crate::rfb::Server::start(
-        &serve.bind,
-        serve.port,
+        crate::rfb::Options {
+            bind: serve.bind.clone(),
+            port: serve.port,
+            websocket: serve.websocket,
+            name: name.to_string(),
+            view_only: serve.view_only,
+            password: serve.password,
+        },
         width,
         SCR_HEIGHT as u16,
-        name,
-        serve.view_only,
-        serve.password,
     ) {
         Ok(pair) => pair,
         Err(e) => {
@@ -2556,6 +2582,12 @@ fn serve(mut options: Options) -> i32 {
         if auth { "VNC password" } else { "no" },
         if serve.view_only { ", view-only" } else { "" }
     );
+    if let Some(ws_port) = server.websocket_port() {
+        eprintln!(
+            "[RFB] websocket for browser clients (noVNC) on ws://{}:{ws_port}/",
+            serve.bind
+        );
+    }
 
     let frame_time = std::time::Duration::from_secs_f64(1.0 / fps as f64);
     let mut keys = RemoteKeys::default();
@@ -3757,5 +3789,46 @@ mod tests {
         let missing_file: Vec<String> =
             vec!["--config".to_string(), "does-not-exist.json".to_string()];
         assert!(matches!(parse_options(&missing_file), Err(1)));
+    }
+
+    #[test]
+    fn serve_url_parses_hosts_ports_and_query() {
+        let s = parse_serve("vnc://0.0.0.0:5901", ServeOptions::default()).expect("parse");
+        assert_eq!((s.bind.as_str(), s.port), ("0.0.0.0", 5901));
+        assert_eq!(s.websocket, None);
+
+        // Defaults: bare host, bare port, empty authority.
+        let s = parse_serve("vnc://10.0.0.5", ServeOptions::default()).expect("parse");
+        assert_eq!((s.bind.as_str(), s.port), ("10.0.0.5", RFB_DEFAULT_PORT));
+        let s = parse_serve("vnc://:6000", ServeOptions::default()).expect("parse");
+        assert_eq!((s.bind.as_str(), s.port), ("127.0.0.1", 6000));
+
+        // The query: ws (explicit and bare), password, view_only.
+        let s = parse_serve(
+            "vnc://:5901?ws=5701&password=pw&view_only=1",
+            ServeOptions::default(),
+        )
+        .expect("parse");
+        assert_eq!(s.websocket, Some(5701));
+        assert_eq!(s.password.as_deref(), Some("pw"));
+        assert!(s.view_only);
+        let s = parse_serve("vnc://?ws", ServeOptions::default()).expect("parse");
+        assert_eq!(s.websocket, Some(WS_DEFAULT_PORT));
+
+        // A config-supplied base survives an explicit --serve.
+        let base = ServeOptions {
+            password: Some("keep".into()),
+            websocket: Some(5702),
+            ..ServeOptions::default()
+        };
+        let s = parse_serve("vnc://0.0.0.0:6000", base).expect("parse");
+        assert_eq!(s.password.as_deref(), Some("keep"));
+        assert_eq!(s.websocket, Some(5702));
+
+        // Rejected shapes.
+        assert!(parse_serve("rdp://:5901", ServeOptions::default()).is_err());
+        assert!(parse_serve("vnc://:0", ServeOptions::default()).is_err());
+        assert!(parse_serve("vnc://:5901?ws=0", ServeOptions::default()).is_err());
+        assert!(parse_serve("vnc://:5901?bogus=1", ServeOptions::default()).is_err());
     }
 }

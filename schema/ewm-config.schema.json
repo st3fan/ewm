@@ -63,7 +63,8 @@
         "password": null,
         "port": null,
         "protocol": null,
-        "view_only": null
+        "view_only": null,
+        "websocket": null
       }
     }
   },
@@ -413,6 +414,16 @@
             "boolean",
             "null"
           ]
+        },
+        "websocket": {
+          "description": "RFB-over-WebSocket port for browser clients: noVNC connects straight\nto it, no websockify bridge. Absent means no WebSocket listener.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
         }
       },
       "additionalProperties": false
