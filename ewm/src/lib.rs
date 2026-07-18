@@ -21,6 +21,7 @@ pub mod led;
 pub mod liron;
 pub mod media;
 pub mod one;
+pub mod overlay;
 pub mod palette;
 pub mod pia;
 pub mod rfb;

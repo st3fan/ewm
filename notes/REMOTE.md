@@ -359,7 +359,7 @@ a pure `Vec<u32>`.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | 0 | This plan; `remote` config + `--serve` parsing (validates, errors "not built") | S | **Prototype** ✅ |
-| 1 | Extract a frontend-agnostic **machine driver** from `two::main`; SDL path reuses it, behaviour unchanged | M | Deferred (see note) |
+| 1 | Frontend-agnostic **rendering path**: a pure `Vec<u32>` overlay compositor (`overlay.rs`) both frontends share, so passive overlays (drive lights, pause box) reach VNC too | M | **Landed** ✅ (as a compositor — see note) |
 | 2 | `rfb.rs`: minimal RFB server (handshake, ServerInit, Raw update, KeyEvent/Pointer) on a background thread; `--serve vnc://…` serves `two` to a **native** VNC client | L | **Prototype** ✅ |
 | 3 | Input completeness: control keys, Ctrl/Alt, arrows, reset, paddle buttons; `//e` vs `][+` keyboard parity with the SDL path | M | **Prototype** (core keymap ✅; paddles partial) |
 | 4 | Embedded **WebSocket** transport (hand-rolled `ws.rs`, not `tungstenite` — see §14) → noVNC connects directly, no websockify | M | **Prototype** ✅ |
@@ -423,14 +423,23 @@ Verified end-to-end: booted the DOS 3.3 System Master and a bare Applesoft ][+
 over `vnc://`, typed `PRINT 2+2` and saw `4`. All gates green (`cargo fmt
 --check`, `clippy -D warnings`, `cargo test` incl. the golden-BMP tripwires).
 
-**Deliberate shortcut vs. the plan:** Phase 1's full `Driver`/`SdlFrontend`
-refactor is **deferred**. Instead the prototype adds a *parallel* headless path
-(an early branch in `two::main` → `serve()`) that reuses `build_machine()` and
-`Scr` directly. This leaves the SDL loop **byte-for-byte untouched** (lowest risk
-to the golden tests) at the cost of a small amount of duplicated frame-loop
-logic. The right follow-up is to do Phase 1 properly and re-express both `serve()`
-and the SDL loop over one `Driver` — then continue with Phase 4 (WebSocket) and
-Phase 5 (vendored noVNC) for the true browser/Proxmox experience.
+**Phase 1 — landed as a shared compositor, not a `Driver` struct.** The
+prototype ran a *parallel* headless `serve()` loop, which was fine for the
+machine + input but meant the SDL loop's overlays (drive lights, the pause
+box) were composited with SDL canvas calls the VNC path never saw — so a
+paused machine looked frozen-but-unmarked in a browser. Rather than a full
+`Two`-owning `Driver` (both loops already build the machine identically via
+`power_on_machine`, so wrapping ownership bought little), Phase 1 extracted
+the thing that was actually duplicated and missing remotely: **the render
+compositing.** `overlay.rs` is a pure `Vec<u32>` `Compositor` that stamps the
+passive overlays onto the machine's screen frame; both frontends hold one —
+the SDL loop uploads its output to one texture (replacing the separate LED
+and pause textures), the serve loop publishes it to VNC. Interactive and
+window-scaling chrome stays per-frontend by design (§15): the command palette
+is SDL-only UI, the status bar is a strip below the screen, and scanlines are
+an up-scaling effect the client does itself. Golden-BMP tests still pass
+(they capture the pre-overlay `scr.frame()`), so the machine's rendered
+screen is byte-for-byte unchanged.
 
 **Try it:**
 
@@ -472,15 +481,20 @@ This document, plus the `remote` config struct in `config.rs` (with schema +
 clear "remote console not built (Phase 2)" and exits. **Gate:** config
 round-trips through the schema test; SDL path untouched; fmt/clippy/test green.
 
-### Phase 1 — Frontend-agnostic machine driver
-Lift the machine-stepping + rendering out of `two::main` into a `Driver` that
-owns the `Two` + `Scr`, steps `speed/fps` cycles per `tick()`, and exposes:
-`frame() -> &[u32]`, `dims() -> (w, h)`, and input methods (`key`, `set_button`,
-`set_joystick`, `reset`, `load_disk`). Re-express today's SDL loop as a thin
-`SdlFrontend` over the driver. **This is a pure refactor with no VNC** — its
-whole job is to prove the SDL frontend is unchanged. **Gate:** the golden-BMP
-tests (`boot_screen_matches_golden_bmp`, the //e goldens) still pass;
-`--screenshot` still works; fmt/clippy/test green.
+### Phase 1 — Frontend-agnostic rendering path (the shared compositor)
+Originally scoped as a `Driver` owning `Two + Scr`. *As built:* the valuable,
+missing piece was shared **compositing**, not shared ownership (both frontends
+already construct the machine identically). `ewm/src/overlay.rs` is a pure
+`Vec<u32>` `Compositor`: `compose(screen, w, h, &Overlays) -> &[u32]` stamps
+the passive overlays — drive lights (`led.rs`) and the pause / restored-state
+box (`tty.rs`) — onto the machine's screen frame, SDL-free and unit-tested.
+The SDL loop uploads the composited frame to its single screen texture (the
+separate LED and pause textures are gone); the headless serve loop publishes
+it to VNC, so **the pause box and drive lights now show in a browser**.
+Scanlines, the status bar, and the command palette remain SDL window chrome.
+**Gate:** the golden-BMP tests still pass (they capture the pre-overlay
+`scr.frame()`); the PAUSED box verified over VNC in a real Chrome tab;
+fmt/clippy/test green.
 
 ### Phase 2 — Minimal RFB server, native client
 New `rfb.rs`: RFB 3.8 (and 3.3) handshake, security type None (auth is
@@ -586,10 +600,17 @@ style already used by WozBug.
 - **Auth for the built-in web tier.** Ship "None + bind localhost + document a
   proxy," or build a Proxmox-style ticket now? Leaning: document the proxy for
   v1, revisit a token scheme in Phase 6.
-- **Overlays remote-side.** Do we composite the status bar / drive LEDs /
-  command palette into the remote framebuffer (they are pure `Vec<u32>`
-  renderers, so it is cheap), or keep the remote view clean? Probably a config
-  toggle, default clean.
+- **Overlays remote-side.** *Resolved (Phase 1).* The **passive** display
+  overlays — drive lights and the pause / restored-state box — are composited
+  into the framebuffer by the shared `overlay.rs` `Compositor`, so every
+  client (native and web) sees them; this is the machine's screen output, not
+  per-viewer chrome, so it is not a toggle. **Interactive** chrome stays
+  per-frontend: the command palette is SDL-only UI (the web console grows its
+  own HTML controls — the Reset/Reboot/Pause buttons), the status bar is a
+  strip below the screen, and scanlines are an up-scaling effect the client
+  applies. The one deliberate difference: baked overlays are the low-res
+  machine pixels; the web page may later draw crisper HTML on top where it
+  wants.
 - **Per-connection vs shared view.** v1 = one machine, many viewers see the
   same screen (RFB shared-flag). Fine for a personal fleet.
 
