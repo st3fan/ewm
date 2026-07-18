@@ -13,11 +13,12 @@ and pass all verification gates (`cargo fmt --check`, `cargo clippy
 existing SDL frontends must stay **byte-for-byte** unchanged in behaviour —
 the golden-BMP tests are the tripwire.
 
-> **Branch:** All remote-console work happens on the long-lived
-> **`claude/remote-console`** integration branch, kept separate from `master`
-> until the feature is complete. Each sub-phase is cut *from* that branch and
-> opened as a PR *into* it (never into `master`). One final PR promotes the
-> integration branch to `master`. **One sub-phase = one PR.**
+> **Branch:** All remote-console work lands on the long-lived
+> **`remote-console`** integration branch, kept separate from `main` until the
+> feature is complete. Work branches (`claude/remote-console*`) are cut *from*
+> that branch and opened as PRs *into* it (never into `main`) — the prototype
+> PR #262 is the first. One final PR promotes the integration branch to
+> `main`. **One sub-phase = one PR.**
 
 Scope note: this is a **Linux-first** feature and may lean on a Linux/X11
 host for deployment tooling, exactly as the task allows. Nothing in the core
