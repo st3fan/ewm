@@ -122,7 +122,7 @@ struct MemoryOption {
 }
 
 #[derive(Debug, PartialEq)]
-struct Options {
+pub(crate) struct Options {
     model: OneModel,
     memory: Vec<MemoryOption>,
     trace_path: Option<String>,
@@ -240,7 +240,7 @@ fn options_to_config(options: &Options) -> crate::config::Config {
     }
 }
 
-fn parse_options(args: &[String]) -> Result<Options, i32> {
+pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
     let mut options = Options::default();
     // Pass 1: the config document — the same sources, order rules, and
     // built-ins as `ewm two` — seeds the options; anything given

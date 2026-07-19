@@ -567,6 +567,12 @@ Give `one` a `Driver` the same way (its `Tty.pixels` is already a `Vec<u32>`),
 so the Woz Monitor / KRUSADER machines are reachable remotely too. **Gate:**
 `ewm one --config builtin:replica1 --serve vnc://…` reachable from noVNC.
 
+> The config surface this phase wanted now exists
+> (`plans/20260719-02-one-config.md`): `one` speaks the full source
+> language, and the `remote` block is rejected for the one family in a
+> single place (`config::validate_complete`) — this phase relaxes that
+> check and wires the block, nothing more.
+
 ### Track B (optional) — native RDP, audio, gateways
 - **B1:** an `ironrdp-server` frontend (Tokio) reusing the same `Driver`
   boundary; browser client via `ironrdp-web`. Kept isolated behind a Cargo

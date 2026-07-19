@@ -28,6 +28,7 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 | A | `--config` + schema + serde types; today's layout expressible | M | **Done** |
 | B | Real slot flexibility: any slot, multiple Disk ][ controllers, empty slots | M/L | **Done** |
 | Sources | Built-ins, overlays, `--print-config` (`plans/20260718-02-config-sources.md` C1–C5) | M | **Done** |
+| One family | The same document for `ewm one` (`plans/20260719-02-one-config.md` O1–O5) | M | **Done** |
 | C | "Save current setup" from the palette; `.ewmachine` integration | M | Not started — seeded by `options_to_config` (C4) |
 
 ## Phase A decisions (recorded as built)
@@ -258,11 +259,48 @@ Phase C4 of `plans/20260718-02-config-sources.md`:
   the CWD print relative and would re-resolve against the printed
   file's directory — save next to where you ran, or use absolute paths.
 
+## Config sources — the one family (recorded as built)
+
+`plans/20260719-02-one-config.md` (O1–O5): `ewm one` speaks the same
+configuration language.
+
+- **One document type, not a second schema**: `Model` grew `apple1` /
+  `replica1` tokens with a derived **family** (`Family::Apple2` vs
+  `Family::Apple1`); a config fully describes *which* machine it is —
+  the property `.ewmachine` bundles and a future unified launcher need.
+- **Family cross-checks live in the completeness pass**, next to the
+  //e-only rules: on one-family documents, `machine.slots`,
+  `machine.aux`, `display.*`, `cpu.speed`, `input`, `boot`, `remote`,
+  `state`, and `debug.enabled` are **rejected, not ignored** — each
+  error names the offending key and model. Valid everywhere:
+  `machine.model`, `machine.memory`, `cpu.strict`, `debug.trace`.
+  Relaxing a key for the family (e.g. `remote` for REMOTE.md Phase 7)
+  is a one-place change.
+- **The subcommands enforce the family both ways** — a one-family
+  document is a *valid config* that `two` refuses to run (and vice
+  versa), each error pointing at the right subcommand.
+- **The shared source loop** (`config::collect_document`) carries pass 1
+  for both subcommands, parameterized by the seed model (`2plus` /
+  `replica1` — bare `ewm one` boots the Replica 1, the C default) and
+  the slots-materialization hook (`two`-only; a one-family document
+  never grows the ][+ default table).
+- **Built-ins** `builtin:apple1` / `builtin:replica1` are minimal
+  (`description` + `machine.model`; the ROMs are baked into the
+  machine); `builtin:list` shows all four names, and the boo bootloader
+  boots the Apple 1 / Replica 1 via `--config builtin:…`.
+- **`one`'s flags retired** (`--model`, `--memory`, `--trace`,
+  `--strict`) under the same v0.0.1 ruling as
+  `plans/20260719-01-flag-retirement.md`; config memory regions are an
+  upgrade (hex addresses, per-file relative-path resolution).
+
 ## What is configurable today (the schema inventory)
 
 Since `plans/20260719-01-flag-retirement.md`, the CLI column is
 `--set <key>=<value>` (or any config source) for everything — the
-per-setting convenience flags are gone.
+per-setting convenience flags are gone. Everything below except
+`machine.model`, `machine.memory`, `cpu.strict`, and `debug.trace` is
+**apple2-family only**: on an `apple1`/`replica1` document those keys
+are rejected by the completeness pass.
 
 | Source | Setting | Values |
 |---|---|---|
