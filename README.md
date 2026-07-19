@@ -76,19 +76,25 @@ Or start a machine directly:
 
 ```
 # Apple ][+ with color graphics and the DOS 3.3 sample programs disk
-cargo run --release -- two --set display:monitor=rgb --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
+cargo run --release -- two --set display:monitor=rgb \
+    --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
 
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
-cargo run --release -- two --set display:monitor=rgb --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
+cargo run --release -- two --set display:monitor=rgb \
+    --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
 
 # A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
-cargo run --release -- two --set display:monitor=rgb --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
+cargo run --release -- two --set display:monitor=rgb \
+    --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --config builtin:2e --set machine:aux:card=ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e \
+    --set machine:aux:card=ramworksiii \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
@@ -96,6 +102,80 @@ cargo run --release -- one --model replica1
 # Classic Apple 1
 cargo run --release -- one --model apple1
 ```
+
+### The three `two` machine profiles
+
+Bare `ewm two` boots the **default machine**: an Apple ][+ with the 16K
+Language Card in slot 0 (the classic 64K build), a Thunderclock in
+slot 1, and a Disk II controller in slot 6, on a green monochrome
+monitor. In config terms (`--print-config` prints the full document):
+
+```json
+{
+  "machine": {
+    "model": "2plus",
+    "slots": {
+      "0": { "card": "language" },
+      "1": { "card": "thunderclock" },
+      "6": { "card": "diskii" }
+    }
+  }
+}
+```
+
+Two more profiles ship *inside the binary* as built-in configs —
+`--config builtin:list` lists them, and the same files live in
+`configs/`:
+
+**`builtin:2plus`** — an Apple ][+ with the 64K Language Card and a
+Disk II in slot 6, on a green monochrome monitor. The default machine
+minus the clock card:
+
+```json
+{
+  "description": "Apple ][+ — 64K Language Card, Disk II in slot 6, green monitor",
+  "machine": {
+    "model": "2plus",
+    "slots": {
+      "0": { "card": "language" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "green" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:2plus
+```
+
+**`builtin:2e`** — an Enhanced Apple //e with the Extended 80-Column
+Card (64K) in the auxiliary slot, a UniDisk 3.5 controller in slot 5,
+a Disk II in slot 6, and an RGB color monitor:
+
+```json
+{
+  "description": "Enhanced Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "5": { "card": "liron" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:2e
+```
+
+None of the profiles mounts a disk — pair them with a `--set` override
+or an overlay, as in the examples above.
+
+### Composing a machine
 
 `--set <key>=<value>` overrides one value in the machine configuration
 by its colon-separated key path — any key the JSON config (below)
@@ -114,12 +194,6 @@ one document, merged strictly in command-line order —
 - **`--set <key>=<value>`** — single-value overrides;
 - and `--serve <url>`, structured sugar for the whole `remote` block,
   which overrides the finished document.
-
-Ready-made configs for the classic machines are built into the binary
-— an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced
-//e with the extended 80-column card, a UniDisk 3.5 controller in slot
-5, and a color monitor (`builtin:2e`); `--config builtin:list` lists
-them, and the same files live in `configs/`.
 
 An overlay describes just the part of the machine it cares about. This
 one (`examples/drive-with-total-replay.json`) adds a hard drive with
