@@ -4583,10 +4583,10 @@ mod tests {
     }
 
     #[test]
-    fn readme_two_examples_parse() {
-        // The C5 gate: every `cargo run --release -- two …` example in the
-        // README parses with today's flags, example files included (they
-        // are committed under examples/). parse_options opens every
+    fn readme_examples_parse() {
+        // The C5/O5 gate: every `cargo run --release -- two|one …` example
+        // in the README parses with today's flags, example files included
+        // (they are committed under examples/). parse_options opens every
         // --config/--config-overlay source, so a renamed flag, a bad
         // example path, or an example config that stops validating fails
         // here. (Boot-ability is not checked; --set media paths are never
@@ -4595,11 +4595,18 @@ mod tests {
         let readme = std::fs::read_to_string(format!("{root}/README.md")).expect("README.md");
         // Join backslash line continuations into single commands.
         let text = readme.replace("\\\n", " ");
-        let mut checked = 0;
+        let (mut checked_two, mut checked_one) = (0, 0);
         for line in text.lines() {
-            let Some(command) = line.trim().strip_prefix("cargo run --release -- two") else {
+            let Some(command) = line.trim().strip_prefix("cargo run --release -- ") else {
                 continue;
             };
+            let (subcommand, command) = match command.split_once(' ') {
+                Some((subcommand, rest)) => (subcommand, rest),
+                None => (command, ""),
+            };
+            if subcommand != "two" && subcommand != "one" {
+                continue;
+            }
             let mut args = shell_words(command);
             // The README's paths are relative to the repo root; this test
             // runs in ewm/. Anchor the arguments that parse_options opens.
@@ -4610,18 +4617,24 @@ mod tests {
                     args[i] = format!("{root}/{}", args[i]);
                 }
             }
-            let result = parse_options(&args);
             // Ok = a machine; Err(0) = a query that printed and exited
             // (--print-config, builtin:list).
-            assert!(
-                matches!(result, Ok(_) | Err(0)),
-                "README example failed: {line}"
-            );
-            checked += 1;
+            let good = match subcommand {
+                "two" => {
+                    checked_two += 1;
+                    matches!(parse_options(&args), Ok(_) | Err(0))
+                }
+                _ => {
+                    checked_one += 1;
+                    matches!(crate::one::parse_options(&args), Ok(_) | Err(0))
+                }
+            };
+            assert!(good, "README example failed: {line}");
         }
         assert!(
-            checked >= 8,
-            "only {checked} README `two` examples found — did the extractor break?"
+            checked_two >= 8 && checked_one >= 2,
+            "only {checked_two} two / {checked_one} one README examples found — \
+             did the extractor break?"
         );
     }
 

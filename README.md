@@ -175,6 +175,47 @@ cargo run --release -- two --config builtin:2e
 None of the profiles mounts a disk — pair them with a `--set` override
 or an overlay, as in the examples above.
 
+### The `one` machine profiles
+
+`ewm one` speaks the same configuration language (same sources, same
+built-ins mechanism, same `--print-config`) and has two profiles of its
+own — no slot hardware to describe, so each is one line of machine.
+Bare `ewm one` boots the Replica 1.
+
+**`builtin:apple1`** — the classic Apple 1: 6502, 8KB RAM, the Woz
+Monitor ROM at $FF00:
+
+```json
+{
+  "description": "Classic Apple 1 — 6502, 8KB RAM, Woz Monitor",
+  "machine": { "model": "apple1" }
+}
+```
+
+```
+cargo run --release -- one --config builtin:apple1
+```
+
+**`builtin:replica1`** — the Replica 1: 65C02, 32KB RAM, the KRUSADER
+assembler ROM at $E000:
+
+```json
+{
+  "description": "Replica 1 — 65C02, 32KB RAM, KRUSADER",
+  "machine": { "model": "replica1" }
+}
+```
+
+```
+cargo run --release -- one --config builtin:replica1
+```
+
+The Apple 1 has no slots or cards, so an `apple1`/`replica1` config
+takes only the keys that exist on the machine — `machine.memory`
+(extra RAM/ROM regions), `cpu.strict`, and `debug.trace`; anything
+else (`slots`, `display`, `remote`, …) is rejected by validation with
+an error naming the key.
+
 ### Composing a machine
 
 `--set <key>=<value>` overrides one value in the machine configuration
