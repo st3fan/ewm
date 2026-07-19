@@ -191,6 +191,11 @@ pub(crate) struct Options {
     /// Text file printed to the session before the machine boots
     /// (`--tty-banner`) — instructions for telnet visitors.
     tty_banner: Option<String>,
+    /// Proactively negotiate telnet (server echo, char-at-a-time) on
+    /// connect (`--tty-telnet`, implies `--tty`) — so a telnet client
+    /// stops echoing locally and lines appear once. Bare `--tty` stays
+    /// byte-clean for local terminals and `nc`.
+    tty_telnet: bool,
 }
 
 impl Default for Options {
@@ -204,6 +209,7 @@ impl Default for Options {
             strict: false,
             tty: false,
             tty_banner: None,
+            tty_telnet: false,
         }
     }
 }
@@ -242,6 +248,8 @@ fn usage() {
     eprintln!("                    and display; Meta-R resets, EOF ends the session");
     eprintln!("  --tty-banner <path>  text file printed to the session before the machine");
     eprintln!("                    boots (instructions for telnet visitors)");
+    eprintln!("  --tty-telnet      negotiate telnet on connect so a telnet client stops");
+    eprintln!("                    echoing locally (implies --tty; for the systemd units)");
 }
 
 /// Seed `Options` from the layered config document (pass 1 of
@@ -355,6 +363,10 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
             }
             "--print-config" => print_config = true,
             "--tty" => options.tty = true,
+            "--tty-telnet" => {
+                options.tty = true;
+                options.tty_telnet = true;
+            }
             "--tty-banner" => match it.next() {
                 Some(path) => options.tty_banner = Some(path.clone()),
                 None => {
@@ -435,6 +447,15 @@ const IAC_DONT: u8 = 254;
 const OPT_ECHO: u8 = 1;
 const OPT_SGA: u8 = 3;
 
+/// The server's offer to drive the session character-at-a-time with
+/// server-side echo: `WILL ECHO` + `WILL SUPPRESS-GO-AHEAD`. A telnet
+/// client that honours it stops echoing locally — the machine's own
+/// echo is then the only one, so lines appear once (not twice). Sent
+/// proactively on connect in `--tty-telnet` (`--tty` alone stays
+/// byte-clean for local terminals and `nc`); also the reactive reply
+/// when a plain `--tty` client speaks telnet first.
+const TELNET_ANNOUNCE: [u8; 6] = [IAC, IAC_WILL, OPT_ECHO, IAC, IAC_WILL, OPT_SGA];
+
 /// What one inbound byte turned into, once telnet framing is peeled off.
 enum TelnetOut {
     /// Nothing for the machine (protocol bytes, or swallowed).
@@ -476,10 +497,13 @@ impl TelnetFilter {
                     return TelnetOut::Key(b);
                 }
                 if !self.active {
-                    // First contact from a telnet client: negotiate
-                    // character-at-a-time with remote echo.
+                    // First contact from a telnet client (plain --tty):
+                    // negotiate character-at-a-time with remote echo.
+                    // (--tty-telnet has already announced proactively and
+                    // set `active`, so this fires only in the reactive
+                    // fallback path.)
                     self.active = true;
-                    replies.extend_from_slice(&[IAC, IAC_WILL, OPT_ECHO, IAC, IAC_WILL, OPT_SGA]);
+                    replies.extend_from_slice(&TELNET_ANNOUNCE);
                 }
                 self.state = TelnetState::Command;
                 TelnetOut::None
@@ -548,23 +572,42 @@ impl TelnetFilter {
 /// keyboard had no Meta, so `ESC` `r` back-to-back (what "Alt sends
 /// Escape" terminals transmit) warm-resets the machine, RESET-button
 /// style; an ESC followed by anything else, or by silence, is forwarded.
-fn tty_session<R, W>(
-    one: &mut One,
-    input: R,
-    output: &mut W,
+/// How a tty session behaves, separate from the machine it drives.
+#[derive(Default)]
+struct TtyConfig<'a> {
+    /// Pace to 1.023 MHz wall-clock (the real thing; tests pass `false`).
     throttle: bool,
-    banner: Option<&str>,
-) -> Result<(), String>
+    /// Printed before the machine boots (`--tty-banner`), CRLF-normalized.
+    banner: Option<&'a str>,
+    /// Announce telnet char-at-a-time + server echo on connect
+    /// (`--tty-telnet`) so a telnet client stops echoing locally.
+    telnet: bool,
+}
+
+fn tty_session<R, W>(one: &mut One, input: R, output: &mut W, cfg: TtyConfig) -> Result<(), String>
 where
     R: std::io::Read + Send + 'static,
     W: std::io::Write,
 {
     use std::sync::mpsc::{RecvTimeoutError, TryRecvError, channel};
 
+    let mut telnet = TelnetFilter::default();
+
+    // In telnet mode, offer WILL ECHO / WILL SGA up front — before the
+    // banner and before the client could type — so its local echo is off
+    // by the time it matters; mark the filter active so the reactive path
+    // does not announce a second time.
+    if cfg.telnet {
+        telnet.active = true;
+        if output.write_all(&TELNET_ANNOUNCE).is_err() || output.flush().is_err() {
+            return Ok(());
+        }
+    }
+
     // The banner greets the caller before the machine says anything —
     // instructions for a telnet visitor (--tty-banner). Line endings are
     // normalized to CRLF for raw terminals.
-    if let Some(banner) = banner {
+    if let Some(banner) = cfg.banner {
         let mut text = Vec::new();
         for &b in banner.as_bytes() {
             match b {
@@ -600,7 +643,6 @@ where
 
     // Bytes wait here until the PIA's one-byte latch is free.
     let mut pending: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
-    let mut telnet = TelnetFilter::default();
     let mut eof = false;
     let mut grace = TTY_EOF_GRACE_CYCLES;
     // The Meta-R window: when the *last* pending byte is an ESC, hold it
@@ -633,7 +675,7 @@ where
         // Gather input. When throttling, most of the tick's wall-clock
         // budget is spent waiting here…
         let mut raw: Vec<u8> = Vec::new();
-        if throttle {
+        if cfg.throttle {
             let budget = TTY_TICK.saturating_sub(tick_start.elapsed());
             match rx.recv_timeout(budget) {
                 Ok(b) => raw.push(b),
@@ -718,7 +760,7 @@ where
 
         // …and any budget left (input arrived early) is slept off, so a
         // paste cannot sprint the machine past 1.023 MHz.
-        if throttle {
+        if cfg.throttle {
             let remaining = TTY_TICK.saturating_sub(tick_start.elapsed());
             if !remaining.is_zero() {
                 std::thread::sleep(remaining);
@@ -819,8 +861,11 @@ pub fn main(args: &[String]) -> i32 {
             &mut one,
             std::io::stdin(),
             &mut stdout.lock(),
-            true,
-            banner.as_deref(),
+            TtyConfig {
+                throttle: true,
+                banner: banner.as_deref(),
+                telnet: options.tty_telnet,
+            },
         ) {
             Ok(()) => 0,
             Err(e) => {
@@ -1333,8 +1378,7 @@ mod tests {
             &mut one,
             std::io::Cursor::new(input.as_bytes().to_vec()),
             &mut out,
-            false,
-            None,
+            TtyConfig::default(),
         )
         .expect("session runs to EOF");
         String::from_utf8_lossy(&out).into_owned()
@@ -1399,8 +1443,10 @@ mod tests {
             &mut one,
             std::io::Cursor::new(b"".to_vec()),
             &mut out,
-            false,
-            Some("Welcome!\nMeta-R resets.\n"),
+            TtyConfig {
+                banner: Some("Welcome!\nMeta-R resets.\n"),
+                ..TtyConfig::default()
+            },
         )
         .expect("session runs to EOF");
         let text = String::from_utf8_lossy(&out);
@@ -1486,6 +1532,58 @@ mod tests {
     }
 
     #[test]
+    fn tty_telnet_announces_before_the_machine() {
+        // --tty-telnet leads the session with WILL ECHO + WILL SGA, so a
+        // passive telnet client (one that waits for the server) suppresses
+        // its local echo before anything else is sent — the fix for the
+        // double-echo when a client doesn't negotiate first.
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut out = Vec::new();
+        tty_session(
+            &mut one,
+            std::io::Cursor::new(b"".to_vec()),
+            &mut out,
+            TtyConfig {
+                banner: Some("Hi\n"),
+                telnet: true,
+                ..TtyConfig::default()
+            },
+        )
+        .expect("session runs to EOF");
+        // The very first bytes are the negotiation, ahead of the banner.
+        assert_eq!(&out[..6], &[255, 251, 1, 255, 251, 3], "{out:?}");
+        let banner = out.windows(2).position(|w| w == b"Hi").expect("banner");
+        assert!(banner >= 6, "banner before negotiation: {out:?}");
+
+        // Proactive mode must not double-announce when the client then
+        // sends its own IAC: the filter is already active, so a following
+        // IAC DO ECHO draws no second WILL.
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut out = Vec::new();
+        tty_session(
+            &mut one,
+            std::io::Cursor::new(vec![255u8, 253, 1]), // IAC DO ECHO
+            &mut out,
+            TtyConfig {
+                telnet: true,
+                ..TtyConfig::default()
+            },
+        )
+        .expect("session runs to EOF");
+        // Exactly one WILL ECHO (bytes 251, 1) in the whole stream.
+        let wills = out.windows(2).filter(|w| *w == [251u8, 1]).count();
+        assert_eq!(wills, 1, "double-announced: {out:?}");
+
+        // The flag implies --tty and parses.
+        let o = opts(&["--config", "builtin:apple1", "--tty-telnet"]);
+        assert!(o.tty && o.tty_telnet);
+    }
+
+    #[test]
     fn tty_session_speaks_telnet_when_spoken_to() {
         // A telnet client's opening volley and a monitor command, then —
         // once BASIC is up — BREAK: the reply stream carries our
@@ -1501,7 +1599,7 @@ mod tests {
         let mut one = build_machine(&o).expect("machine must construct");
         one.cpu.reset();
         let mut out = Vec::new();
-        tty_session(&mut one, input, &mut out, false, None).expect("session runs to EOF");
+        tty_session(&mut one, input, &mut out, TtyConfig::default()).expect("session runs to EOF");
         // Negotiation bytes are in the output stream, before the text.
         let wills = [255u8, 251, 1, 255, 251, 3];
         assert!(

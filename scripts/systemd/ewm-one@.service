@@ -14,7 +14,9 @@ Description=Apple 1 for %i
 [Service]
 # Install banner.txt (next to these units) wherever you like — it is
 # readable under ProtectSystem=strict from /usr or /etc.
-ExecStart=/usr/local/bin/ewm one --config builtin:apple1 --tty --tty-banner /usr/local/share/ewm/banner.txt
+# --tty-telnet (implies --tty) negotiates server-side echo on connect, so
+# a telnet client stops echoing locally and each line appears once.
+ExecStart=/usr/local/bin/ewm one --config builtin:apple1 --tty-telnet --tty-banner /usr/local/share/ewm/banner.txt
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal

@@ -147,9 +147,14 @@ setup are documented in `scripts/systemd/README.md`.
   normalized) to the session before the machine says anything —
   visitor instructions; `scripts/systemd/banner.txt` is the shipped
   example, wired into the service unit.
-- **Telnet** (hand-rolled RFC 854 subset): dormant until the first
-  inbound `IAC`, so `nc` and local terminals never see protocol
-  bytes; then `WILL ECHO` + `WILL SGA` are announced (character-at-a-
-  time, remote echo), other negotiations are refused, subnegotiations
-  swallowed. Input EOF gets a two-emulated-second grace so the last
+- **Telnet** (hand-rolled RFC 854 subset): `WILL ECHO` + `WILL SGA`
+  (character-at-a-time, server echo — so a telnet client stops echoing
+  locally and lines appear once), other negotiations refused,
+  subnegotiations swallowed, `BRK`/`IP` → reset. `--tty-telnet` (what
+  the systemd unit uses) announces the two WILLs **proactively on
+  connect** — a passive telnet client waits for the server, so a
+  reactive-only offer never fired and every line double-echoed. Bare
+  `--tty` stays byte-clean for local terminals and `nc`, with a
+  reactive fallback that still negotiates if such a client sends an
+  `IAC` first. Input EOF gets a two-emulated-second grace so the last
   command finishes printing.

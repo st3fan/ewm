@@ -65,8 +65,11 @@ telnet localhost 6502
 You get the banner, then the monitor's `\` prompt. Things to try are
 in the banner: `FF00.FF1F` dumps ROM, `E000R` starts Integer BASIC.
 **Meta-R** (or telnet's `send brk` after `Ctrl-]`) is the RESET
-button; `Ctrl-]` then `quit` leaves telnet. `nc localhost 6502` works
-too — the telnet protocol layer stays dormant for non-telnet clients.
+button; `Ctrl-]` then `quit` leaves telnet. Each line appears once —
+the served unit runs `--tty-telnet`, which tells your telnet client to
+stop echoing locally so only the machine's own echo shows. `nc
+localhost 6502` works too (it just sees a few telnet negotiation bytes
+at the very start, which it renders as harmless garbage).
 
 Each active session is its own unit instance:
 
@@ -86,7 +89,10 @@ journalctl -u 'ewm-one@*'              # per-instance stderr (errors land here)
   `RuntimeMaxSec=4h` (abandoned sessions do not keep a 1 MHz loop
   forever), `MemoryMax=64M`.
 - **Local testing without systemd**: `ewm one --tty` in any terminal,
-  or `nc -l 6502 --sh-exec 'ewm one --tty'`.
+  or `nc -l 6502 --sh-exec 'ewm one --tty-telnet'`. (Bare `--tty` is
+  byte-clean — no telnet negotiation — for a local terminal or a raw
+  pipe; `--tty-telnet` adds the negotiation that suppresses a telnet
+  client's local echo, and is what the systemd unit uses.)
 
 ## Security posture
 
@@ -116,7 +122,15 @@ runtime limits are the polite fence, not a security boundary.
 - **Connection opens, then closes immediately** — check
   `journalctl -u 'ewm-one@*'`; a missing banner file
   (`cannot read banner …`) or a bad `ExecStart` path lands there.
-- **Garbled/no echo in a session** — your client didn't negotiate
-  telnet (it may be a raw client in line mode). That's fine: `nc` and
-  line-mode sessions still work, they just echo locally and send
-  whole lines.
+- **Every line appears twice** — your client is echoing locally on top
+  of the machine's own echo. The served unit uses `--tty-telnet`, which
+  suppresses that; if you see doubling, you're likely connected to a
+  plain `--tty` instance (e.g. a local `ewm one --tty`, whose terminal
+  echoes in cooked mode) or a telnet client that ignores the
+  negotiation. For the systemd endpoint, confirm `ExecStart` says
+  `--tty-telnet`.
+- **A few junk characters at the very start of an `nc` session** —
+  those are the telnet `WILL ECHO`/`WILL SGA` bytes (`--tty-telnet`
+  announces them on connect); `nc` doesn't speak telnet, so it shows
+  them raw. Harmless. Use a plain `--tty` instance if you want a
+  byte-clean pipe.
