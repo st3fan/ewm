@@ -69,3 +69,5 @@ tmp
 /target/
 
 dist/
+
+.DS_Store
