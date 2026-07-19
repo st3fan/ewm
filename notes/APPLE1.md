@@ -88,3 +88,36 @@ The only *fixed* hardware in the one family is the PIA at
 config. (The Apple 1's 7-bit display masking stays a `machine.model`
 behavior: it is a property of the terminal section, not of the memory
 map.)
+
+## As built (plans/20260719-03, R1–R3)
+
+- **`rom/` renamed to `roms/`**; the four mountable images landed as
+  committed files (name = stem = `builtin:` token), the historical
+  `apple1.rom`/`krusader.rom` retired, and the decomposition is pinned
+  by SHA-1 provenance tests (`config.rs`) *and* machine-level byte
+  identity (`one.rs`): the composed `builtin:replica1` `$E000-$FFFF`
+  equals the Krusader 65C02 distribution, and the 6502-slice spelling
+  reproduces the historical `krusader.rom` machine.
+- **`config::rom_builtin` / `read_memory_image`**: a memory region's
+  `path` of `builtin:<name>` resolves against the embedded registry,
+  never the filesystem; `referenced_files` skips it, so built-in
+  configs carry ROM references and stay self-contained.
+- **`machine.cpu`** (`"6502"`/`"65C02"`) and **RAM-bank regions**
+  (`size`, RAM only, exactly-one-of path/size) are apple1-family keys;
+  layouts are validated — no overlaps with each other or the PIA, fit
+  in 64K, and something must cover the reset vector (`$FFFC-$FFFD`).
+  File images have unknown extents and get start-address checks plus
+  benefit of the doubt on the vector.
+- **`One::from_components(model, cpu, regions)`** is the single
+  construction path (no base RAM — the board is entirely regions);
+  `One::new(model)` builds from the model's *built-in config*, so the
+  board is described exactly once, in `configs/`. One-family
+  `machine.memory` describes the **whole board**; absent means the
+  model's builtin (`normalize` fills the options, so `--print-config`
+  always shows the full board).
+- **The profiles are the maps above**: `builtin:apple1` = 6502 +
+  4KB@`$0000` + BASIC preloaded as *writable RAM* in the `$E000` bank
+  (cassette-faithful, minus the cassette; `E000R` starts it — pinned
+  by a boot-to-BASIC test) + pristine WozMon; `builtin:replica1` =
+  65C02 + 32KB + ROM BASIC + the 65C02 Krusader slice, fixing the
+  historical 6502-build-on-65C02 mismatch.

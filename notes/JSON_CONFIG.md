@@ -297,20 +297,22 @@ configuration language.
 
 Since `plans/20260719-01-flag-retirement.md`, the CLI column is
 `--set <key>=<value>` (or any config source) for everything — the
-per-setting convenience flags are gone. Everything below except
-`machine.model`, `machine.memory`, `cpu.strict`, and `debug.trace` is
-**apple2-family only**: on an `apple1`/`replica1` document those keys
-are rejected by the completeness pass.
+per-setting convenience flags are gone. Family rules (the completeness
+pass rejects the rest by name): `machine.model`, `machine.memory`,
+`cpu.strict`, and `debug.trace` apply everywhere; `machine.cpu` and
+RAM-bank (`size`) regions are **apple1-family only**; everything else
+below is **apple2-family only**.
 
 | Source | Setting | Values |
 |---|---|---|
-| config + `--set` | `machine.model` | `2plus`, `2e` |
+| config + `--set` | `machine.model` | `2plus`, `2e`, `apple1`, `replica1` |
+| config + `--set` | `machine.cpu` | `6502`, `65C02` (apple1 family; absent = the model's CPU) |
 | config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
 | config + `--set` + palette | `display.monitor` | `green`, `amber`, `white`, `rgb` |
 | config + `--set` + palette | `display.scanlines` | `off`, `light`, `heavy` |
 | config + `--set` | `boot.delay` | seconds |
 | config + `--set` | `display.fps` | display refresh |
-| config / overlay files | `machine.memory` | `type`/`address`/`path` regions (`--set` cannot reach arrays) |
+| config / overlay files | `machine.memory` | regions: `type` + `address` + one of `path` (a file or `builtin:<rom>`) or `size` (an empty RAM bank; apple1 family). On the apple1 family the regions describe the whole board. (`--set` cannot reach arrays) |
 | config + `--set` | `debug.trace`, `cpu.strict`, `debug.enabled` | debugging |
 | config + `--set` + palette | `cpu.speed` | 1.023 MHz (normal), 3.58 MHz, 7.16 MHz — the classic accelerator steps |
 | config + `--set` + palette | `input.controller` | picked by name when several are present |
