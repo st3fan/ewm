@@ -178,17 +178,34 @@ or an overlay, as in the examples above.
 ### The `one` machine profiles
 
 `ewm one` speaks the same configuration language (same sources, same
-built-ins mechanism, same `--print-config`) and has two profiles of its
-own — no slot hardware to describe, so each is one line of machine.
-Bare `ewm one` boots the Replica 1.
+built-ins mechanism, same `--print-config`), and its profiles are the
+machine's schematic: the CPU, every RAM bank with its size and address,
+and every ROM image with its address, all in the JSON. ROM images ship
+inside the binary and mount with `builtin:<name>` in a region's `path`
+— `builtin:WozMon`, `builtin:apple1-basic`, `builtin:Krusader-1.3-6502`,
+`builtin:Krusader-1.3-65C02` — or from your own ROM file by path. The
+only fixed hardware is the PIA (keyboard in, video out) at `$D010`.
+Bare `ewm one` boots the Replica 1. (The memory maps and ROM
+provenance are in `notes/APPLE1.md`.)
 
-**`builtin:apple1`** — the classic Apple 1: 6502, 8KB RAM, the Woz
-Monitor ROM at $FF00:
+**`builtin:apple1`** — the classic Apple 1: a 6502, 4KB RAM at
+`$0000`, a second 4KB RAM bank at `$E000` preloaded with Woz's Integer
+BASIC (the real machine loaded it from cassette every power-on; type
+`E000R` at the monitor to start it), and the 256-byte Woz Monitor ROM
+at `$FF00`:
 
 ```json
 {
-  "description": "Classic Apple 1 — 6502, 8KB RAM, Woz Monitor",
-  "machine": { "model": "apple1" }
+  "description": "Classic Apple 1 — 6502, 4KB+4KB RAM, Integer BASIC preloaded, Woz Monitor",
+  "machine": {
+    "model": "apple1",
+    "cpu": "6502",
+    "memory": [
+      { "type": "ram", "address": "0x0000", "size": "4k" },
+      { "type": "ram", "address": "0xe000", "path": "builtin:apple1-basic" },
+      { "type": "rom", "address": "0xff00", "path": "builtin:WozMon" }
+    ]
+  }
 }
 ```
 
@@ -196,13 +213,24 @@ Monitor ROM at $FF00:
 cargo run --release -- one --config builtin:apple1
 ```
 
-**`builtin:replica1`** — the Replica 1: 65C02, 32KB RAM, the KRUSADER
-assembler ROM at $E000:
+**`builtin:replica1`** — the Replica 1: a 65C02, 32KB RAM, and the
+real board's ROM set — Integer BASIC at `$E000` and Krusader 1.3 (the
+65C02 build, which carries its own monitor page at `$FF00`) at
+`$F000`. Byte for byte, `$E000-$FFFF` is the Krusader 1.3
+distribution image:
 
 ```json
 {
-  "description": "Replica 1 — 65C02, 32KB RAM, KRUSADER",
-  "machine": { "model": "replica1" }
+  "description": "Replica 1 — 65C02, 32KB RAM, Integer BASIC + Krusader 1.3 in ROM",
+  "machine": {
+    "model": "replica1",
+    "cpu": "65C02",
+    "memory": [
+      { "type": "ram", "address": "0x0000", "size": "32k" },
+      { "type": "rom", "address": "0xe000", "path": "builtin:apple1-basic" },
+      { "type": "rom", "address": "0xf000", "path": "builtin:Krusader-1.3-65C02" }
+    ]
+  }
 }
 ```
 
@@ -210,11 +238,14 @@ assembler ROM at $E000:
 cargo run --release -- one --config builtin:replica1
 ```
 
-The Apple 1 has no slots or cards, so an `apple1`/`replica1` config
-takes only the keys that exist on the machine — `machine.memory`
-(extra RAM/ROM regions), `cpu.strict`, and `debug.trace`; anything
-else (`slots`, `display`, `remote`, …) is rejected by validation with
-an error naming the key.
+When a config names `machine.memory`, it describes the *whole board* —
+absent, the model's built-in board applies — and validation keeps it
+honest: regions must not overlap each other or the PIA, and something
+must cover the reset vector (`$FFFC-$FFFD`) or the machine cannot
+boot. Beyond the components, an `apple1`/`replica1` config takes only
+the keys that exist on the machine — `cpu.strict` and `debug.trace`;
+anything else (`slots`, `display`, `remote`, …) is rejected by
+validation with an error naming the key.
 
 ### Composing a machine
 
