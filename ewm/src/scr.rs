@@ -24,7 +24,7 @@ pub enum ColorScheme {
 }
 
 /// The monitor a machine is plugged into: three classic monochrome phosphors
-/// or an RGB color monitor. Selected at startup with `--color <style>` and at
+/// or an RGB color monitor. Selected at startup by `display.monitor` and at
 /// runtime from the command palette ("Monitor Style: …").
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum MonitorStyle {
@@ -37,17 +37,6 @@ pub enum MonitorStyle {
 }
 
 impl MonitorStyle {
-    /// Parse a `--color` flag value.
-    pub fn parse(s: &str) -> Option<MonitorStyle> {
-        match s {
-            "green" => Some(MonitorStyle::Green),
-            "amber" => Some(MonitorStyle::Amber),
-            "white" => Some(MonitorStyle::White),
-            "rgb" => Some(MonitorStyle::Rgb),
-            _ => None,
-        }
-    }
-
     /// The human label used by the command palette.
     pub fn label(self) -> &'static str {
         match self {
@@ -756,13 +745,7 @@ mod tests {
     use crate::two::TwoType;
 
     #[test]
-    fn monitor_style_parses_flag_values() {
-        assert_eq!(MonitorStyle::parse("green"), Some(MonitorStyle::Green));
-        assert_eq!(MonitorStyle::parse("amber"), Some(MonitorStyle::Amber));
-        assert_eq!(MonitorStyle::parse("white"), Some(MonitorStyle::White));
-        assert_eq!(MonitorStyle::parse("rgb"), Some(MonitorStyle::Rgb));
-        assert_eq!(MonitorStyle::parse("blue"), None);
-        assert_eq!(MonitorStyle::parse(""), None);
+    fn monitor_style_defaults_and_labels() {
         // The palette wording: RGB reads as "Color".
         assert_eq!(MonitorStyle::Rgb.label(), "Color");
         // The historical default.

@@ -109,7 +109,7 @@ as a backlog item there, don't block `two`'s cleanup on it.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | F1 | Retire the quiet seven: `--scanlines`, `--fps`, `--strict`, `--debug`, `--boot-delay`, `--trace`, `--state`(*) — tests, usage, docs | M | Done |
-| F2 | Retire the muscle-memory trio: `--model`, `--color`, `--aux` — README quick-start rewritten builtin-first, `main.rs` hint updated | M | Not started |
+| F2 | Retire the muscle-memory trio: `--model`, `--color`, `--aux` — README quick-start rewritten builtin-first, `main.rs` hint updated | M | Done |
 | F3 | Retire `--memory`; `apply_set` error text updated; overlay documented as the memory-region path | S | Not started |
 
 (*) `--state` moves to F1 only if the kickoff decision says retire.

@@ -174,7 +174,7 @@ Today: Reset, Pause, Full Screen, three CPU speeds. Cheap, high-value adds:
   show the mounted image names.
 - **Save Screenshot** (S) — see Video above.
 - **Monitor style & color scheme** (S) — runtime toggle instead of
-  `--color`.
+  the startup setting.
 - **Save/Load State** (see next section) as palette entries.
 - **Copy screen text** (S) — `text_screen()`/`text_screen_80()` already
   produce exactly what "Copy Text Screen" should put on the clipboard.

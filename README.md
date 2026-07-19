@@ -28,7 +28,7 @@ and sound.
   drives, a slot 7 hard drive for 32MB ProDOS block images (boots
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
   low-resolution and high-resolution graphics on a green, amber or white
-  monochrome monitor or in color (`--color [green|amber|white|rgb]`) with an
+  monochrome monitor or in color (`--set display:monitor=rgb`) with an
   optional scanline effect (`--set display:scanlines=light`), both switchable
   at runtime from the command palette,
   speaker sound, joystick paddles and buttons (game controllers hot-plug —
@@ -42,12 +42,13 @@ and sound.
   ("Liron", `{"card": "liron"}`), a SmartPort card ProDOS boots from
 * **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
   language card and MMU/IOU soft switches, a swappable auxiliary slot
-  (`--aux`): the Extended 80-Column Text Card (64K, default), the plain
+  (`machine.aux`): the Extended 80-Column Text Card (64K, default), the plain
   80-Column Text Card (1K), or an Applied Engineering RamWorks III with up
-  to 8MB (`--aux ramworksiii:1m`), 40- and 80-column text with lower
+  to 8MB (`--set 'machine:aux={"card":"ramworksiii","size":"1m"}'`), 40- and
+  80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
   graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
-  hard drive, clock and sound. Start it with `two --model 2e`.
+  hard drive, clock and sound. Start it with `two --config builtin:2e`.
 
 ## Requirements
 
@@ -75,19 +76,19 @@ Or start a machine directly:
 
 ```
 # Apple ][+ with color graphics and the DOS 3.3 sample programs disk
-cargo run --release -- two --color --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
+cargo run --release -- two --set display:monitor=rgb --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
 
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
-cargo run --release -- two --color --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
+cargo run --release -- two --set display:monitor=rgb --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
 
 # A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
-cargo run --release -- two --color --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
+cargo run --release -- two --set display:monitor=rgb --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
 cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --model 2e --aux ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e --set machine:aux:card=ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
@@ -111,8 +112,8 @@ one document, merged strictly in command-line order —
 - **`--config-overlay <source>`** — a *partial* config layered on top;
   repeatable;
 - **`--set <key>=<value>`** — single-value overrides;
-- and the remaining convenience flags (`--model`, `--color`, …), which
-  override the finished document.
+- and `--serve <url>`, structured sugar for the whole `remote` block,
+  which overrides the finished document.
 
 Ready-made configs for the classic machines are built into the binary
 — an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced

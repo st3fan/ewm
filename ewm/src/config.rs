@@ -139,7 +139,7 @@ pub enum AuxKind {
 }
 
 impl AuxKind {
-    /// The card's `--aux` flag token, so config and CLI share one
+    /// The card's aux token, so config and the power-on path share one
     /// construction path (`crate::aux::parse`).
     pub fn flag_token(self) -> &'static str {
         match self {
