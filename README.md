@@ -398,7 +398,8 @@ Working, but still settling — each has a full working document in
   it boots that disk. See [MAC_APP.md](notes/MAC_APP.md).
 - **Apple 1 over telnet** — `ewm one --tty` is a headless machine whose
   keyboard and display are stdin/stdout (Meta-R or telnet's `send brk`
-  is the RESET button), and `scripts/systemd/` has inetd-style socket
+  is the RESET button), `--tty-banner` greets callers with a text file
+  of instructions, and `scripts/systemd/` has inetd-style socket
   units: `telnet host 6502` boots a fresh Apple 1 per connection. See
   [APPLE1.md](notes/APPLE1.md).
 
