@@ -271,15 +271,24 @@ error, so it doubles as a config linter for scripts and CI:
 cargo run --release -- two --config examples/myiie.json --set display:monitor=amber --print-config
 ```
 
-Each subcommand accepts `--help` for all options. Useful keys while the
-emulator runs:
+Each subcommand accepts `--help` for all options.
 
-| Key | Action |
-|---|---|
-| Cmd-R | Reset the machine |
-| Cmd-Return | Toggle fullscreen |
-| Cmd-P | Pause (Apple ][+ / //e) |
-| Cmd-I | Toggle the status bar with drive lights (Apple ][+ / //e) |
+### Key commands
+
+| Key | Action | Machines |
+|---|---|---|
+| Cmd-K | Open or close the Command Palette | all |
+| Cmd-R | Reset the machine (warm) | all |
+| Cmd-Shift-R | Reboot: power off, power on | ][+ / //e |
+| Cmd-P | Pause / unpause | ][+ / //e |
+| Cmd-Return | Toggle fullscreen | all |
+| Cmd-I | Toggle the status bar with drive lights | ][+ / //e |
+
+While the palette is open it owns the keyboard: type to filter, ↑/↓ to
+move, Return to run the selected command, Esc (or Cmd-K again) to
+close. Every other key goes to the emulated machine — including
+Ctrl-A…Z, which arrive as control characters. Dropping a disk image on
+a running ][+ / //e window swaps it into drive 1.
 
 There are also headless terminal consoles, handy for quick experiments
 without a window:
