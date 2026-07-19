@@ -144,7 +144,7 @@ translation table** we re-target from SDL keycodes to RFB/X11 keysyms.
 ```
    ┌──────────────────────── one host, one process per machine ────────────────────────┐
    │                                                                                     │
-   │  ewm two --serve vnc://0.0.0.0:5901 --config configs/enhanced.json                  │
+   │  ewm two --serve vnc://0.0.0.0:5901 --config configs/2e.json                  │
    │  ┌───────────────────────────────────────────────────────────────────────────┐    │
    │  │  Machine driver (shared, frontend-agnostic — Phase 1)                       │    │
    │  │    step CPU (speed/fps cycles) → Scr/Tty.update() → frame(): &[u32]         │    │
@@ -234,8 +234,8 @@ A new top-level `remote` block in the JSON config (`config.rs` already has
 ```
 
 ```
-ewm two --serve vnc://0.0.0.0:5901 --config configs/enhanced.json
-ewm two --serve vnc://0.0.0.0:5901?ws=5701&web=1 --config configs/plus.json
+ewm two --serve vnc://0.0.0.0:5901 --config configs/2e.json
+ewm two --serve vnc://0.0.0.0:5901?ws=5701&web=1 --config configs/2plus.json
 ```
 
 `--serve` parses to the same `remote` struct and is mutually exclusive with
@@ -558,7 +558,7 @@ does. Gate run in a real Chrome tab: `http://127.0.0.1:5701/` booted the DOS
 A `systemd` template unit `ewm-vnc@.service` (instance name = config file →
 deterministic port pair) and/or `scripts/ewm-farm.sh` that launches a set of
 configs on a port range. Document the reverse-proxy + Guacamole options
-(Section 5/10). **Gate:** boot `configs/plus.json` and `configs/enhanced.json`
+(Section 5/10). **Gate:** boot `configs/2plus.json` and `configs/2e.json`
 (and a third) on distinct ports; reach each from a browser tab.
 
 ### Phase 7 — Apple 1 / Replica 1 over the same frontend

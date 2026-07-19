@@ -71,6 +71,28 @@ fn two_controller_config_loads() {
 }
 
 #[test]
+fn builtin_configs_load_and_match_the_committed_files() {
+    // The `builtin:` source scheme resolves against the embedded copies of
+    // the configs/ files; both spellings must describe the same machine.
+    for name in ["2plus", "2e"] {
+        let config = config::load_builtin(name).expect("builtin loads");
+        assert!(config.description.is_some(), "builtin:{name}");
+
+        let builtin =
+            config::load_source_document(&format!("builtin:{name}")).expect("builtin source loads");
+        let committed = format!("{}/../configs/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        let file = config::load_document(&committed).expect("committed file loads");
+        assert_eq!(builtin, file, "builtin:{name} != {committed}");
+    }
+
+    let err = config::load_builtin("replica1").unwrap_err();
+    assert_eq!(
+        err,
+        r#"no built-in config "replica1" (available: 2e, 2plus)"#
+    );
+}
+
+#[test]
 fn missing_file_and_bad_multiplicity_error() {
     let err = config::load(fixture!("does-not-exist.json")).unwrap_err();
     assert!(err.starts_with("cannot read config"), "{err}");

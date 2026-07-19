@@ -129,15 +129,16 @@ cargo run --release -- two --config myiie.json
 }
 ```
 
-Ready-made configs for the classic machines live in `configs/` — an
-Apple ][+ with a green monitor (`plus.json`) and an Enhanced //e with
-the extended 80-column card, a UniDisk 3.5 controller in slot 5, and a
-color monitor (`enhanced.json`).
+Ready-made configs for the classic machines are built into the binary
+— an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced
+//e with the extended 80-column card, a UniDisk 3.5 controller in slot
+5, and a color monitor (`builtin:2e`); `--config builtin:list` lists
+them, and the same files live in `configs/`.
 Neither names a disk, so pair them with a `--set` override, which
 merges into the config's slot 6 card:
 
 ```
-cargo run --release -- two --config configs/enhanced.json --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 ```
 
 The machine's physical layout lives in `slots`: any card in any slot,
