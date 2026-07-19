@@ -19,6 +19,11 @@ sdl-pkgconfig = ["sdl3/use-pkg-config"]
 # App-bundle builds compile SDL3 from source and link it statically, so
 # EWM.app is self-contained (see scripts/make-app.sh). Needs CMake.
 sdl-static = ["sdl3/build-from-source-static"]
+# Headless-server builds (the telnet Apple 1, scripts/systemd/): static
+# SDL compiled as a Unix console build — no X11/Wayland, so no X dev
+# packages on the box. Only --tty runs on such a binary; the SDL
+# frontends need a real video build. Needs CMake.
+sdl-static-headless = ["sdl-static", "sdl3/build-from-source-unix-console"]
 
 [dev-dependencies]
 # Only the icon-generator example (examples/icon.rs) uses this, for the

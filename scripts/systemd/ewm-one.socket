@@ -1,8 +1,22 @@
 # An Apple 1 per telnet connection (plans/20260719-04-apple1-telnet.md):
 # inetd-style socket activation — systemd accepts each connection on
 # port 6502 and starts a fresh ewm-one@.service instance with the
-# connection as stdin/stdout. Install both units in /etc/systemd/system,
-# then: systemctl enable --now ewm-one.socket
+# connection as stdin/stdout.
+#
+# Install checklist (from a repo checkout, on the server):
+#
+#   # A self-contained headless binary: static SDL, Unix console build —
+#   # no X11/Wayland dev packages needed on the box. Needs CMake.
+#   cargo build --release -p ewm --no-default-features --features sdl-static-headless
+#
+#   sudo install -m 755 target/release/ewm /usr/local/bin/ewm
+#   sudo install -D -m 644 scripts/systemd/banner.txt /usr/local/share/ewm/banner.txt
+#   sudo cp scripts/systemd/ewm-one.socket scripts/systemd/ewm-one@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ewm-one.socket
+#   telnet localhost 6502
+#
+# Per-instance logs: journalctl -u 'ewm-one@*'
 
 [Unit]
 Description=Apple 1 telnet listener (one machine per connection)
