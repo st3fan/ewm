@@ -5,8 +5,9 @@
   convenience flags — this plan is the follow-through: now that every
   machine setting lives in the document, most convenience flags are
   duplicates and can go).
-- **Status:** draft — iterate here before kickoff
-- **Target:** `main`; one PR per phase unless decided otherwise at kickoff
+- **Status:** complete — all phases landed (one PR, three phase commits;
+  owner's call)
+- **Target:** `main`
 
 ## Goal
 
@@ -110,7 +111,7 @@ as a backlog item there, don't block `two`'s cleanup on it.
 |---|---|---|---|
 | F1 | Retire the quiet seven: `--scanlines`, `--fps`, `--strict`, `--debug`, `--boot-delay`, `--trace`, `--state`(*) — tests, usage, docs | M | Done |
 | F2 | Retire the muscle-memory trio: `--model`, `--color`, `--aux` — README quick-start rewritten builtin-first, `main.rs` hint updated | M | Done |
-| F3 | Retire `--memory`; `apply_set` error text updated; overlay documented as the memory-region path | S | Not started |
+| F3 | Retire `--memory`; `apply_set` error text updated; overlay documented as the memory-region path | S | Done |
 
 (*) `--state` moves to F1 only if the kickoff decision says retire.
 
@@ -123,18 +124,14 @@ flags go. F3 is independent of F2 but reads best last.
   green; `--print-config` round-trip tests still pass (they compose via
   `--set` after F1/F2 rewrites).
 
-## Decisions to make at kickoff
+## Kickoff decisions (as built)
 
-1. **F2 scope** — retire all three of `--model`/`--color`/`--aux`, or
-   keep any as permanent sugar? (Recommendation: retire all three;
-   `--config builtin:2e` is as short as `--model 2e` and better.)
-2. **`--state`** — retire (consistency) or keep (recent deliberate UX)?
-   Recommendation: retire; `--set state:path=…` is one token longer.
-3. **`--serve`** — confirmed keep, or schedule retirement behind
-   built-in overlays? Recommendation: keep.
-4. **`--memory`** — overlay-only, or extend `--set` with array append
-   first? Recommendation: overlay-only.
-5. **PR granularity** — per phase (default) or one PR.
+1. **F2 scope** — all three of `--model`/`--color`/`--aux` retired, per
+   the recommendation.
+2. **`--state`** — retired (consistency won).
+3. **`--serve`** — kept.
+4. **`--memory`** — overlay-only; `--set` did not grow array append.
+5. **PR granularity** — one PR, three phase commits (owner's call).
 
 ## Hazards
 

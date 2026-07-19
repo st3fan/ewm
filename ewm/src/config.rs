@@ -704,7 +704,7 @@ pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> 
         let map = match node {
             Value::Array(_) => {
                 return Err(format!(
-                    "--set {expr}: cannot index into the {:?} array (memory regions come from --memory)",
+                    "--set {expr}: cannot index into the {:?} array (memory regions come from a config or overlay file)",
                     segments[..i].join(":")
                 ));
             }

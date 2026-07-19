@@ -272,7 +272,7 @@ per-setting convenience flags are gone.
 | config + `--set` + palette | `display.scanlines` | `off`, `light`, `heavy` |
 | config + `--set` | `boot.delay` | seconds |
 | config + `--set` | `display.fps` | display refresh |
-| config + `--memory` | `machine.memory` | `type`/`address`/`path` regions |
+| config / overlay files | `machine.memory` | `type`/`address`/`path` regions (`--set` cannot reach arrays) |
 | config + `--set` | `debug.trace`, `cpu.strict`, `debug.enabled` | debugging |
 | config + `--set` + palette | `cpu.speed` | 1.023 MHz (normal), 3.58 MHz, 7.16 MHz — the classic accelerator steps |
 | config + `--set` + palette | `input.controller` | picked by name when several are present |

@@ -2065,33 +2065,17 @@ struct MemoryOption {
     path: String,
 }
 
-fn parse_memory_option(s: &str) -> Option<MemoryOption> {
-    let mut parts = s.splitn(3, ':');
-    let kind = parts.next()?;
-    if kind != "ram" && kind != "rom" {
-        return None;
-    }
-    let address = parts.next()?;
-    let path = parts.next()?;
-    Some(MemoryOption {
-        rom: kind == "rom",
-        address: address.parse::<i64>().unwrap_or(0) as u16,
-        path: path.to_string(),
-    })
-}
-
 fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
     eprintln!("                    config (builtin:2plus, builtin:2e; builtin:list lists");
-    eprintln!("                    them); at most one; flags override it");
+    eprintln!("                    them); at most one, the base of the document");
     eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
     eprintln!("                    applied in order with --config and --set");
     eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
     eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
     eprintln!("  --print-config    print the machine the command line describes (sources");
     eprintln!("                    plus flags) as config JSON and exit");
-    eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --wozbug [port]   WozBug debugger server on 127.0.0.1 (default port 6502)");
     eprintln!("  --break <addr,..> break at hex addresses or symbols (implies --wozbug)");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
@@ -2305,10 +2289,6 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 // Applied in pass 1.
                 it.next();
             }
-            "--memory" => match it.next().and_then(|s| parse_memory_option(s)) {
-                Some(m) => options.memory.push(m),
-                None => return Err(1),
-            },
             // Optional-value convention (peek-don't-consume): bare --wozbug
             // uses the default port.
             "--wozbug" => {
@@ -4140,6 +4120,7 @@ mod tests {
             "--strict",
             "--debug",
             "--trace=/dev/stderr",
+            "--memory",
         ] {
             let args: Vec<String> = vec![retired.to_string()];
             assert!(matches!(parse_options(&args), Err(1)), "{retired}");
@@ -4525,15 +4506,27 @@ mod tests {
     #[test]
     fn print_config_round_trips_the_options() {
         // The e2e gate: a command line composed from every source kind —
-        // base, overlay, --set, convenience flags — prints a document
-        // that, fed back via --config, yields the identical Options.
-        // (Paths are absolute or fixture-resolved, so the round trip is
-        // location-independent.)
+        // base, overlay (including a memory region: overlay files are the
+        // memory-region path since --memory retired), --set, --serve —
+        // prints a document that, fed back via --config, yields the
+        // identical Options. (Paths are absolute or fixture-resolved, so
+        // the round trip is location-independent.)
+        let dir = std::env::temp_dir().join("ewm-print-config-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let memory_overlay = dir.join("memory-overlay.json");
+        std::fs::write(
+            &memory_overlay,
+            r#"{"machine": {"memory":
+                [{"type": "rom", "address": "0xd000", "path": "/abs/custom.bin"}]}}"#,
+        )
+        .expect("write overlay");
         let o = opts(&[
             "--config",
             "builtin:2e",
             "--config-overlay",
             fixture!("drive-with-total-replay.json"),
+            "--config-overlay",
+            memory_overlay.to_str().unwrap(),
             "--set",
             "display:monitor=amber",
             "--set",
@@ -4546,14 +4539,14 @@ mod tests {
             "cpu:strict=true",
             "--set",
             "boot:delay=1.5",
-            "--memory",
-            "rom:53248:/abs/custom.bin",
             "--serve",
             "vnc://0.0.0.0:5901?web=5701&password=secret",
         ]);
-        // The convenience flag beat the --set; the overlay's drive is in.
+        // The later --set won; the overlay's drive and memory region are in.
         assert_eq!(o.monitor, MonitorStyle::White);
         assert_eq!(hdd_image(&o, 7), Some(fixture!("Total Replay.hdv")));
+        assert_eq!(o.memory.len(), 1);
+        assert_eq!(o.memory[0].path, "/abs/custom.bin");
 
         let path = print_to_file(&o, "composed.json");
         let fed_back = opts(&["--config", path.to_str().unwrap()]);
