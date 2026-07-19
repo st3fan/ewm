@@ -291,7 +291,7 @@
           }
         },
         "model": {
-          "description": "Which Apple II model to emulate. Required in a complete config; an\noverlay may omit it and inherit the base config's model.",
+          "description": "Which machine to emulate. Required in a complete config; an\noverlay may omit it and inherit the base config's model.",
           "anyOf": [
             {
               "$ref": "#/$defs/Model"
@@ -354,7 +354,7 @@
       ]
     },
     "Model": {
-      "description": "Which Apple II model to emulate.",
+      "description": "Which machine to emulate. The token also decides the machine\n*family* — Apple II (`ewm two`) or Apple 1 (`ewm one`) — which the\ncompleteness validation and the subcommands use to keep configs\nhonest (plans/20260719-02-one-config.md).",
       "oneOf": [
         {
           "description": "The Apple ][+.",
@@ -365,6 +365,16 @@
           "description": "The Apple //e.",
           "type": "string",
           "const": "2e"
+        },
+        {
+          "description": "The classic Apple 1 (6502, 8KB RAM, Woz Monitor).",
+          "type": "string",
+          "const": "apple1"
+        },
+        {
+          "description": "The Replica 1 (65C02, 32KB RAM, KRUSADER).",
+          "type": "string",
+          "const": "replica1"
         }
       ]
     },

@@ -18,7 +18,7 @@ fn minimal_config_loads() {
     let config = config::load(fixture!("minimal.json")).expect("minimal.json must load");
     let machine = config.machine.as_ref().expect("machine section");
     assert_eq!(machine.model, Some(Model::TwoPlus));
-    assert_eq!(machine.model.unwrap().two_type(), TwoType::Apple2Plus);
+    assert_eq!(machine.model.unwrap().two_type(), Some(TwoType::Apple2Plus));
     assert!(machine.aux.is_none());
     assert!(machine.slots.is_none());
     assert!(machine.memory.is_empty());
