@@ -57,7 +57,7 @@ becomes a final-document check. That is the heart of Phase C2.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | C1 | Built-in configs: `builtin:` scheme, embed `configs/`, listing | S/M | Done |
-| C2 | Partial configs: optional `machine`/`model`, split validation | M | Not started |
+| C2 | Partial configs: optional `machine`/`model`, split validation | M | Done |
 | C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Not started |
 | C4 | `--print-config`: inspect the merged document | S | Not started |
 | C5 | Docs sweep + `notes/JSON_CONFIG.md` as-built update | S | Not started |
@@ -134,7 +134,8 @@ The enabling change for overlays, landed separately so C3 stays small.
   Recommendation: **(2)** — the golden-file test already owns schema
   generation, adding `"required": ["machine"]` / `["model"]` there is a
   few lines, and overlay files get their own `$schema` for editor
-  support. Decide at kickoff.
+  support. **Decision (as built): (2)** — see `notes/JSON_CONFIG.md`
+  "Config sources — partial configs".
 - **Gate:** unit tests — a bare `{}` and a slots-only fragment parse and
   round-trip through `load_document`; structural errors still name the
   file; `from_document({})` fails with the completeness message; both

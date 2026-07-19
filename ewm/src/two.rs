@@ -2483,11 +2483,19 @@ fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, Strin
 }
 
 /// Seed `Options` from a loaded config file (pass 1 of `parse_options`).
-/// `config::load` already validated the layout and resolved relative paths,
-/// so slot placement can be trusted here.
+/// `config::from_document` already validated the layered document —
+/// structurally, for completeness (`machine.model` present), and with
+/// per-file relative paths resolved — so slot placement can be trusted
+/// here and the completeness expects below are unreachable.
 fn apply_config(options: &mut Options, config: config::Config) -> Result<(), String> {
-    options.model = config.machine.model.two_type();
-    if let Some(aux) = &config.machine.aux {
+    let machine = config
+        .machine
+        .expect("from_document guarantees a machine section");
+    options.model = machine
+        .model
+        .expect("from_document guarantees machine.model")
+        .two_type();
+    if let Some(aux) = &machine.aux {
         // Rebuild the --aux flag token so config and CLI share one card
         // construction path.
         let token = match &aux.size {
@@ -2497,7 +2505,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         crate::aux::parse(&token)?; // validate; parsed again at power-on
         options.aux = Some(token);
     }
-    if let Some(slots) = config.machine.slots {
+    if let Some(slots) = machine.slots {
         // A present slots object replaces the table wholesale (an absent one
         // keeps the default layout); the keys were validated by load().
         options.slots = slots
@@ -2505,7 +2513,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
             .map(|(key, card)| (key.parse().expect("load() validated slot keys"), card))
             .collect();
     }
-    for region in config.machine.memory {
+    for region in machine.memory {
         options.memory.push(MemoryOption {
             rom: region.kind == config::MemoryKind::Rom,
             address: region.address_value()?,

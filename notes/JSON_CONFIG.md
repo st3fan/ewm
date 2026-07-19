@@ -159,6 +159,37 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
   (Thunderclock in slot 1) still differs from `builtin:2plus`
   deliberately; unifying them is backlog in the plan.
 
+## Config sources — partial configs (C2, recorded as built)
+
+Phase C2 of `plans/20260718-02-config-sources.md`, the enabling change
+for `--config-overlay` (C3):
+
+- **The serde types are partial-friendly**: `Config.machine` and
+  `Machine.model` became `Option`, so any fragment — `{}`, a slots-only
+  overlay — parses. `merge_documents` needed no change (absent options
+  serialize to `null`, already a merge no-op).
+- **Validation split in `config.rs`**: `validate` is *structural* (per
+  file, fragment-judgeable: unknown keys, enum values, slot rules,
+  multiplicity, sizes/addresses/ports); `validate_complete` is
+  *completeness* (final document only: `machine.model` present, plus the
+  model cross-checks — aux is //e-only, the //e has no slot 0 — which an
+  overlay can't be judged on until the merged document names the model).
+- **Loader contract**: `load`/`load_source_document` (the `--config`
+  path) still require completeness per file — a partial file fails with
+  `machine.model is required (is this an overlay? use --config-overlay)`
+  — while `load_document` runs only the structural pass (with the file
+  named in errors and relative paths resolved) and is the path overlays
+  will load through. `from_document` runs both passes on the final
+  layered document; its missing-model message is
+  `machine.model is required (start from --config, e.g. --config
+  builtin:2plus)`.
+- **Two schemas, one generator** (plan option 2): the generated schema is
+  now overlay-shaped, so the golden test post-processes the requiredness
+  (`machine`, `machine.model`) back into `schema/ewm-config.schema.json`
+  and commits the relaxed one as `schema/ewm-config-overlay.schema.json`
+  (own title/description) for editor support of overlay files. One
+  regeneration command updates both.
+
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
