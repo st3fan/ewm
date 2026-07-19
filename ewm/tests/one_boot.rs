@@ -59,7 +59,8 @@ fn dump_line(addr: u16, bytes: &[u8]) -> String {
 }
 
 fn rom(name: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/../rom/{name}", env!("CARGO_MANIFEST_DIR"))).expect("cannot read ROM")
+    std::fs::read(format!("{}/../roms/{name}", env!("CARGO_MANIFEST_DIR")))
+        .expect("cannot read ROM")
 }
 
 #[test]
@@ -76,7 +77,7 @@ fn apple1_woz_monitor_dumps_rom() {
     m.type_keys("FF00.FF0F\r");
     m.step(1_000_000);
 
-    let rom = rom("apple1.rom");
+    let rom = rom("WozMon.rom");
     let text = m.text();
     assert!(
         text.contains(&dump_line(0xff00, &rom[0..8])),
@@ -98,12 +99,12 @@ fn replica1_woz_monitor_dumps_rom() {
         m.text()
     );
 
-    // Dump the first 16 bytes of the Krusader ROM at $E000, per the
-    // REWRITE.md gate.
+    // Dump the first 16 bytes of Integer BASIC at $E000 (the low half of
+    // the historical 8K ROM), per the REWRITE.md gate.
     m.type_keys("E000.E00F\r");
     m.step(1_000_000);
 
-    let rom = rom("krusader.rom");
+    let rom = rom("apple1-basic.rom");
     let text = m.text();
     assert!(
         text.contains(&dump_line(0xe000, &rom[0..8])),

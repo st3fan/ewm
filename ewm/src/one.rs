@@ -19,8 +19,14 @@ use sdl3::render::ScaleMode;
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 use sdl3::video::FullscreenType;
 
-static APPLE1_ROM: &[u8] = include_bytes!("../../rom/apple1.rom");
-static KRUSADER_ROM: &[u8] = include_bytes!("../../rom/krusader.rom");
+// The mountable one-family ROM images (notes/APPLE1.md): the pristine
+// Woz Monitor, Integer BASIC, and the Krusader $F000-$FFFF slice (which
+// carries its own modified monitor page). The historical 8KB
+// krusader.rom was exactly BASIC + the 6502 Krusader slice — pinned by
+// the provenance test in config.rs.
+static WOZMON_ROM: &[u8] = include_bytes!("../../roms/WozMon.rom");
+static BASIC_ROM: &[u8] = include_bytes!("../../roms/apple1-basic.rom");
+static KRUSADER_6502_ROM: &[u8] = include_bytes!("../../roms/Krusader-1.3-6502.rom");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OneModel {
@@ -36,15 +42,22 @@ pub struct One {
 
 impl One {
     /// Port of `ewm_one_init`: Apple 1 = 6502 + 8K RAM + Woz monitor ROM at
-    /// $FF00; Replica 1 = 65C02 + 32K RAM + Krusader ROM at $E000. The PIA
-    /// sits at $D010 on both.
+    /// $FF00; Replica 1 = 65C02 + 32K RAM + BASIC at $E000 + Krusader at
+    /// $F000 (byte-identical to the historical single 8K ROM mount). The
+    /// PIA sits at $D010 on both.
     pub fn new(model: OneModel) -> One {
-        let (cpu_model, ram_size, rom, rom_start) = match model {
-            OneModel::Apple1 => (Model::M6502, 8 * 1024, APPLE1_ROM, 0xff00),
-            OneModel::Replica1 => (Model::M65C02, 32 * 1024, KRUSADER_ROM, 0xe000),
+        let (cpu_model, ram_size) = match model {
+            OneModel::Apple1 => (Model::M6502, 8 * 1024),
+            OneModel::Replica1 => (Model::M65C02, 32 * 1024),
         };
         let mut mem = Memory::new(ram_size);
-        mem.add_rom(rom_start, rom.to_vec());
+        match model {
+            OneModel::Apple1 => mem.add_rom(0xff00, WOZMON_ROM.to_vec()),
+            OneModel::Replica1 => {
+                mem.add_rom(0xe000, BASIC_ROM.to_vec());
+                mem.add_rom(0xf000, KRUSADER_6502_ROM.to_vec());
+            }
+        }
         let pia = mem.add_device(
             A1_PIA6820_ADDR,
             A1_PIA6820_ADDR + A1_PIA6820_LENGTH - 1,
@@ -306,13 +319,7 @@ fn build_machine(options: &Options) -> Result<One, String> {
             m.address,
             m.path
         );
-        let data = std::fs::read(&m.path).map_err(|e| {
-            format!(
-                "[MEM] Failed to add {} from {}: {e}",
-                if m.rom { "ROM" } else { "RAM" },
-                m.path
-            )
-        })?;
+        let data = crate::config::read_memory_image(&m.path).map_err(|e| format!("[MEM] {e}"))?;
         if m.rom {
             one.add_rom(m.address, data);
         } else {

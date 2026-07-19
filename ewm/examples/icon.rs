@@ -1,5 +1,5 @@
 //! Generate the EWM app icon: `][` rendered by the emulator's own Apple ][
-//! character generator (rom/3410036.bin), green phosphor on a dark bezel
+//! character generator (roms/3410036.bin), green phosphor on a dark bezel
 //! with rounded (alpha) corners. Writes every size `iconutil` needs into an
 //! `EWM.iconset` directory:
 //!

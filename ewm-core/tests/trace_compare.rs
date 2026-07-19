@@ -36,7 +36,7 @@ fn trace_compare_6502() {
 
     let data = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../rom/6502_functional_test.bin"
+        "/../roms/6502_functional_test.bin"
     ))
     .expect("cannot read test binary");
 

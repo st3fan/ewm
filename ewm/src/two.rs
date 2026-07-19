@@ -40,20 +40,20 @@ pub const TWO_SPEED: u32 = 1_023_000;
 const WOZBUG_DEFAULT_PORT: u16 = 6502;
 
 // The six machine ROMs, $D000-$FFFF (ewm_two_init loads the same files).
-static ROM_341_0011: &[u8] = include_bytes!("../../rom/341-0011.bin"); // AppleSoft BASIC D000
-static ROM_341_0012: &[u8] = include_bytes!("../../rom/341-0012.bin"); // AppleSoft BASIC D800
-static ROM_341_0013: &[u8] = include_bytes!("../../rom/341-0013.bin"); // AppleSoft BASIC E000
-static ROM_341_0014: &[u8] = include_bytes!("../../rom/341-0014.bin"); // AppleSoft BASIC E800
-static ROM_341_0015: &[u8] = include_bytes!("../../rom/341-0015.bin"); // AppleSoft BASIC F000
-static ROM_341_0020: &[u8] = include_bytes!("../../rom/341-0020.bin"); // Autostart Monitor F800
+static ROM_341_0011: &[u8] = include_bytes!("../../roms/341-0011.bin"); // AppleSoft BASIC D000
+static ROM_341_0012: &[u8] = include_bytes!("../../roms/341-0012.bin"); // AppleSoft BASIC D800
+static ROM_341_0013: &[u8] = include_bytes!("../../roms/341-0013.bin"); // AppleSoft BASIC E000
+static ROM_341_0014: &[u8] = include_bytes!("../../roms/341-0014.bin"); // AppleSoft BASIC E800
+static ROM_341_0015: &[u8] = include_bytes!("../../roms/341-0015.bin"); // AppleSoft BASIC F000
+static ROM_341_0020: &[u8] = include_bytes!("../../roms/341-0020.bin"); // Autostart Monitor F800
 
 // The two 8K Enhanced //e system ROM halves: CD = $C000-$DFFF, EF =
 // $E000-$FFFF. The language card banks $D000-$FFFF (the CD half's upper 4K
 // plus the whole EF half); $C000-$CFFF is I/O and internal firmware.
 static ROM_IIE_CD: &[u8] =
-    include_bytes!("../../rom/Apple IIe CD Enhanced - 342-0304-A - 2764.bin");
+    include_bytes!("../../roms/Apple IIe CD Enhanced - 342-0304-A - 2764.bin");
 static ROM_IIE_EF: &[u8] =
-    include_bytes!("../../rom/Apple IIe EF Enhanced - 342-0303-A - 2764.bin");
+    include_bytes!("../../roms/Apple IIe EF Enhanced - 342-0303-A - 2764.bin");
 
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
@@ -2679,7 +2679,7 @@ fn power_on_machine(options: &Options) -> Result<Two, String> {
             m.address,
             m.path
         );
-        let data = std::fs::read(&m.path).map_err(|e| format!("cannot read {}: {e}", m.path))?;
+        let data = crate::config::read_memory_image(&m.path)?;
         if m.rom {
             two.add_rom(m.address, data);
         } else {

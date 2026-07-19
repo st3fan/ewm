@@ -50,7 +50,7 @@ fn dormann_6502() {
         0x3399,
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../rom/6502_functional_test.bin"
+            "/../roms/6502_functional_test.bin"
         ),
     );
 }
@@ -63,7 +63,7 @@ fn dormann_65c02() {
         0x24a8,
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../rom/65C02_extended_opcodes_test.bin"
+            "/../roms/65C02_extended_opcodes_test.bin"
         ),
     );
 }
