@@ -57,7 +57,7 @@ fn full_config_loads_with_resolved_paths() {
     let region = &machine.memory[0];
     assert_eq!(region.kind, MemoryKind::Rom);
     assert_eq!(region.address_value(), Ok(0xd000));
-    assert_eq!(region.path, fixture!("custom.bin"));
+    assert_eq!(region.path.as_deref(), Some(fixture!("custom.bin")));
 
     assert_eq!(config.debug.trace.as_deref(), Some(fixture!("trace.txt")));
 }

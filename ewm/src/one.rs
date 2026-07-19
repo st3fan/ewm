@@ -46,10 +46,17 @@ impl One {
     /// $F000 (byte-identical to the historical single 8K ROM mount). The
     /// PIA sits at $D010 on both.
     pub fn new(model: OneModel) -> One {
+        One::new_with_cpu(model, None)
+    }
+
+    /// `new` with an optional CPU override (config `machine.cpu`); `None`
+    /// keeps the model's CPU.
+    pub fn new_with_cpu(model: OneModel, cpu: Option<Model>) -> One {
         let (cpu_model, ram_size) = match model {
             OneModel::Apple1 => (Model::M6502, 8 * 1024),
             OneModel::Replica1 => (Model::M65C02, 32 * 1024),
         };
+        let cpu_model = cpu.unwrap_or(cpu_model);
         let mut mem = Memory::new(ram_size);
         match model {
             OneModel::Apple1 => mem.add_rom(0xff00, WOZMON_ROM.to_vec()),
@@ -127,16 +134,27 @@ struct OneCtx<'a> {
 
 type OneAction = fn(&mut OneCtx);
 
+/// What fills a memory region: an image (a file path or `builtin:<name>`)
+/// or an empty RAM bank of a given byte size (R2 of
+/// plans/20260719-03-one-machine-components.md).
+#[derive(Debug, PartialEq)]
+enum MemorySource {
+    Image(String),
+    Bank(u32),
+}
+
 #[derive(Debug, PartialEq)]
 struct MemoryOption {
     rom: bool,
     address: u16,
-    path: String,
+    source: MemorySource,
 }
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct Options {
     model: OneModel,
+    /// CPU override (`machine.cpu`); None = the model's CPU.
+    cpu: Option<crate::config::CpuModel>,
     memory: Vec<MemoryOption>,
     trace_path: Option<String>,
     strict: bool,
@@ -147,6 +165,7 @@ impl Default for Options {
         Options {
             // The C default model is the Replica 1.
             model: OneModel::Replica1,
+            cpu: None,
             memory: Vec::new(),
             trace_path: None,
             strict: false,
@@ -190,11 +209,20 @@ fn apply_config(options: &mut Options, config: crate::config::Config) -> Result<
             ));
         }
     };
+    options.cpu = machine.cpu;
     for region in machine.memory {
+        let address = region.address_value()?;
+        let source = match (region.path, region.size) {
+            (Some(path), None) => MemorySource::Image(path),
+            (None, Some(size)) => MemorySource::Bank(
+                crate::config::parse_memory_size(&size).expect("validated structurally"),
+            ),
+            _ => unreachable!("validated structurally: exactly one of path or size"),
+        };
         options.memory.push(MemoryOption {
             rom: region.kind == crate::config::MemoryKind::Rom,
-            address: region.address_value()?,
-            path: region.path,
+            address,
+            source,
         });
     }
     if let Some(strict) = config.cpu.strict {
@@ -221,19 +249,35 @@ fn options_to_config(options: &Options) -> crate::config::Config {
                 OneModel::Apple1 => crate::config::Model::Apple1,
                 OneModel::Replica1 => crate::config::Model::Replica1,
             }),
+            cpu: options.cpu,
             aux: None,
             slots: None,
             memory: options
                 .memory
                 .iter()
-                .map(|region| crate::config::MemoryRegion {
-                    kind: if region.rom {
-                        crate::config::MemoryKind::Rom
-                    } else {
-                        crate::config::MemoryKind::Ram
-                    },
-                    address: format!("0x{:04x}", region.address),
-                    path: region.path.clone(),
+                .map(|region| {
+                    let (path, size) = match &region.source {
+                        MemorySource::Image(path) => (Some(path.clone()), None),
+                        // Whole KiB print as "Nk", exact bytes otherwise.
+                        MemorySource::Bank(bytes) => (
+                            None,
+                            Some(if bytes % 1024 == 0 {
+                                format!("{}k", bytes / 1024)
+                            } else {
+                                format!("{bytes}")
+                            }),
+                        ),
+                    };
+                    crate::config::MemoryRegion {
+                        kind: if region.rom {
+                            crate::config::MemoryKind::Rom
+                        } else {
+                            crate::config::MemoryKind::Ram
+                        },
+                        address: format!("0x{:04x}", region.address),
+                        path,
+                        size,
+                    }
                 })
                 .collect(),
         }),
@@ -307,19 +351,32 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
     Ok(options)
 }
 
-/// Build the machine `parse_options` described: construct the model, load
-/// the extra memory regions, arm strict/trace — the machine half of
-/// `main`, shared with the boot-gate test.
+/// Build the machine `parse_options` described: construct the model
+/// (with the `machine.cpu` override, if any), load the extra memory
+/// regions and RAM banks, arm strict/trace — the machine half of `main`,
+/// shared with the boot-gate test.
 fn build_machine(options: &Options) -> Result<One, String> {
-    let mut one = One::new(options.model);
+    let cpu = options.cpu.map(|cpu| match cpu {
+        crate::config::CpuModel::M6502 => Model::M6502,
+        crate::config::CpuModel::M65C02 => Model::M65C02,
+    });
+    let mut one = One::new_with_cpu(options.model, cpu);
     for m in &options.memory {
-        eprintln!(
-            "[EWM] Adding {} ${:04X} {}",
-            if m.rom { "ROM" } else { "RAM" },
-            m.address,
-            m.path
-        );
-        let data = crate::config::read_memory_image(&m.path).map_err(|e| format!("[MEM] {e}"))?;
+        let data = match &m.source {
+            MemorySource::Image(path) => {
+                eprintln!(
+                    "[EWM] Adding {} ${:04X} {}",
+                    if m.rom { "ROM" } else { "RAM" },
+                    m.address,
+                    path
+                );
+                crate::config::read_memory_image(path).map_err(|e| format!("[MEM] {e}"))?
+            }
+            MemorySource::Bank(bytes) => {
+                eprintln!("[EWM] Adding RAM bank ${:04X} ({bytes} bytes)", m.address);
+                vec![0; *bytes as usize]
+            }
+        };
         if m.rom {
             one.add_rom(m.address, data);
         } else {
@@ -700,16 +757,11 @@ mod tests {
         assert_eq!(o.memory.len(), 1);
         assert!(o.memory[0].rom);
         assert_eq!(o.memory[0].address, 0xc000);
-        assert!(
-            o.memory[0].path.ends_with("basic.rom"),
-            "{}",
-            o.memory[0].path
-        );
-        assert!(
-            std::path::Path::new(&o.memory[0].path).is_absolute(),
-            "{}",
-            o.memory[0].path
-        );
+        let MemorySource::Image(path) = &o.memory[0].source else {
+            panic!("expected an image region");
+        };
+        assert!(path.ends_with("basic.rom"), "{path}");
+        assert!(std::path::Path::new(path).is_absolute(), "{path}");
         assert!(o.trace_path.as_deref().unwrap().ends_with("one.trace"));
     }
 
@@ -790,6 +842,47 @@ mod tests {
             let args: Vec<String> = query.iter().map(|s| s.to_string()).collect();
             assert!(matches!(parse_options(&args), Err(0)), "{query:?}");
         }
+    }
+
+    #[test]
+    fn cpu_and_ram_banks_come_from_the_document() {
+        // machine.cpu overrides the model's CPU; a size region mounts an
+        // empty RAM bank; a builtin: region mounts the embedded image.
+        let config = scratch(
+            "components.json",
+            r#"{"machine": {"model": "apple1", "cpu": "65C02",
+                "memory": [
+                    {"type": "ram", "address": "0x4000", "size": "4k"},
+                    {"type": "rom", "address": "0xe000", "path": "builtin:apple1-basic"}]}}"#,
+        );
+        let o = opts(&["--config", config.to_str().unwrap()]);
+        assert_eq!(o.cpu, Some(crate::config::CpuModel::M65C02));
+        assert_eq!(o.memory[0].source, MemorySource::Bank(4096));
+        assert_eq!(
+            o.memory[1].source,
+            MemorySource::Image("builtin:apple1-basic".to_string())
+        );
+
+        let mut one = build_machine(&o).expect("machine builds");
+        assert_eq!(one.cpu.model, ewm_core::cpu::Model::M65C02);
+        // The bank is writable RAM...
+        one.cpu.mem.write(0x4000, 0x42);
+        assert_eq!(one.cpu.mem.read(0x4000), 0x42);
+        // ...and BASIC's entry point is mounted read-only at $E000.
+        assert_eq!(one.cpu.mem.read(0xe000), 0x4c);
+        one.cpu.mem.write(0xe000, 0x00);
+        assert_eq!(one.cpu.mem.read(0xe000), 0x4c);
+
+        // The whole component description survives a print round trip
+        // (the bank prints back as "4k").
+        let printed = options_to_config(&o);
+        let mut doc = serde_json::to_value(&printed).expect("options serialize");
+        crate::config::compact_document(&mut doc);
+        let text = serde_json::to_string_pretty(&doc).expect("document prints");
+        assert!(text.contains(r#""size": "4k""#), "{text}");
+        let path = scratch("components-printed.json", &text);
+        let fed_back = opts(&["--config", path.to_str().unwrap()]);
+        assert_eq!(o, fed_back);
     }
 
     #[test]

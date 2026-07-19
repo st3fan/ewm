@@ -2409,7 +2409,11 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         options.memory.push(MemoryOption {
             rom: region.kind == config::MemoryKind::Rom,
             address: region.address_value()?,
-            path: region.path,
+            // Size banks are an Apple 1 family concept; the family
+            // validation rejected them for two.
+            path: region
+                .path
+                .expect("family validation guarantees an image path"),
         });
     }
     if let Some(monitor) = config.display.monitor {
@@ -2500,6 +2504,8 @@ fn options_to_config(options: &Options) -> config::Config {
                 TwoType::Apple2 | TwoType::Apple2Plus => config::Model::TwoPlus,
                 TwoType::Apple2E => config::Model::TwoE,
             }),
+            // machine.cpu is an Apple 1 family key; two's CPU is the model's.
+            cpu: None,
             aux: options.aux.as_deref().map(aux_token_to_config),
             slots: Some(
                 options
@@ -2518,7 +2524,8 @@ fn options_to_config(options: &Options) -> config::Config {
                         config::MemoryKind::Ram
                     },
                     address: format!("0x{:04x}", region.address),
-                    path: region.path.clone(),
+                    path: Some(region.path.clone()),
+                    size: None,
                 })
                 .collect(),
         }),

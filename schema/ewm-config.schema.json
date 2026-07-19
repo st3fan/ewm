@@ -177,6 +177,21 @@
       },
       "additionalProperties": false
     },
+    "CpuModel": {
+      "description": "The Apple 1 family's CPU choice (`machine.cpu`).",
+      "oneOf": [
+        {
+          "description": "The MOS 6502.",
+          "type": "string",
+          "const": "6502"
+        },
+        {
+          "description": "The WDC 65C02.",
+          "type": "string",
+          "const": "65C02"
+        }
+      ]
+    },
     "CpuSpeed": {
       "description": "The classic accelerator speed steps.",
       "oneOf": [
@@ -285,6 +300,17 @@
             }
           ]
         },
+        "cpu": {
+          "description": "The CPU, for the Apple 1 family (`\"6502\"` or `\"65C02\"`); when\nabsent the model decides (Apple 1: 6502, Replica 1: 65C02). The\napple2 family's CPU is a model property and rejects this key.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CpuModel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "memory": {
           "description": "Extra RAM or ROM regions loaded from files at startup.",
           "type": "array",
@@ -344,8 +370,18 @@
           "type": "string"
         },
         "path": {
-          "description": "File whose contents fill the region, or `builtin:<name>` for one\nof the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,\n`builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`).",
-          "type": "string"
+          "description": "File whose contents fill the region, or `builtin:<name>` for one\nof the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,\n`builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`). A region\ntakes exactly one of `path` or `size`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "Size of an *empty* RAM bank (`\"4k\"`, `\"32k\"`, or decimal bytes) —\nthe Apple 1 family's RAM boards. Only valid with `\"type\": \"ram\"`;\na region takes exactly one of `path` or `size`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "type": {
           "description": "Whether the region is writable RAM or read-only ROM.",
@@ -355,8 +391,7 @@
       "additionalProperties": false,
       "required": [
         "type",
-        "address",
-        "path"
+        "address"
       ]
     },
     "Model": {

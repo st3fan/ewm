@@ -73,6 +73,10 @@ pub struct Machine {
     /// Which machine to emulate. Required in a complete config; an
     /// overlay may omit it and inherit the base config's model.
     pub model: Option<Model>,
+    /// The CPU, for the Apple 1 family (`"6502"` or `"65C02"`); when
+    /// absent the model decides (Apple 1: 6502, Replica 1: 65C02). The
+    /// apple2 family's CPU is a model property and rejects this key.
+    pub cpu: Option<CpuModel>,
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
@@ -256,8 +260,41 @@ pub struct MemoryRegion {
     pub address: String,
     /// File whose contents fill the region, or `builtin:<name>` for one
     /// of the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,
-    /// `builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`).
-    pub path: String,
+    /// `builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`). A region
+    /// takes exactly one of `path` or `size`.
+    pub path: Option<String>,
+    /// Size of an *empty* RAM bank (`"4k"`, `"32k"`, or decimal bytes) —
+    /// the Apple 1 family's RAM boards. Only valid with `"type": "ram"`;
+    /// a region takes exactly one of `path` or `size`.
+    pub size: Option<String>,
+}
+
+/// The Apple 1 family's CPU choice (`machine.cpu`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub enum CpuModel {
+    /// The MOS 6502.
+    #[serde(rename = "6502")]
+    M6502,
+    /// The WDC 65C02.
+    #[serde(rename = "65C02")]
+    M65C02,
+}
+
+/// Parse a RAM-bank size: `"4k"` / `"32K"` (KiB) or plain decimal bytes.
+pub fn parse_memory_size(s: &str) -> Result<u32, String> {
+    let (digits, unit) = match s.strip_suffix(['k', 'K']) {
+        Some(digits) => (digits, 1024),
+        None => (s, 1),
+    };
+    let n: u32 = digits
+        .parse()
+        .map_err(|_| format!("bad size {s:?} (expected e.g. \"4k\", \"32k\", or bytes)"))?;
+    let bytes = n
+        .checked_mul(unit)
+        .filter(|&b| b > 0 && b <= 0x10000)
+        .ok_or_else(|| format!("bad size {s:?} (1 byte to 64k)"))?;
+    Ok(bytes)
 }
 
 /// Whether a memory region is RAM or ROM.
@@ -579,12 +616,12 @@ fn referenced_files(config: &Config) -> Vec<&str> {
             }
         }
         // builtin: images are embedded, not files — a config carrying
-        // them stays self-contained.
+        // them stays self-contained (size banks have no path at all).
         files.extend(
             machine
                 .memory
                 .iter()
-                .map(|r| r.path.as_str())
+                .filter_map(|r| r.path.as_deref())
                 .filter(|p| !p.starts_with("builtin:")),
         );
     }
@@ -1038,6 +1075,28 @@ fn validate(config: &Config) -> Result<(), String> {
         region
             .address_value()
             .map_err(|e| format!("machine.memory[{i}].address: {e}"))?;
+        match (&region.path, &region.size) {
+            (Some(_), Some(_)) | (None, None) => {
+                return Err(format!(
+                    "machine.memory[{i}]: a region takes exactly one of \"path\" or \"size\""
+                ));
+            }
+            (Some(path), None) => {
+                // A builtin: image must exist — judged here, per fragment,
+                // so a typo'd name fails before any machine is built.
+                if let Some(name) = path.strip_prefix("builtin:") {
+                    rom_builtin(name).map_err(|e| format!("machine.memory[{i}].path: {e}"))?;
+                }
+            }
+            (None, Some(size)) => {
+                if region.kind != MemoryKind::Ram {
+                    return Err(format!(
+                        "machine.memory[{i}].size: only RAM banks take a size (ROM comes from an image)"
+                    ));
+                }
+                parse_memory_size(size).map_err(|e| format!("machine.memory[{i}].size: {e}"))?;
+            }
+        }
     }
     if config.display.fps == Some(0) {
         return Err("display.fps: must be at least 1".into());
@@ -1079,6 +1138,18 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
     let machine = config.machine.as_ref().expect("model implies machine");
     match model.family() {
         Family::Apple2 => {
+            if machine.cpu.is_some() {
+                return Err(format!(
+                    "machine.cpu: not configurable for {:?} (the model decides)",
+                    model.token()
+                ));
+            }
+            if machine.memory.iter().any(|r| r.size.is_some()) {
+                return Err(
+                    "machine.memory: RAM banks (size) are an Apple 1 family concept (the ][+ / //e board RAM is fixed)"
+                        .into(),
+                );
+            }
             if machine.aux.is_some() && model != Model::TwoE {
                 return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
             }
@@ -1125,7 +1196,65 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
             if config.debug.enabled.is_some() {
                 return Err(format!("debug.enabled: not configurable for {token:?}"));
             }
+            validate_one_memory_layout(&machine.memory)?;
         }
+    }
+    Ok(())
+}
+
+/// The Apple 1 family's PIA — keyboard in, display out — the one fixed
+/// piece of hardware (notes/APPLE1.md).
+const ONE_PIA_RANGE: (u32, u32) = (0xd010, 0xd013);
+
+/// Layout checks for Apple 1 family memory regions: regions with a known
+/// extent (a `size` bank or a `builtin:` image) must fit the 64K address
+/// space and must not overlap each other or the PIA. A file image's
+/// length is unknown until it is read, so only its start address can be
+/// judged here. (That the layout covers the reset vector becomes
+/// checkable in R3, once a document's regions describe the whole board.)
+fn validate_one_memory_layout(memory: &[MemoryRegion]) -> Result<(), String> {
+    // (index, start, exclusive end when known)
+    let mut extents: Vec<(usize, u32, Option<u32>)> = Vec::new();
+    for (i, region) in memory.iter().enumerate() {
+        let start = u32::from(region.address_value().expect("validated structurally"));
+        let len = match (&region.size, &region.path) {
+            (Some(size), _) => Some(parse_memory_size(size).expect("validated structurally")),
+            (None, Some(path)) => path
+                .strip_prefix("builtin:")
+                .map(|name| rom_builtin(name).expect("validated structurally").len() as u32),
+            (None, None) => unreachable!("validated structurally"),
+        };
+        let end = match len {
+            Some(len) => {
+                let end = start + len;
+                if end > 0x10000 {
+                    return Err(format!(
+                        "machine.memory[{i}]: region ${start:04X}+{len} runs past the 64K address space"
+                    ));
+                }
+                Some(end)
+            }
+            None => None,
+        };
+        let (pia_start, pia_end) = ONE_PIA_RANGE;
+        if start <= pia_end && end.unwrap_or(start + 1) > pia_start {
+            return Err(format!(
+                "machine.memory[{i}]: region overlaps the PIA at $D010-$D013 (the fixed keyboard/display hardware)"
+            ));
+        }
+        for (j, other_start, other_end) in &extents {
+            let overlaps = match (end, other_end) {
+                (Some(end), Some(other_end)) => start < *other_end && *other_start < end,
+                // Unknown extents: only identical starts are judgeable.
+                _ => start == *other_start,
+            };
+            if overlaps {
+                return Err(format!(
+                    "machine.memory[{i}]: region overlaps machine.memory[{j}]"
+                ));
+            }
+        }
+        extents.push((i, start, end));
     }
     Ok(())
 }
@@ -1153,8 +1282,10 @@ fn resolve_paths(config: &mut Config, base: &Path) {
         }
         for region in &mut machine.memory {
             // builtin: is a scheme, not a relative path.
-            if !region.path.starts_with("builtin:") {
-                resolve(base, &mut region.path);
+            if let Some(path) = &mut region.path
+                && !path.starts_with("builtin:")
+            {
+                resolve(base, path);
             }
         }
     }
@@ -1281,6 +1412,123 @@ mod tests {
     }
 
     #[test]
+    fn memory_regions_take_exactly_path_or_size() {
+        // Structural, family-independent rules (R2).
+        let err = parse(
+            r#"{"machine": {"model": "2plus", "memory": [{"type": "ram", "address": "0x4000"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("exactly one of"), "{err}");
+        let err = parse(
+            r#"{"machine": {"model": "2plus",
+                "memory": [{"type": "ram", "address": "0x4000", "path": "x.bin", "size": "4k"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("exactly one of"), "{err}");
+        let err = parse(
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "rom", "address": "0x4000", "size": "4k"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("only RAM banks take a size"), "{err}");
+        let err = parse(
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "ram", "address": "0x4000", "size": "huge"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("machine.memory[0].size"), "{err}");
+        // A typo'd builtin image fails at parse time, naming the options.
+        let err = parse(
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "rom", "address": "0xff00", "path": "builtin:WozMan"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("no built-in ROM \"WozMan\""), "{err}");
+    }
+
+    #[test]
+    fn memory_sizes_parse_kib_and_bytes() {
+        assert_eq!(parse_memory_size("4k"), Ok(4096));
+        assert_eq!(parse_memory_size("32K"), Ok(32768));
+        assert_eq!(parse_memory_size("256"), Ok(256));
+        assert_eq!(parse_memory_size("64k"), Ok(65536));
+        assert!(parse_memory_size("0").is_err());
+        assert!(parse_memory_size("65k").is_err());
+        assert!(parse_memory_size("lots").is_err());
+    }
+
+    #[test]
+    fn cpu_and_banks_are_one_family_keys() {
+        // machine.cpu picks the Apple 1 family CPU...
+        let config = parse(r#"{"machine": {"model": "apple1", "cpu": "65C02"}}"#).expect("cpu");
+        assert_eq!(config.machine.unwrap().cpu, Some(CpuModel::M65C02));
+        // ...and is rejected for the apple2 family, whose model decides.
+        let err = parse(r#"{"machine": {"model": "2e", "cpu": "6502"}}"#).unwrap_err();
+        assert!(err.contains("machine.cpu") && err.contains("2e"), "{err}");
+        // Size banks are Apple 1 family boards.
+        let err = parse(
+            r#"{"machine": {"model": "2plus",
+                "memory": [{"type": "ram", "address": "0x4000", "size": "4k"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("RAM banks"), "{err}");
+    }
+
+    #[test]
+    fn one_memory_layouts_reject_overlaps() {
+        // Known extents (banks and builtin images) must not collide with
+        // each other, the PIA, or the end of the address space.
+        let err = parse(
+            r#"{"machine": {"model": "apple1", "memory": [
+                {"type": "ram", "address": "0x0000", "size": "8k"},
+                {"type": "ram", "address": "0x1000", "size": "4k"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("overlaps machine.memory[0]"), "{err}");
+        let err = parse(
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "ram", "address": "0xd000", "size": "4k"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("overlaps the PIA"), "{err}");
+        let err = parse(
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "rom", "address": "0xff80", "path": "builtin:WozMon"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("64K address space"), "{err}");
+        // Two builtin images side by side are fine — the Replica 1 layout.
+        assert!(
+            parse(
+                r#"{"machine": {"model": "replica1", "memory": [
+                    {"type": "ram", "address": "0x0000", "size": "32k"},
+                    {"type": "rom", "address": "0xe000", "path": "builtin:apple1-basic"},
+                    {"type": "rom", "address": "0xf000", "path": "builtin:Krusader-1.3-65C02"}]}}"#,
+            )
+            .is_ok()
+        );
+        // File images have unknown extents: only identical starts are
+        // judged (the rest is checked when the machine is built).
+        let err = parse(
+            r#"{"machine": {"model": "apple1", "memory": [
+                {"type": "rom", "address": "0xc000", "path": "a.bin"},
+                {"type": "rom", "address": "0xc000", "path": "b.bin"}]}}"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("overlaps machine.memory[0]"), "{err}");
+        // The apple2 family keeps its regions unchecked (extras on a
+        // fixed board — the machine builders own that layout).
+        assert!(
+            parse(
+                r#"{"machine": {"model": "2plus", "memory": [
+                    {"type": "rom", "address": "0xd000", "path": "a.bin"},
+                    {"type": "rom", "address": "0xd000", "path": "b.bin"}]}}"#,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
     fn rom_builtins_resolve_and_list() {
         assert_eq!(rom_builtin("WozMon").unwrap().len(), 256);
         assert_eq!(rom_builtin("apple1-basic").unwrap().len(), 4096);
@@ -1346,7 +1594,7 @@ mod tests {
         )
         .expect("builtin memory path parses");
         let machine = config.machine.as_ref().expect("machine");
-        assert_eq!(machine.memory[0].path, "builtin:WozMon");
+        assert_eq!(machine.memory[0].path.as_deref(), Some("builtin:WozMon"));
         // ...and does not count as a file reference (self-containment).
         assert_eq!(referenced_files(&config), Vec::<&str>::new());
     }
@@ -1568,7 +1816,7 @@ mod tests {
         let machine = config.machine.expect("machine");
         assert_eq!(machine.memory.len(), 1);
         // Paths resolve against the config's directory, as for two.
-        assert_eq!(machine.memory[0].path, "/cfg/basic.rom");
+        assert_eq!(machine.memory[0].path.as_deref(), Some("/cfg/basic.rom"));
         assert_eq!(config.debug.trace.as_deref(), Some("/cfg/trace.txt"));
     }
 
@@ -1672,7 +1920,7 @@ mod tests {
             panic!("slot 7 should be a harddrive");
         };
         assert_eq!(image, "/cfg/hd.hdv");
-        assert_eq!(machine.memory[0].path, "/cfg/roms/x.bin");
+        assert_eq!(machine.memory[0].path.as_deref(), Some("/cfg/roms/x.bin"));
         assert_eq!(config.debug.trace.as_deref(), Some("/cfg/trace.txt"));
     }
 
@@ -1681,7 +1929,8 @@ mod tests {
         let region = |address: &str| MemoryRegion {
             kind: MemoryKind::Rom,
             address: address.to_string(),
-            path: "x.bin".to_string(),
+            path: Some("x.bin".to_string()),
+            size: None,
         };
         assert_eq!(region("0xd000").address_value(), Ok(0xd000));
         assert_eq!(region("53248").address_value(), Ok(0xd000));
