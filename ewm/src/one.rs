@@ -114,6 +114,7 @@ struct OneCtx<'a> {
 
 type OneAction = fn(&mut OneCtx);
 
+#[derive(Debug, PartialEq)]
 struct MemoryOption {
     rom: bool,
     address: u16,
@@ -137,9 +138,38 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
     })
 }
 
+#[derive(Debug, PartialEq)]
+struct Options {
+    model: OneModel,
+    memory: Vec<MemoryOption>,
+    trace_path: Option<String>,
+    strict: bool,
+}
+
+impl Default for Options {
+    fn default() -> Options {
+        Options {
+            // The C default model is the Replica 1.
+            model: OneModel::Replica1,
+            memory: Vec::new(),
+            trace_path: None,
+            strict: false,
+        }
+    }
+}
+
 fn usage() {
     eprintln!("Usage: ewm one [options]");
-    eprintln!("  --model <model>   model to emulate (default: apple1)");
+    eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
+    eprintln!("                    config (builtin:apple1, builtin:replica1; builtin:list");
+    eprintln!("                    lists them); at most one, the base of the document");
+    eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
+    eprintln!("                    applied in order with --config and --set");
+    eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
+    eprintln!("                    (e.g. --set cpu:strict=true)");
+    eprintln!("  --print-config    print the machine the command line describes (sources");
+    eprintln!("                    plus flags) as config JSON and exit");
+    eprintln!("  --model <model>   model to emulate (default: replica1)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --trace <file>    trace cpu to file");
     eprintln!("  --strict          run emulator in strict mode");
@@ -147,6 +177,203 @@ fn usage() {
     eprintln!("Supported models:");
     eprintln!("  apple1    Classic Apple 1, 6502, 8KB RAM, Woz Monitor");
     eprintln!("  replica1  Replica 1, 65C02, 32KB RAM, KRUSADER");
+}
+
+/// Seed `Options` from the layered config document (pass 1 of
+/// `parse_options`). `config::from_document` validated it — structurally,
+/// for completeness, and against the one-family key table — so what is
+/// left is the model boundary and the straight field mapping.
+fn apply_config(options: &mut Options, config: crate::config::Config) -> Result<(), String> {
+    let machine = config
+        .machine
+        .expect("from_document guarantees a machine section");
+    let model = machine
+        .model
+        .expect("from_document guarantees machine.model");
+    // A two-family document is a valid *config* but not a `one` machine —
+    // the mirror of two's cross-subcommand check.
+    options.model = match model {
+        crate::config::Model::Apple1 => OneModel::Apple1,
+        crate::config::Model::Replica1 => OneModel::Replica1,
+        other => {
+            return Err(format!(
+                "machine.model: {:?} is an `ewm two` machine (run: ewm two --config …)",
+                other.token()
+            ));
+        }
+    };
+    for region in machine.memory {
+        options.memory.push(MemoryOption {
+            rom: region.kind == crate::config::MemoryKind::Rom,
+            address: region.address_value()?,
+            path: region.path,
+        });
+    }
+    if let Some(strict) = config.cpu.strict {
+        options.strict = strict;
+    }
+    if config.debug.trace.is_some() {
+        options.trace_path = config.debug.trace;
+    }
+    Ok(())
+}
+
+/// Serialize `Options` back into a `Config` — the inverse of
+/// `apply_config`, the one-family sibling of `two::options_to_config`.
+/// Used by `--print-config`.
+fn options_to_config(options: &Options) -> crate::config::Config {
+    crate::config::Config {
+        schema: Some(
+            "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json"
+                .to_string(),
+        ),
+        description: None,
+        machine: Some(crate::config::Machine {
+            model: Some(match options.model {
+                OneModel::Apple1 => crate::config::Model::Apple1,
+                OneModel::Replica1 => crate::config::Model::Replica1,
+            }),
+            aux: None,
+            slots: None,
+            memory: options
+                .memory
+                .iter()
+                .map(|region| crate::config::MemoryRegion {
+                    kind: if region.rom {
+                        crate::config::MemoryKind::Rom
+                    } else {
+                        crate::config::MemoryKind::Ram
+                    },
+                    address: format!("0x{:04x}", region.address),
+                    path: region.path.clone(),
+                })
+                .collect(),
+        }),
+        display: crate::config::Display::default(),
+        cpu: crate::config::Cpu {
+            speed: None,
+            strict: options.strict.then_some(true),
+        },
+        input: crate::config::Input::default(),
+        boot: crate::config::Boot::default(),
+        debug: crate::config::Debug {
+            trace: options.trace_path.clone(),
+            enabled: None,
+        },
+        remote: crate::config::Remote::default(),
+        state: crate::config::State::default(),
+    }
+}
+
+fn parse_options(args: &[String]) -> Result<Options, i32> {
+    let mut options = Options::default();
+    // Pass 1: the config document — the same sources, order rules, and
+    // built-ins as `ewm two` — seeds the options; anything given
+    // explicitly in pass 2 overrides the document.
+    let doc = match crate::config::collect_document(args, "replica1", false) {
+        crate::config::Collected::Document(doc) => doc,
+        crate::config::Collected::Listed => return Err(0),
+        crate::config::Collected::Failed => return Err(1),
+        crate::config::Collected::MissingValue => {
+            usage();
+            return Err(1);
+        }
+    };
+    if let Some(doc) = doc
+        && let Err(e) =
+            crate::config::from_document(doc).and_then(|c| apply_config(&mut options, c))
+    {
+        eprintln!("{e}");
+        return Err(1);
+    }
+    let mut print_config = false;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--help" => {
+                usage();
+                return Err(0);
+            }
+            "--config" | "--config-overlay" | "--set" => {
+                // Applied in pass 1.
+                it.next();
+            }
+            "--print-config" => print_config = true,
+            "--model" => match it.next().map(String::as_str) {
+                Some("apple1") => options.model = OneModel::Apple1,
+                Some("replica1") => options.model = OneModel::Replica1,
+                _ => {
+                    eprintln!("Unknown --model specified");
+                    return Err(1);
+                }
+            },
+            "--memory" => {
+                let Some(m) = it.next().and_then(|s| parse_memory_option(s)) else {
+                    return Err(1);
+                };
+                options.memory.push(m);
+            }
+            "--trace" => {
+                // getopt optional_argument: the value comes as --trace=file.
+                options.trace_path = Some("/dev/stderr".to_string());
+            }
+            "--strict" => options.strict = true,
+            _ => {
+                if let Some(path) = arg.strip_prefix("--trace=") {
+                    options.trace_path = Some(path.to_string());
+                } else {
+                    usage();
+                    return Err(1);
+                }
+            }
+        }
+    }
+    if print_config {
+        // "What machine did I just describe?" — same contract as two's.
+        let config = options_to_config(&options);
+        let mut doc = serde_json::to_value(&config).expect("options serialize as a config");
+        crate::config::compact_document(&mut doc);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doc).expect("document prints")
+        );
+        return Err(0);
+    }
+    Ok(options)
+}
+
+/// Build the machine `parse_options` described: construct the model, load
+/// the extra memory regions, arm strict/trace — the machine half of
+/// `main`, shared with the boot-gate test.
+fn build_machine(options: &Options) -> Result<One, String> {
+    let mut one = One::new(options.model);
+    for m in &options.memory {
+        eprintln!(
+            "[EWM] Adding {} ${:04X} {}",
+            if m.rom { "ROM" } else { "RAM" },
+            m.address,
+            m.path
+        );
+        let data = std::fs::read(&m.path).map_err(|e| {
+            format!(
+                "[MEM] Failed to add {} from {}: {e}",
+                if m.rom { "ROM" } else { "RAM" },
+                m.path
+            )
+        })?;
+        if m.rom {
+            one.add_rom(m.address, data);
+        } else {
+            one.add_ram(m.address, data);
+        }
+    }
+    one.cpu.strict = options.strict;
+    if let Some(path) = &options.trace_path {
+        let file = std::fs::File::create(path)
+            .map_err(|e| format!("Cannot open trace file {path}: {e}"))?;
+        one.cpu.trace = Some(Box::new(std::io::BufWriter::new(file)));
+    }
+    Ok(one)
 }
 
 fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl3::video::Window, event: &Event) {
@@ -213,48 +440,10 @@ fn step_cpu(one: &mut One, cycles: u32) {
 pub fn main(args: &[String]) -> i32 {
     let pad = sdl::window_padding();
 
-    // Parse Apple 1 specific options. The C default model is the Replica 1.
-    let mut model = OneModel::Replica1;
-    let mut memory: Vec<MemoryOption> = Vec::new();
-    let mut trace_path: Option<String> = None;
-    let mut strict = false;
-
-    let mut it = args.iter().peekable();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--help" => {
-                usage();
-                return 0;
-            }
-            "--model" => match it.next().map(String::as_str) {
-                Some("apple1") => model = OneModel::Apple1,
-                Some("replica1") => model = OneModel::Replica1,
-                _ => {
-                    eprintln!("Unknown --model specified");
-                    return 1;
-                }
-            },
-            "--memory" => {
-                let Some(m) = it.next().and_then(|s| parse_memory_option(s)) else {
-                    return 1;
-                };
-                memory.push(m);
-            }
-            "--trace" => {
-                // getopt optional_argument: the value comes as --trace=file.
-                trace_path = Some("/dev/stderr".to_string());
-            }
-            "--strict" => strict = true,
-            _ => {
-                if let Some(path) = arg.strip_prefix("--trace=") {
-                    trace_path = Some(path.to_string());
-                } else {
-                    usage();
-                    return 1;
-                }
-            }
-        }
-    }
+    let options = match parse_options(args) {
+        Ok(options) => options,
+        Err(code) => return code,
+    };
 
     // Setup SDL
 
@@ -298,46 +487,14 @@ pub fn main(args: &[String]) -> i32 {
 
     // Create the machine
 
-    let mut one = One::new(model);
+    let mut one = match build_machine(&options) {
+        Ok(one) => one,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
     let mut tty = Tty::new(sdl::green(&canvas));
-
-    // Add extra memory, if any
-
-    for m in memory {
-        eprintln!(
-            "[EWM] Adding {} ${:04X} {}",
-            if m.rom { "ROM" } else { "RAM" },
-            m.address,
-            m.path
-        );
-        let data = match std::fs::read(&m.path) {
-            Ok(data) => data,
-            Err(e) => {
-                eprintln!(
-                    "[MEM] Failed to add {} from {}: {e}",
-                    if m.rom { "ROM" } else { "RAM" },
-                    m.path
-                );
-                return 1;
-            }
-        };
-        if m.rom {
-            one.add_rom(m.address, data);
-        } else {
-            one.add_ram(m.address, data);
-        }
-    }
-
-    one.cpu.strict = strict;
-    if let Some(path) = &trace_path {
-        match std::fs::File::create(path) {
-            Ok(file) => one.cpu.trace = Some(Box::new(std::io::BufWriter::new(file))),
-            Err(e) => {
-                eprintln!("Cannot open trace file {path}: {e}");
-                return 1;
-            }
-        }
-    }
 
     one.cpu.reset();
 
@@ -533,4 +690,152 @@ pub fn main(args: &[String]) -> i32 {
     }
 
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config;
+
+    fn opts(args: &[&str]) -> Options {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_options(&args).expect("options must parse")
+    }
+
+    /// A scratch file under the OS temp dir.
+    fn scratch(name: &str, text: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("ewm-one-config-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join(name);
+        std::fs::write(&path, text).expect("write scratch config");
+        path
+    }
+
+    #[test]
+    fn sources_compose_for_one() {
+        // Bare: the default machine, matching the C default.
+        assert_eq!(opts(&[]).model, OneModel::Replica1);
+        // A builtin selects the model...
+        assert_eq!(
+            opts(&["--config", "builtin:apple1"]).model,
+            OneModel::Apple1
+        );
+        // ...and --set layers on top, in order.
+        let o = opts(&["--config", "builtin:apple1", "--set", "cpu:strict=true"]);
+        assert_eq!(o.model, OneModel::Apple1);
+        assert!(o.strict);
+        // An overlay without a --config extends the default machine.
+        let overlay = scratch("strict.json", r#"{"cpu": {"strict": true}}"#);
+        let o = opts(&["--config-overlay", overlay.to_str().unwrap()]);
+        assert_eq!(o.model, OneModel::Replica1);
+        assert!(o.strict);
+        // Memory regions come from the document — hex addresses, per-file
+        // path resolution, the config upgrades over the old flag.
+        let config = scratch(
+            "basic.json",
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "rom", "address": "0xc000", "path": "basic.rom"}]},
+                "debug": {"trace": "one.trace"}}"#,
+        );
+        let o = opts(&["--config", config.to_str().unwrap()]);
+        assert_eq!(o.memory.len(), 1);
+        assert!(o.memory[0].rom);
+        assert_eq!(o.memory[0].address, 0xc000);
+        assert!(
+            o.memory[0].path.ends_with("basic.rom"),
+            "{}",
+            o.memory[0].path
+        );
+        assert!(
+            std::path::Path::new(&o.memory[0].path).is_absolute(),
+            "{}",
+            o.memory[0].path
+        );
+        assert!(o.trace_path.as_deref().unwrap().ends_with("one.trace"));
+        // Explicit pass-2 flags still override the document (until O4).
+        let o = opts(&["--config", "builtin:apple1", "--model", "replica1"]);
+        assert_eq!(o.model, OneModel::Replica1);
+    }
+
+    #[test]
+    fn two_family_models_are_rejected_by_one() {
+        // The mirror of two's boundary: a two-family document is a valid
+        // config, but one can't run it.
+        for model in ["2plus", "2e"] {
+            let doc = serde_json::json!({"machine": {"model": model}});
+            let config = config::from_document(doc).expect("a valid document");
+            let mut options = Options::default();
+            let err = apply_config(&mut options, config).unwrap_err();
+            assert!(err.contains("machine.model"), "{err}");
+            assert!(err.contains(model), "{err}");
+            assert!(err.contains("ewm two"), "{err}");
+            // The command-line spellings exit 1.
+            for args in [
+                vec!["--config".to_string(), format!("builtin:{model}")],
+                vec!["--set".to_string(), format!("machine:model={model}")],
+            ] {
+                assert!(matches!(parse_options(&args), Err(1)), "{args:?}");
+            }
+        }
+        // Family-invalid keys error through the shared validation too.
+        let args: Vec<String> = ["--set", "display:monitor=green"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(matches!(parse_options(&args), Err(1)));
+    }
+
+    #[test]
+    fn print_config_round_trips_for_one() {
+        let region = scratch("region.bin", "");
+        let config = scratch(
+            "printable.json",
+            &format!(
+                r#"{{"machine": {{"model": "apple1",
+                    "memory": [{{"type": "ram", "address": "0x4000", "path": {:?}}}]}}}}"#,
+                region.to_str().unwrap()
+            ),
+        );
+        let o = opts(&[
+            "--config",
+            config.to_str().unwrap(),
+            "--set",
+            "cpu:strict=true",
+            "--set",
+            "debug:trace=/dev/stderr",
+        ]);
+        let printed = options_to_config(&o);
+        let mut doc = serde_json::to_value(&printed).expect("options serialize");
+        config::compact_document(&mut doc);
+        let path = scratch(
+            "printed.json",
+            &serde_json::to_string_pretty(&doc).expect("document prints"),
+        );
+        let fed_back = opts(&["--config", path.to_str().unwrap()]);
+        assert_eq!(o, fed_back);
+        // The query flags exit like --help.
+        for query in [["--print-config"].as_slice(), &["--config", "builtin:list"]] {
+            let args: Vec<String> = query.iter().map(|s| s.to_string()).collect();
+            assert!(matches!(parse_options(&args), Err(0)), "{query:?}");
+        }
+    }
+
+    #[test]
+    fn builtin_apple1_boots_to_the_woz_monitor() {
+        // The O3 gate: the built-in config describes a machine that boots
+        // to the Woz monitor prompt, through the same build path main runs.
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut spent = 0u64;
+        while spent < 1_000_000 {
+            spent += one.cpu.step() as u64;
+        }
+        let text: String = one
+            .drain_display()
+            .iter()
+            .map(|&b| (b & 0x7f) as char)
+            .collect();
+        assert!(text.contains('\\'), "no Woz monitor prompt, got {text:?}");
+    }
 }

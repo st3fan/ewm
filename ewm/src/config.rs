@@ -538,6 +538,108 @@ fn referenced_files(config: &Config) -> Vec<&str> {
     files
 }
 
+/// The outcome of collecting the config document from a command line's
+/// source flags — pass 1 of a subcommand's option parsing, shared by
+/// `two` and `one` (plans/20260719-02-one-config.md O3).
+pub enum Collected {
+    /// The layered document; `None` when the command line had no sources.
+    Document(Option<serde_json::Value>),
+    /// `builtin:list` was answered on stdout; exit 0, like `--help`.
+    Listed,
+    /// A source failed to load or apply; the message went to stderr;
+    /// exit 1.
+    Failed,
+    /// A source flag was missing its value; the caller shows its usage.
+    MissingValue,
+}
+
+/// Collect the config document from `--config`, `--config-overlay`, and
+/// `--set`, applied strictly in command-line order through the merge.
+/// `seed_model` is the machine the document starts from when overlays or
+/// sets appear without a `--config` base (`"2plus"` for two,
+/// `"replica1"` for one). `materialize_slots` enables the overlay
+/// slots-materialization rule — a `two` behavior; a one-family document
+/// must never grow the ][+ default table.
+pub fn collect_document(args: &[String], seed_model: &str, materialize_slots: bool) -> Collected {
+    let seed = || serde_json::json!({"machine": {"model": seed_model}});
+    let mut doc: Option<serde_json::Value> = None;
+    let mut config_seen = false;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--config" => {
+                let Some(source) = it.next() else {
+                    return Collected::MissingValue;
+                };
+                // `builtin:list` is a query, not a machine: print the
+                // embedded configs and exit like --help does.
+                if source == "builtin:list" {
+                    for (name, description) in builtin_list() {
+                        match description {
+                            Some(description) => println!("{name:<10}{description}"),
+                            None => println!("{name}"),
+                        }
+                    }
+                    return Collected::Listed;
+                }
+                // One complete machine per command line: two --config files
+                // deep-merging reads as an accident now that partial layers
+                // have their own flag.
+                if config_seen {
+                    eprintln!(
+                        "only one --config allowed; use --config-overlay for additional layers"
+                    );
+                    return Collected::Failed;
+                }
+                config_seen = true;
+                match load_source_document(source) {
+                    Ok(value) => match doc.as_mut() {
+                        Some(doc) => merge_documents(doc, value),
+                        None => doc = Some(value),
+                    },
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return Collected::Failed;
+                    }
+                }
+            }
+            "--config-overlay" => {
+                let Some(source) = it.next() else {
+                    return Collected::MissingValue;
+                };
+                match load_overlay_document(source) {
+                    Ok(value) => {
+                        // Without a --config the document starts from the
+                        // default machine, like bare --set does.
+                        let doc = doc.get_or_insert_with(seed);
+                        if materialize_slots {
+                            merge_overlay_document(doc, value);
+                        } else {
+                            merge_documents(doc, value);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return Collected::Failed;
+                    }
+                }
+            }
+            "--set" => {
+                let Some(expr) = it.next() else {
+                    return Collected::MissingValue;
+                };
+                let doc = doc.get_or_insert_with(seed);
+                if let Err(e) = apply_set(doc, expr) {
+                    eprintln!("{e}");
+                    return Collected::Failed;
+                }
+            }
+            _ => {}
+        }
+    }
+    Collected::Document(doc)
+}
+
 /// Resolve a `--config` source to its JSON-document form, ready for
 /// layering (`merge_documents`, `apply_set`): `builtin:<name>` loads an
 /// embedded config, anything else is a file path (a literal file named
@@ -963,6 +1065,11 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
             if config.state != State::default() {
                 return Err(format!("state: not configurable for {token:?} yet"));
             }
+            // debug.trace is fine (one has --trace's machinery); the debug
+            // *overlay* is a two frontend feature.
+            if config.debug.enabled.is_some() {
+                return Err(format!("debug.enabled: not configurable for {token:?}"));
+            }
         }
     }
     Ok(())
@@ -1380,6 +1487,13 @@ mod tests {
             r#"{"machine": {"model": "apple1"}, "state": {"path": "m.state"}}"#,
             "state",
         );
+        // debug.trace is valid for the family; the debug *overlay* is a
+        // two frontend feature (O3).
+        case(
+            r#"{"machine": {"model": "apple1"}, "debug": {"enabled": true}}"#,
+            "debug.enabled",
+        );
+        assert!(parse(r#"{"machine": {"model": "apple1"}, "debug": {"trace": "t.txt"}}"#).is_ok());
     }
 
     #[test]
