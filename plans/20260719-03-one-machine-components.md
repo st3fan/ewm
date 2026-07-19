@@ -70,7 +70,7 @@ Faithfulness decisions baked into those profiles (rationale in
 |---|---|---|---|
 | R1 | `roms/`: the four mountable images, the embedded ROM registry, `builtin:` resolution in region paths | M | Done |
 | R2 | Config: `machine.cpu`, RAM-bank regions (`size`), validation (overlap, reset vector, family) | M | Done (reset-vector check deferred to R3 — see below) |
-| R3 | `One` builds from components; profiles rewritten; byte-identity + boot gates | M/L | Not started |
+| R3 | `One` builds from components; profiles rewritten; byte-identity + boot gates | M/L | Done |
 | R4 | Docs: README profiles with CPU/RAM/ROM detail; as-built notes | S | Not started |
 
 R1 → R2 → R3 in order; R4 last. Standard gates every phase, plus

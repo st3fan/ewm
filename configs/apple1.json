@@ -1,7 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
-  "description": "Classic Apple 1 — 6502, 8KB RAM, Woz Monitor",
+  "description": "Classic Apple 1 — 6502, 4KB+4KB RAM, Integer BASIC preloaded, Woz Monitor",
   "machine": {
-    "model": "apple1"
+    "model": "apple1",
+    "cpu": "6502",
+    "memory": [
+      { "type": "ram", "address": "0x0000", "size": "4k" },
+      { "type": "ram", "address": "0xe000", "path": "builtin:apple1-basic" },
+      { "type": "rom", "address": "0xff00", "path": "builtin:WozMon" }
+    ]
   }
 }

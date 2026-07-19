@@ -888,7 +888,15 @@ pub fn compact_document(doc: &mut serde_json::Value) {
     fn keep(value: &mut Value) -> bool {
         match value {
             Value::Null => false,
-            Value::Array(entries) => !entries.is_empty(),
+            Value::Array(entries) => {
+                // Compact the members (memory regions carry null for the
+                // unused path/size half) but never drop one — positions
+                // are meaningful.
+                for entry in entries.iter_mut() {
+                    keep(entry);
+                }
+                !entries.is_empty()
+            }
             Value::Object(map) if map.is_empty() => true,
             Value::Object(map) => {
                 map.retain(|_, member| keep(member));
@@ -1206,12 +1214,14 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
 /// piece of hardware (notes/APPLE1.md).
 const ONE_PIA_RANGE: (u32, u32) = (0xd010, 0xd013);
 
-/// Layout checks for Apple 1 family memory regions: regions with a known
-/// extent (a `size` bank or a `builtin:` image) must fit the 64K address
-/// space and must not overlap each other or the PIA. A file image's
-/// length is unknown until it is read, so only its start address can be
-/// judged here. (That the layout covers the reset vector becomes
-/// checkable in R3, once a document's regions describe the whole board.)
+/// Layout checks for Apple 1 family memory regions — which, when
+/// present, describe the *whole board* (an absent/empty list means the
+/// model's built-in board): regions with a known extent (a `size` bank
+/// or a `builtin:` image) must fit the 64K address space and must not
+/// overlap each other or the PIA, and something must cover the reset
+/// vector or the machine cannot boot. A file image's length is unknown
+/// until it is read, so it is judged by its start address only (and
+/// given the benefit of the doubt on the vector).
 fn validate_one_memory_layout(memory: &[MemoryRegion]) -> Result<(), String> {
     // (index, start, exclusive end when known)
     let mut extents: Vec<(usize, u32, Option<u32>)> = Vec::new();
@@ -1255,6 +1265,24 @@ fn validate_one_memory_layout(memory: &[MemoryRegion]) -> Result<(), String> {
             }
         }
         extents.push((i, start, end));
+    }
+    // The board must hold the 6502's reset vector ($FFFC-$FFFD) — a
+    // known extent covering it, or a file image that *could* (its length
+    // is unknown, so a start at or below $FFFC gets the benefit of the
+    // doubt).
+    if !memory.is_empty() {
+        let covered = extents.iter().any(|(_, start, end)| match end {
+            Some(end) => *start <= 0xfffc && *end >= 0xfffe,
+            None => *start <= 0xfffc,
+        });
+        if !covered {
+            return Err(
+                "machine.memory: nothing covers the reset vector ($FFFC-$FFFD) — the machine \
+                 cannot boot; the regions describe the whole board, so include a monitor ROM \
+                 (e.g. builtin:WozMon at 0xff00)"
+                    .into(),
+            );
+        }
     }
     Ok(())
 }
@@ -2032,7 +2060,7 @@ mod tests {
                 "model": "2plus",
                 "aux": null,
                 "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": null}},
-                "memory": [],
+                "memory": [{"type": "ram", "address": "0x0000", "path": null, "size": "4k"}],
             },
             "display": {"monitor": "green", "scanlines": null, "fps": null},
             "input": {"controller": null},
@@ -2044,10 +2072,15 @@ mod tests {
                 "machine": {
                     "model": "2plus",
                     "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}},
+                    "memory": [{"type": "ram", "address": "0x0000", "size": "4k"}],
                 },
                 "display": {"monitor": "green"},
             })
         );
+        // An empty memory list still compacts away entirely.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus", "memory": []}});
+        compact_document(&mut doc);
+        assert_eq!(doc, serde_json::json!({"machine": {"model": "2plus"}}));
 
         // An explicit bare slots table survives: {} means "no cards",
         // where an absent table would mean the default layout.

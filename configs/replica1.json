@@ -1,7 +1,13 @@
 {
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
-  "description": "Replica 1 — 65C02, 32KB RAM, KRUSADER",
+  "description": "Replica 1 — 65C02, 32KB RAM, Integer BASIC + Krusader 1.3 in ROM",
   "machine": {
-    "model": "replica1"
+    "model": "replica1",
+    "cpu": "65C02",
+    "memory": [
+      { "type": "ram", "address": "0x0000", "size": "32k" },
+      { "type": "rom", "address": "0xe000", "path": "builtin:apple1-basic" },
+      { "type": "rom", "address": "0xf000", "path": "builtin:Krusader-1.3-65C02" }
+    ]
   }
 }
