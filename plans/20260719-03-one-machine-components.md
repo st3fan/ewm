@@ -69,7 +69,7 @@ Faithfulness decisions baked into those profiles (rationale in
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | R1 | `roms/`: the four mountable images, the embedded ROM registry, `builtin:` resolution in region paths | M | Done |
-| R2 | Config: `machine.cpu`, RAM-bank regions (`size`), validation (overlap, reset vector, family) | M | Not started |
+| R2 | Config: `machine.cpu`, RAM-bank regions (`size`), validation (overlap, reset vector, family) | M | Done (reset-vector check deferred to R3 — see below) |
 | R3 | `One` builds from components; profiles rewritten; byte-identity + boot gates | M/L | Not started |
 | R4 | Docs: README profiles with CPU/RAM/ROM detail; as-built notes | S | Not started |
 
@@ -117,7 +117,10 @@ R1 → R2 → R3 in order; R4 last. Standard gates every phase, plus
   - regions must not overlap each other or the PIA at `$D010-$D013`;
   - some region must cover the reset vector (`$FFFC-$FFFD`) — a
     machine with no reset vector cannot boot, so it fails validation
-    with a message saying exactly that.
+    with a message saying exactly that. *(As built: deferred to R3 —
+    in R2 document regions are still extras on top of the model's
+    default ROMs, so "nothing covers the vector" cannot be judged
+    until R3's whole-board semantics land.)*
   (The apple2 family keeps its existing rules; its `memory` regions
   remain extras on top of a model-defined board and are not
   overlap-checked here.)
