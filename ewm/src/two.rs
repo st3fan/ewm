@@ -2190,83 +2190,15 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
     // and seed the options from it, so that in pass 2 — the flag loop, which
     // only assigns a field when its flag is present — anything given
     // explicitly on the command line overrides the document.
-    let mut doc: Option<serde_json::Value> = None;
-    let mut config_seen = false;
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--config" => {
-                let Some(source) = it.next() else {
-                    usage();
-                    return Err(1);
-                };
-                // `builtin:list` is a query, not a machine: print the
-                // embedded configs and exit like --help does.
-                if source == "builtin:list" {
-                    for (name, description) in crate::config::builtin_list() {
-                        match description {
-                            Some(description) => println!("{name:<10}{description}"),
-                            None => println!("{name}"),
-                        }
-                    }
-                    return Err(0);
-                }
-                // One complete machine per command line: two --config files
-                // deep-merging reads as an accident now that partial layers
-                // have their own flag.
-                if config_seen {
-                    eprintln!(
-                        "only one --config allowed; use --config-overlay for additional layers"
-                    );
-                    return Err(1);
-                }
-                config_seen = true;
-                match crate::config::load_source_document(source) {
-                    Ok(value) => match doc.as_mut() {
-                        Some(doc) => crate::config::merge_documents(doc, value),
-                        None => doc = Some(value),
-                    },
-                    Err(e) => {
-                        eprintln!("{e}");
-                        return Err(1);
-                    }
-                }
-            }
-            "--config-overlay" => {
-                let Some(source) = it.next() else {
-                    usage();
-                    return Err(1);
-                };
-                match crate::config::load_overlay_document(source) {
-                    Ok(value) => {
-                        // Without a --config the document starts from the
-                        // default machine, like bare --set does.
-                        let doc = doc.get_or_insert_with(
-                            || serde_json::json!({"machine": {"model": "2plus"}}),
-                        );
-                        crate::config::merge_overlay_document(doc, value);
-                    }
-                    Err(e) => {
-                        eprintln!("{e}");
-                        return Err(1);
-                    }
-                }
-            }
-            "--set" => {
-                let Some(expr) = it.next() else {
-                    usage();
-                    return Err(1);
-                };
-                let doc =
-                    doc.get_or_insert_with(|| serde_json::json!({"machine": {"model": "2plus"}}));
-                if let Err(e) = crate::config::apply_set(doc, expr) {
-                    eprintln!("{e}");
-                    return Err(1);
-                }
-            }
-            _ => {}
+    let doc = match crate::config::collect_document(args, "2plus", true) {
+        crate::config::Collected::Document(doc) => doc,
+        crate::config::Collected::Listed => return Err(0),
+        crate::config::Collected::Failed => return Err(1),
+        crate::config::Collected::MissingValue => {
+            usage();
+            return Err(1);
         }
-    }
+    };
     if let Some(doc) = doc
         && let Err(e) =
             crate::config::from_document(doc).and_then(|c| apply_config(&mut options, c))
