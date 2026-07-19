@@ -19,19 +19,21 @@ use sdl3::render::ScaleMode;
 use sdl3::sys::render::SDL_RendererLogicalPresentation;
 use sdl3::video::FullscreenType;
 
-// The mountable one-family ROM images (notes/APPLE1.md): the pristine
-// Woz Monitor, Integer BASIC, and the Krusader $F000-$FFFF slice (which
-// carries its own modified monitor page). The historical 8KB
-// krusader.rom was exactly BASIC + the 6502 Krusader slice — pinned by
-// the provenance test in config.rs.
-static WOZMON_ROM: &[u8] = include_bytes!("../../roms/WozMon.rom");
-static BASIC_ROM: &[u8] = include_bytes!("../../roms/apple1-basic.rom");
-static KRUSADER_6502_ROM: &[u8] = include_bytes!("../../roms/Krusader-1.3-6502.rom");
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OneModel {
     Apple1,
     Replica1,
+}
+
+impl OneModel {
+    /// The model's schema token — also the name of the built-in config
+    /// that *is* the model's board description.
+    pub fn token(self) -> &'static str {
+        match self {
+            OneModel::Apple1 => "apple1",
+            OneModel::Replica1 => "replica1",
+        }
+    }
 }
 
 pub struct One {
@@ -41,28 +43,60 @@ pub struct One {
 }
 
 impl One {
-    /// Port of `ewm_one_init`: Apple 1 = 6502 + 8K RAM + Woz monitor ROM at
-    /// $FF00; Replica 1 = 65C02 + 32K RAM + BASIC at $E000 + Krusader at
-    /// $F000 (byte-identical to the historical single 8K ROM mount). The
-    /// PIA sits at $D010 on both.
+    /// The model's stock machine: built from its built-in config — the
+    /// single description of the board (R3 of
+    /// plans/20260719-03-one-machine-components.md; layouts in
+    /// notes/APPLE1.md).
     pub fn new(model: OneModel) -> One {
-        One::new_with_cpu(model, None)
+        let config =
+            crate::config::load_builtin(model.token()).expect("builtins are pinned valid by test");
+        let machine = config.machine.expect("builtins are complete");
+        One::from_components(model, machine.cpu, &machine.memory)
+            .expect("builtin boards are pinned buildable by test")
     }
 
-    /// `new` with an optional CPU override (config `machine.cpu`); `None`
-    /// keeps the model's CPU.
-    pub fn new_with_cpu(model: OneModel, cpu: Option<Model>) -> One {
-        let (cpu_model, ram_size) = match model {
-            OneModel::Apple1 => (Model::M6502, 8 * 1024),
-            OneModel::Replica1 => (Model::M65C02, 32 * 1024),
+    /// Build a machine from its components: the CPU (`None` = the model's)
+    /// and the memory regions — RAM banks, RAM/ROM images — that describe
+    /// the whole board. The only fixed hardware is the PIA at
+    /// $D010-$D013; `model` also decides the terminal behavior (the
+    /// Apple 1 masks display output to 7 bits).
+    pub fn from_components(
+        model: OneModel,
+        cpu: Option<crate::config::CpuModel>,
+        regions: &[crate::config::MemoryRegion],
+    ) -> Result<One, String> {
+        let cpu_model = match cpu {
+            Some(crate::config::CpuModel::M6502) => Model::M6502,
+            Some(crate::config::CpuModel::M65C02) => Model::M65C02,
+            None => match model {
+                OneModel::Apple1 => Model::M6502,
+                OneModel::Replica1 => Model::M65C02,
+            },
         };
-        let cpu_model = cpu.unwrap_or(cpu_model);
-        let mut mem = Memory::new(ram_size);
-        match model {
-            OneModel::Apple1 => mem.add_rom(0xff00, WOZMON_ROM.to_vec()),
-            OneModel::Replica1 => {
-                mem.add_rom(0xe000, BASIC_ROM.to_vec());
-                mem.add_rom(0xf000, KRUSADER_6502_ROM.to_vec());
+        // No base RAM: every byte of the board comes from the regions.
+        let mut mem = Memory::new(0);
+        for region in regions {
+            let address = region
+                .address_value()
+                .map_err(|e| format!("machine.memory: {e}"))?;
+            let (rom, data) = match (&region.path, &region.size) {
+                (Some(path), None) => {
+                    let data = crate::config::read_memory_image(path)?;
+                    (region.kind == crate::config::MemoryKind::Rom, data)
+                }
+                (None, Some(size)) => {
+                    let bytes = crate::config::parse_memory_size(size)
+                        .map_err(|e| format!("machine.memory: {e}"))?;
+                    (false, vec![0; bytes as usize])
+                }
+                _ => {
+                    return Err("machine.memory: a region takes exactly one of path or size".into());
+                }
+            };
+            if rom {
+                mem.add_rom(address, data);
+            } else {
+                mem.add_ram(address, data);
             }
         }
         let pia = mem.add_device(
@@ -70,11 +104,11 @@ impl One {
             A1_PIA6820_ADDR + A1_PIA6820_LENGTH - 1,
             Pia::new(),
         );
-        One {
+        Ok(One {
             model,
             cpu: Cpu::new(cpu_model, mem),
             pia,
-        }
+        })
     }
 
     /// Port of `ewm_one_keydown`: latch the key into the PIA with bit 7 set
@@ -134,28 +168,15 @@ struct OneCtx<'a> {
 
 type OneAction = fn(&mut OneCtx);
 
-/// What fills a memory region: an image (a file path or `builtin:<name>`)
-/// or an empty RAM bank of a given byte size (R2 of
-/// plans/20260719-03-one-machine-components.md).
-#[derive(Debug, PartialEq)]
-enum MemorySource {
-    Image(String),
-    Bank(u32),
-}
-
-#[derive(Debug, PartialEq)]
-struct MemoryOption {
-    rom: bool,
-    address: u16,
-    source: MemorySource,
-}
-
 #[derive(Debug, PartialEq)]
 pub(crate) struct Options {
     model: OneModel,
-    /// CPU override (`machine.cpu`); None = the model's CPU.
+    /// The CPU (`machine.cpu`); filled from the model's builtin by
+    /// `normalize` when the document doesn't say.
     cpu: Option<crate::config::CpuModel>,
-    memory: Vec<MemoryOption>,
+    /// The whole board's memory regions; filled from the model's builtin
+    /// by `normalize` when the document doesn't say.
+    memory: Vec<crate::config::MemoryRegion>,
     trace_path: Option<String>,
     strict: bool,
 }
@@ -170,6 +191,25 @@ impl Default for Options {
             trace_path: None,
             strict: false,
         }
+    }
+}
+
+/// Fill the component fields from the model's built-in config when the
+/// document didn't spell them — the builtin *is* the board description,
+/// so bare `ewm one` and `--config builtin:replica1` build the same
+/// machine, and `--print-config` always shows the full board.
+fn normalize(options: &mut Options) {
+    if options.cpu.is_some() && !options.memory.is_empty() {
+        return;
+    }
+    let builtin = crate::config::load_builtin(options.model.token())
+        .expect("builtins are pinned valid by test");
+    let machine = builtin.machine.expect("builtins are complete");
+    if options.cpu.is_none() {
+        options.cpu = machine.cpu;
+    }
+    if options.memory.is_empty() {
+        options.memory = machine.memory;
     }
 }
 
@@ -210,21 +250,10 @@ fn apply_config(options: &mut Options, config: crate::config::Config) -> Result<
         }
     };
     options.cpu = machine.cpu;
-    for region in machine.memory {
-        let address = region.address_value()?;
-        let source = match (region.path, region.size) {
-            (Some(path), None) => MemorySource::Image(path),
-            (None, Some(size)) => MemorySource::Bank(
-                crate::config::parse_memory_size(&size).expect("validated structurally"),
-            ),
-            _ => unreachable!("validated structurally: exactly one of path or size"),
-        };
-        options.memory.push(MemoryOption {
-            rom: region.kind == crate::config::MemoryKind::Rom,
-            address,
-            source,
-        });
-    }
+    // One-family memory regions describe the *whole board*; an absent
+    // (or empty) list means the model's built-in board, filled in by
+    // `normalize` after the document is applied.
+    options.memory = machine.memory;
     if let Some(strict) = config.cpu.strict {
         options.strict = strict;
     }
@@ -252,34 +281,7 @@ fn options_to_config(options: &Options) -> crate::config::Config {
             cpu: options.cpu,
             aux: None,
             slots: None,
-            memory: options
-                .memory
-                .iter()
-                .map(|region| {
-                    let (path, size) = match &region.source {
-                        MemorySource::Image(path) => (Some(path.clone()), None),
-                        // Whole KiB print as "Nk", exact bytes otherwise.
-                        MemorySource::Bank(bytes) => (
-                            None,
-                            Some(if bytes % 1024 == 0 {
-                                format!("{}k", bytes / 1024)
-                            } else {
-                                format!("{bytes}")
-                            }),
-                        ),
-                    };
-                    crate::config::MemoryRegion {
-                        kind: if region.rom {
-                            crate::config::MemoryKind::Rom
-                        } else {
-                            crate::config::MemoryKind::Ram
-                        },
-                        address: format!("0x{:04x}", region.address),
-                        path,
-                        size,
-                    }
-                })
-                .collect(),
+            memory: options.memory.clone(),
         }),
         display: crate::config::Display::default(),
         cpu: crate::config::Cpu {
@@ -318,6 +320,9 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
         eprintln!("{e}");
         return Err(1);
     }
+    // Fill anything the document left unsaid from the model's builtin,
+    // so the built machine and --print-config always show the full board.
+    normalize(&mut options);
     let mut print_config = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -351,38 +356,11 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
     Ok(options)
 }
 
-/// Build the machine `parse_options` described: construct the model
-/// (with the `machine.cpu` override, if any), load the extra memory
-/// regions and RAM banks, arm strict/trace — the machine half of `main`,
-/// shared with the boot-gate test.
+/// Build the machine `parse_options` described — the components straight
+/// into `One::from_components`, then strict/trace — the machine half of
+/// `main`, shared with the boot-gate tests.
 fn build_machine(options: &Options) -> Result<One, String> {
-    let cpu = options.cpu.map(|cpu| match cpu {
-        crate::config::CpuModel::M6502 => Model::M6502,
-        crate::config::CpuModel::M65C02 => Model::M65C02,
-    });
-    let mut one = One::new_with_cpu(options.model, cpu);
-    for m in &options.memory {
-        let data = match &m.source {
-            MemorySource::Image(path) => {
-                eprintln!(
-                    "[EWM] Adding {} ${:04X} {}",
-                    if m.rom { "ROM" } else { "RAM" },
-                    m.address,
-                    path
-                );
-                crate::config::read_memory_image(path).map_err(|e| format!("[MEM] {e}"))?
-            }
-            MemorySource::Bank(bytes) => {
-                eprintln!("[EWM] Adding RAM bank ${:04X} ({bytes} bytes)", m.address);
-                vec![0; *bytes as usize]
-            }
-        };
-        if m.rom {
-            one.add_rom(m.address, data);
-        } else {
-            one.add_ram(m.address, data);
-        }
-    }
+    let mut one = One::from_components(options.model, options.cpu, &options.memory)?;
     one.cpu.strict = options.strict;
     if let Some(path) = &options.trace_path {
         let file = std::fs::File::create(path)
@@ -755,14 +733,19 @@ mod tests {
         );
         let o = opts(&["--config", config.to_str().unwrap()]);
         assert_eq!(o.memory.len(), 1);
-        assert!(o.memory[0].rom);
-        assert_eq!(o.memory[0].address, 0xc000);
-        let MemorySource::Image(path) = &o.memory[0].source else {
-            panic!("expected an image region");
-        };
+        assert_eq!(o.memory[0].kind, crate::config::MemoryKind::Rom);
+        assert_eq!(o.memory[0].address, "0xc000");
+        let path = o.memory[0].path.as_deref().expect("an image region");
         assert!(path.ends_with("basic.rom"), "{path}");
         assert!(std::path::Path::new(path).is_absolute(), "{path}");
         assert!(o.trace_path.as_deref().unwrap().ends_with("one.trace"));
+        // The document left the CPU unsaid: normalize filled it from the
+        // model's builtin.
+        assert_eq!(o.cpu, Some(crate::config::CpuModel::M6502));
+        // A bare command line gets the whole default board the same way.
+        let o = opts(&[]);
+        assert_eq!(o.cpu, Some(crate::config::CpuModel::M65C02));
+        assert_eq!(o.memory.len(), 3);
     }
 
     #[test]
@@ -846,22 +829,31 @@ mod tests {
 
     #[test]
     fn cpu_and_ram_banks_come_from_the_document() {
-        // machine.cpu overrides the model's CPU; a size region mounts an
-        // empty RAM bank; a builtin: region mounts the embedded image.
+        // The document describes the whole board: cpu, banks, images.
         let config = scratch(
             "components.json",
             r#"{"machine": {"model": "apple1", "cpu": "65C02",
                 "memory": [
+                    {"type": "ram", "address": "0x0000", "size": "4k"},
                     {"type": "ram", "address": "0x4000", "size": "4k"},
-                    {"type": "rom", "address": "0xe000", "path": "builtin:apple1-basic"}]}}"#,
+                    {"type": "rom", "address": "0xe000", "path": "builtin:apple1-basic"},
+                    {"type": "rom", "address": "0xff00", "path": "builtin:WozMon"}]}}"#,
         );
         let o = opts(&["--config", config.to_str().unwrap()]);
         assert_eq!(o.cpu, Some(crate::config::CpuModel::M65C02));
-        assert_eq!(o.memory[0].source, MemorySource::Bank(4096));
-        assert_eq!(
-            o.memory[1].source,
-            MemorySource::Image("builtin:apple1-basic".to_string())
+        assert_eq!(o.memory.len(), 4);
+
+        // A board with nothing at the reset vector is rejected up front.
+        let headless = scratch(
+            "headless.json",
+            r#"{"machine": {"model": "apple1",
+                "memory": [{"type": "ram", "address": "0x0000", "size": "4k"}]}}"#,
         );
+        let args: Vec<String> = ["--config", headless.to_str().unwrap()]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(matches!(parse_options(&args), Err(1)));
 
         let mut one = build_machine(&o).expect("machine builds");
         assert_eq!(one.cpu.model, ewm_core::cpu::Model::M65C02);
@@ -902,5 +894,80 @@ mod tests {
             .map(|&b| (b & 0x7f) as char)
             .collect();
         assert!(text.contains('\\'), "no Woz monitor prompt, got {text:?}");
+    }
+
+    /// Step the machine and collect what it printed, one_boot-style.
+    fn run(one: &mut One, cycles: u64, output: &mut Vec<u8>) {
+        let mut spent = 0u64;
+        while spent < cycles {
+            spent += one.cpu.step() as u64;
+        }
+        output.extend(one.drain_display());
+    }
+
+    /// Feed keys one at a time — no keyboard queue, just the PIA latch.
+    fn type_keys(one: &mut One, keys: &str, output: &mut Vec<u8>) {
+        for &b in keys.as_bytes() {
+            one.key(b);
+            run(one, 50_000, output);
+        }
+    }
+
+    #[test]
+    fn builtin_apple1_runs_integer_basic() {
+        // The R3 gate: the Apple 1 profile preloads Integer BASIC in the
+        // $E000 RAM bank (cassette-faithful, minus the cassette), so
+        // E000R from the monitor lands at the BASIC prompt.
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut output = Vec::new();
+        run(&mut one, 1_000_000, &mut output);
+        type_keys(&mut one, "E000R\r", &mut output);
+        run(&mut one, 1_000_000, &mut output);
+        let text: String = output.iter().map(|&b| (b & 0x7f) as char).collect();
+        assert!(text.contains('>'), "no Integer BASIC prompt, got {text:?}");
+    }
+
+    #[test]
+    fn profiles_reassemble_the_real_rom_images() {
+        // The R3 byte-identity gate: the composed board's $E000-$FFFF is
+        // the real ROM, byte for byte — the same SHA-1s the provenance
+        // test in config.rs pins for the raw images.
+        fn top_8k_sha1(one: &mut One) -> String {
+            let bytes: Vec<u8> = (0xe000..=0xffffu32)
+                .map(|a| one.cpu.mem.read(a as u16))
+                .collect();
+            crate::ws::sha1(&bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        }
+
+        // builtin:replica1 mounts the 65C02 Krusader distribution…
+        let o = opts(&["--config", "builtin:replica1"]);
+        let mut one = build_machine(&o).expect("replica1 builds");
+        assert_eq!(
+            top_8k_sha1(&mut one),
+            "f038b2d8761171ff770ce032ce0a22918cc96872"
+        );
+
+        // …and swapping in the 6502 slice reproduces the historical
+        // krusader.rom machine exactly.
+        let legacy = scratch(
+            "legacy-replica1.json",
+            r#"{"machine": {"model": "replica1", "cpu": "6502",
+                "memory": [
+                    {"type": "ram", "address": "0x0000", "size": "32k"},
+                    {"type": "rom", "address": "0xe000", "path": "builtin:apple1-basic"},
+                    {"type": "rom", "address": "0xf000", "path": "builtin:Krusader-1.3-6502"}]}}"#,
+        );
+        let o = opts(&["--config", legacy.to_str().unwrap()]);
+        let mut one = build_machine(&o).expect("legacy replica1 builds");
+        assert_eq!(one.cpu.model, ewm_core::cpu::Model::M6502);
+        assert_eq!(
+            top_8k_sha1(&mut one),
+            "5e5ca9d94bc83a79e06806a9df180aa29d8e1a0a"
+        );
     }
 }
