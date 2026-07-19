@@ -24,6 +24,10 @@ pub struct Config {
     /// autocomplete.
     #[serde(rename = "$schema", default)]
     pub schema: Option<String>,
+    /// A one-line human description of this configuration, shown by
+    /// `--config builtin:list`.
+    #[serde(default)]
+    pub description: Option<String>,
     /// The machine's physical build: model, aux card, slots, and any extra
     /// memory regions.
     pub machine: Machine,
@@ -406,6 +410,90 @@ pub enum RemoteProtocol {
     Rdp,
 }
 
+/// The built-in machine configurations: the files under `configs/`,
+/// embedded at compile time so `--config builtin:<name>` works from any
+/// installed binary. Name = the file's stem, sorted, so errors and
+/// `builtin:list` read predictably. Built-ins must be self-contained —
+/// enforced by `load_builtin` and pinned by the
+/// `builtins_load_and_are_self_contained` test. See
+/// plans/20260718-02-config-sources.md (C1).
+const BUILTINS: &[(&str, &str)] = &[
+    ("2e", include_str!("../../configs/2e.json")),
+    ("2plus", include_str!("../../configs/2plus.json")),
+];
+
+/// Name and description of every built-in config, for `builtin:list`.
+pub fn builtin_list() -> Vec<(&'static str, Option<String>)> {
+    BUILTINS
+        .iter()
+        .map(|(name, _)| {
+            let config = load_builtin(name).expect("builtins are pinned valid by test");
+            (*name, config.description)
+        })
+        .collect()
+}
+
+/// Load the named built-in configuration. Built-ins carry no file
+/// references (there is no directory to resolve relative paths against),
+/// so no path resolution happens; a builtin that references a file is a
+/// bug, caught here and by the self-containment test.
+pub fn load_builtin(name: &str) -> Result<Config, String> {
+    let Some((_, text)) = BUILTINS.iter().find(|(n, _)| *n == name) else {
+        let names: Vec<&str> = BUILTINS.iter().map(|(n, _)| *n).collect();
+        return Err(format!(
+            "no built-in config {name:?} (available: {})",
+            names.join(", ")
+        ));
+    };
+    let origin = format!("builtin:{name}");
+    let config: Config = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
+    validate(&config).map_err(|e| format!("{origin}: {e}"))?;
+    let files = referenced_files(&config);
+    if !files.is_empty() {
+        return Err(format!(
+            "{origin}: built-in configs cannot reference files ({})",
+            files.join(", ")
+        ));
+    }
+    Ok(config)
+}
+
+/// Every file path a config references — drive images, memory-region
+/// files, the trace and state paths. The set that must be empty for a
+/// built-in config.
+fn referenced_files(config: &Config) -> Vec<&str> {
+    let mut files: Vec<&str> = Vec::new();
+    for card in config.machine.slots.iter().flat_map(|s| s.values()) {
+        match card {
+            SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
+                files.extend(drive1.as_deref());
+                files.extend(drive2.as_deref());
+            }
+            SlotCard::Harddrive { image } => files.push(image),
+            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty => {
+            }
+        }
+    }
+    files.extend(config.machine.memory.iter().map(|r| r.path.as_str()));
+    files.extend(config.debug.trace.as_deref());
+    files.extend(config.state.path.as_deref());
+    files
+}
+
+/// Resolve a `--config` source to its JSON-document form, ready for
+/// layering (`merge_documents`, `apply_set`): `builtin:<name>` loads an
+/// embedded config, anything else is a file path (a literal file named
+/// `builtin:…` is reachable as `./builtin:…`).
+pub fn load_source_document(source: &str) -> Result<serde_json::Value, String> {
+    match source.strip_prefix("builtin:") {
+        Some(name) => {
+            let config = load_builtin(name)?;
+            serde_json::to_value(config).map_err(|e| format!("builtin:{name}: {e}"))
+        }
+        None => load_document(source),
+    }
+}
+
 /// Load a machine configuration: read the file, parse it, validate it
 /// semantically, and resolve relative paths against the file's directory.
 pub fn load(path: &str) -> Result<Config, String> {
@@ -744,6 +832,82 @@ mod tests {
             "schema drift — regenerate with \
              EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed"
         );
+    }
+
+    #[test]
+    fn builtins_load_and_are_self_contained() {
+        for (name, text) in BUILTINS {
+            let config = load_builtin(name).expect("every builtin must load");
+            // Self-containment, stated directly: the loader would have
+            // rejected any file reference, but pin the property on the
+            // parsed text too so a future loader change can't lose it.
+            let parsed: Config = serde_json::from_str(text).expect("builtin parses");
+            assert_eq!(
+                referenced_files(&parsed),
+                Vec::<&str>::new(),
+                "builtin:{name}"
+            );
+            // Every builtin describes itself for `builtin:list`.
+            assert!(
+                config.description.is_some(),
+                "builtin:{name} needs a description"
+            );
+        }
+        // The table stays sorted so listings and error text read predictably.
+        assert!(BUILTINS.windows(2).all(|w| w[0].0 < w[1].0));
+    }
+
+    #[test]
+    fn builtin_names_match_their_model() {
+        // The naming convention: builtin names are the schema's model
+        // tokens (builtin:2plus, builtin:2e).
+        let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
+        assert_eq!(models, vec!["2e", "2plus"]);
+        assert_eq!(load_builtin("2plus").unwrap().machine.model, Model::TwoPlus);
+        assert_eq!(load_builtin("2e").unwrap().machine.model, Model::TwoE);
+    }
+
+    #[test]
+    fn unknown_builtin_lists_the_available_names() {
+        let err = load_builtin("foo").unwrap_err();
+        assert_eq!(err, r#"no built-in config "foo" (available: 2e, 2plus)"#);
+    }
+
+    #[test]
+    fn referenced_files_finds_every_path_field() {
+        let config = parse(
+            r#"{"machine": {"model": "2plus",
+                "slots": {
+                    "5": {"card": "liron", "drive1": "/a.2mg"},
+                    "6": {"card": "diskii", "drive1": "/b.dsk", "drive2": "/c.dsk"},
+                    "7": {"card": "harddrive", "image": "/d.hdv"}},
+                "memory": [{"type": "rom", "address": "0xd000", "path": "/e.bin"}]},
+                "debug": {"trace": "/f.txt"},
+                "state": {"path": "/g.state"}}"#,
+        )
+        .expect("valid config");
+        let mut files = referenced_files(&config);
+        files.sort();
+        assert_eq!(
+            files,
+            vec![
+                "/a.2mg", "/b.dsk", "/c.dsk", "/d.hdv", "/e.bin", "/f.txt", "/g.state"
+            ]
+        );
+    }
+
+    #[test]
+    fn source_documents_resolve_builtins_and_paths() {
+        let builtin = load_source_document("builtin:2plus").expect("builtin source");
+        let file = load_document(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../configs/2plus.json"
+        ))
+        .expect("file source");
+        // The embedded copy and the committed file are the same config.
+        assert_eq!(builtin, file);
+        let err = load_source_document("builtin:nope").unwrap_err();
+        assert!(err.starts_with("no built-in config"), "{err}");
     }
 
     #[test]

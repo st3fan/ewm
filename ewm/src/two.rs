@@ -2081,7 +2081,9 @@ fn parse_memory_option(s: &str) -> Option<MemoryOption> {
 
 fn usage() {
     eprintln!("Usage: ewm two [options]");
-    eprintln!("  --config <path>   configure the machine from a JSON file (flags override it)");
+    eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
+    eprintln!("                    config (builtin:2plus, builtin:2e; builtin:list lists");
+    eprintln!("                    them); flags override it");
     eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
     eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
@@ -2216,11 +2218,22 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--config" => {
-                let Some(path) = it.next() else {
+                let Some(source) = it.next() else {
                     usage();
                     return Err(1);
                 };
-                match crate::config::load_document(path) {
+                // `builtin:list` is a query, not a machine: print the
+                // embedded configs and exit like --help does.
+                if source == "builtin:list" {
+                    for (name, description) in crate::config::builtin_list() {
+                        match description {
+                            Some(description) => println!("{name:<8}{description}"),
+                            None => println!("{name}"),
+                        }
+                    }
+                    return Err(0);
+                }
+                match crate::config::load_source_document(source) {
                     Ok(value) => match doc.as_mut() {
                         Some(doc) => crate::config::merge_documents(doc, value),
                         None => doc = Some(value),
@@ -4081,6 +4094,55 @@ mod tests {
         assert!(o.memory[0].rom);
         assert_eq!(o.memory[0].address, 0xd000);
         assert_eq!(o.memory[0].path, fixture!("custom.bin"));
+    }
+
+    #[test]
+    fn builtin_config_equals_its_committed_file() {
+        // `--config builtin:<name>` and `--config configs/<name>.json`
+        // describe the same machine (the embedded copy is the file).
+        let pairs = [
+            (
+                "builtin:2plus",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/2plus.json"),
+            ),
+            (
+                "builtin:2e",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/2e.json"),
+            ),
+        ];
+        for (builtin, file) in pairs {
+            let b = opts(&["--config", builtin]);
+            let f = opts(&["--config", file]);
+            assert_eq!(b.model, f.model, "{builtin}");
+            assert_eq!(b.slots, f.slots, "{builtin}");
+            assert_eq!(b.aux, f.aux, "{builtin}");
+            assert_eq!(b.monitor, f.monitor, "{builtin}");
+        }
+        // Built-ins layer like any other source.
+        let o = opts(&[
+            "--config",
+            "builtin:2e",
+            "--set",
+            "machine:slots:6:drive1=game.dsk",
+        ]);
+        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
+    }
+
+    #[test]
+    fn builtin_list_and_unknown_names_exit() {
+        // `builtin:list` is a query: print and exit 0, like --help.
+        let args: Vec<String> = ["--config", "builtin:list"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(matches!(parse_options(&args), Err(0)));
+        // An unknown name is an error exit.
+        let args: Vec<String> = ["--config", "builtin:nope"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(matches!(parse_options(&args), Err(1)));
     }
 
     #[test]

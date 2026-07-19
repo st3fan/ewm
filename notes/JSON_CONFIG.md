@@ -135,6 +135,30 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 - **Array paths are rejected** (`machine:memory:0:path`) — memory regions
   come from `--memory`.
 
+## Config sources — built-ins (C1, recorded as built)
+
+Phase C1 of `plans/20260718-02-config-sources.md`:
+
+- **`--config builtin:<name>`** loads one of the embedded copies of the
+  `configs/` files (`include_str!`, a static table in `config.rs` — no
+  build script). Names are the schema's model tokens, matching the file
+  stems 1:1: `builtin:2plus` (`configs/2plus.json`) and `builtin:2e`
+  (`configs/2e.json`; the files were renamed from `plus.json` /
+  `enhanced.json`). `builtin:list` prints the names with descriptions
+  and exits 0, like `--help`; an unknown name errors listing the
+  available names. A literal file named `builtin:x` is reachable as
+  `./builtin:x` (documented, not engineered around).
+- **Built-ins are self-contained**: no drive images, memory files, or
+  trace/state paths — there is no directory to resolve relative paths
+  against. `load_builtin` rejects file references at load time and the
+  `builtins_load_and_are_self_contained` test pins the property (plus:
+  every builtin carries a `description`, and the table stays sorted).
+- **Top-level `description`** joined the schema — a one-line human
+  description shown by `builtin:list`, usable by any config file.
+- **Bare `ewm two` is unchanged** — the in-code default machine
+  (Thunderclock in slot 1) still differs from `builtin:2plus`
+  deliberately; unifying them is backlog in the plan.
+
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
@@ -165,7 +189,7 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 - **The literal-table rule covers slot 0** — a deliberate breaking
   change, accepted by the owner: a ][+ config whose `slots` table omits
   `"0"` is a stock **48K machine** ($D000–$FFFF motherboard ROM on the
-  bus, slot 0's DEVSEL range unmapped). `configs/plus.json` declares the
+  bus, slot 0's DEVSEL range unmapped). `configs/2plus.json` declares the
   card explicitly. The default table (absent `slots`, and the `--set`
   materialization) gains `"0": {"card": "language"}`, so bare command
   lines stay the classic 64K build; `--set machine:slots:0:card=empty`
@@ -200,7 +224,7 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
   (`drive1`/`drive2`), **.2mg only**, ProDOS-order, exactly 800 (400K)
   or 1600 (800K) blocks; the 2IMG locked flag mounts read-only;
   write-back lands at `data_offset + block*512`, header preserved. Any
-  slot 1–7, no multiplicity limit; `configs/enhanced.json` carries one
+  slot 1–7, no multiplicity limit; `configs/2e.json` carries one
   in slot 5.
 - **SmartPort identity is real**: signature `$Cn07=$00`, ID type at
   `$CnFB`, ProDOS entry via `$CnFF` with the SmartPort dispatch at

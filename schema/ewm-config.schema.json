@@ -35,6 +35,14 @@
         "trace": null
       }
     },
+    "description": {
+      "description": "A one-line human description of this configuration, shown by\n`--config builtin:list`.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
     "display": {
       "description": "Monitor and rendering settings.",
       "$ref": "#/$defs/Display",

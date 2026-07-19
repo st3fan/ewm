@@ -56,7 +56,7 @@ becomes a final-document check. That is the heart of Phase C2.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| C1 | Built-in configs: `builtin:` scheme, embed `configs/`, listing | S/M | Not started |
+| C1 | Built-in configs: `builtin:` scheme, embed `configs/`, listing | S/M | Done |
 | C2 | Partial configs: optional `machine`/`model`, split validation | M | Not started |
 | C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Not started |
 | C4 | `--print-config`: inspect the merged document | S | Not started |
@@ -76,7 +76,7 @@ parsing); C4 wants C3 (it is most useful once layering is rich).
   literal file named `builtin:x` is escapable as `./builtin:x` (document
   it, don't engineer around it).
 - Unknown name errors list the available names:
-  `no built-in config "foo" (available: enhanced, plus)`.
+  `no built-in config "foo" (available: 2e, 2plus)`.
 - **Built-ins must be self-contained**: a test walks every embedded
   config and asserts it references no files (no drive images, no memory
   regions, no trace/state paths) — the base-directory question then
@@ -86,23 +86,18 @@ parsing); C4 wants C3 (it is most useful once layering is rich).
   kickoff) prints each name with a one-line description. Add an optional
   top-level `description` field to the schema so configs can describe
   themselves (schema regenerated; useful for user configs too).
-- **Decisions for kickoff:**
-  - **Names.** The files are `plus.json` / `enhanced.json`; the idea
-    sketch says `builtin:twoplus` / `builtin:twoeenhanced`; the schema's
-    model tokens are `2plus` / `2e`. Recommendation: rename the files to
-    match the chosen names 1:1 (name = file stem) so the table is
-    mechanical — e.g. `configs/2plus.json` → `builtin:2plus`,
-    `configs/2e.json` → `builtin:2e`.
-  - **Does bare `ewm two` change?** Today's default machine is built in
-    code (`default_slot_cards()`), not from `configs/plus.json`, and the
-    two differ (the default has a Thunderclock in slot 1). Recommendation:
-    leave the bare default alone in this plan; unifying "the default
-    machine is `builtin:<something>`" is a separate decision recorded in
-    the backlog.
+- **Decisions (made at kickoff, as built):**
+  - **Names are the schema's model tokens** — `builtin:2plus` and
+    `builtin:2e` — and the files were renamed to match 1:1
+    (`configs/2plus.json`, `configs/2e.json`), so name = file stem.
+  - **Listing is `--config builtin:list`** (no new flag).
+  - **Bare `ewm two` is unchanged**; unifying the in-code default
+    machine with a built-in stays in the backlog.
 - **Gate:** unit tests (resolution, unknown-name message, listing,
   self-containment sweep); an integration test in `ewm/tests/two_config.rs`
-  proving `--config builtin:plus` yields the same `Options` as
-  `--config configs/plus.json`; full standard gates.
+  proving `--config builtin:2plus` yields the same machine as
+  `--config configs/2plus.json`; full standard gates. *(All in place —
+  see `notes/JSON_CONFIG.md` "Config sources — built-ins".)*
 
 ### C2 — Partial configs (parse relaxed, validate the whole)
 
