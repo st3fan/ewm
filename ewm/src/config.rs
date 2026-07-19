@@ -470,6 +470,8 @@ pub enum RemoteProtocol {
 const BUILTINS: &[(&str, &str)] = &[
     ("2e", include_str!("../../configs/2e.json")),
     ("2plus", include_str!("../../configs/2plus.json")),
+    ("apple1", include_str!("../../configs/apple1.json")),
+    ("replica1", include_str!("../../configs/replica1.json")),
 ];
 
 /// Name and description of every built-in config, for `builtin:list`.
@@ -1094,18 +1096,23 @@ mod tests {
     #[test]
     fn builtin_names_match_their_model() {
         // The naming convention: builtin names are the schema's model
-        // tokens (builtin:2plus, builtin:2e).
+        // tokens (builtin:2plus, builtin:apple1, …), both families.
         let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
-        assert_eq!(models, vec!["2e", "2plus"]);
+        assert_eq!(models, vec!["2e", "2plus", "apple1", "replica1"]);
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
         assert_eq!(model("2plus"), Some(Model::TwoPlus));
         assert_eq!(model("2e"), Some(Model::TwoE));
+        assert_eq!(model("apple1"), Some(Model::Apple1));
+        assert_eq!(model("replica1"), Some(Model::Replica1));
     }
 
     #[test]
     fn unknown_builtin_lists_the_available_names() {
         let err = load_builtin("foo").unwrap_err();
-        assert_eq!(err, r#"no built-in config "foo" (available: 2e, 2plus)"#);
+        assert_eq!(
+            err,
+            r#"no built-in config "foo" (available: 2e, 2plus, apple1, replica1)"#
+        );
     }
 
     #[test]

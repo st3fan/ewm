@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "description": "Classic Apple 1 — 6502, 8KB RAM, Woz Monitor",
+  "machine": {
+    "model": "apple1"
+  }
+}

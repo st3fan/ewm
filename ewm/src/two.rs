@@ -2205,7 +2205,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 if source == "builtin:list" {
                     for (name, description) in crate::config::builtin_list() {
                         match description {
-                            Some(description) => println!("{name:<8}{description}"),
+                            Some(description) => println!("{name:<10}{description}"),
                             None => println!("{name}"),
                         }
                     }
@@ -4104,12 +4104,17 @@ mod tests {
             assert!(err.contains("machine.model"), "{err}");
             assert!(err.contains(model), "{err}");
             assert!(err.contains("ewm one"), "{err}");
-            // The command-line spelling exits 1.
+            // The command-line spellings exit 1: --set and the O2 builtin.
             let args: Vec<String> = ["--set", &format!("machine:model={model}")]
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
             assert!(matches!(parse_options(&args), Err(1)), "{model}");
+            let args: Vec<String> = ["--config", &format!("builtin:{model}")]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            assert!(matches!(parse_options(&args), Err(1)), "builtin:{model}");
         }
     }
 
