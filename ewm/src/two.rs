@@ -2058,6 +2058,7 @@ fn add_monitor_style_commands(palette: &mut Palette<TwoAction>, monitor: Monitor
 // Frames to run before dumping the hidden --screenshot and exiting.
 const SCREENSHOT_FRAMES: u32 = 120;
 
+#[derive(Debug, PartialEq)]
 struct MemoryOption {
     rom: bool,
     address: u16,
@@ -2088,6 +2089,8 @@ fn usage() {
     eprintln!("                    applied in order with --config and --set");
     eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
     eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
+    eprintln!("  --print-config    print the machine the command line describes (sources");
+    eprintln!("                    plus flags) as config JSON and exit");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
     eprintln!("  --aux <card>      //e aux-slot card: 80col, ext80col (default) or");
     eprintln!("                    ramworksiii[:SIZE] with SIZE 64k..8m (default 8m)");
@@ -2112,7 +2115,7 @@ fn usage() {
     eprintln!("                    ?ws=5701 the raw websocket only (bring your own noVNC)");
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, PartialEq)]
 struct Options {
     model: TwoType,
     /// The machine's slot table, seeded with the default layout (clock in 1,
@@ -2154,6 +2157,7 @@ struct Options {
 
 /// Where and how to serve the machine over the network (the runtime form of
 /// the `remote` config block / `--serve` flag).
+#[derive(Debug, PartialEq)]
 struct ServeOptions {
     bind: String,
     port: u16,
@@ -2299,6 +2303,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         eprintln!("{e}");
         return Err(1);
     }
+    let mut print_config = false;
     let mut it = args.iter().peekable();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -2306,6 +2311,9 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 usage();
                 return Err(0);
             }
+            // Handled at the end of the pass, once every source and
+            // convenience flag has been applied.
+            "--print-config" => print_config = true,
             "--config" | "--config-overlay" | "--set" => {
                 // Applied in pass 1.
                 it.next();
@@ -2442,6 +2450,20 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 }
             }
         }
+    }
+    if print_config {
+        // "What machine did I just describe?" — print the machine the
+        // options actually build, after every source and convenience flag,
+        // and exit like --help. Errors anywhere above already exited
+        // nonzero, so this also serves as a config linter.
+        let config = options_to_config(&options);
+        let mut doc = serde_json::to_value(&config).expect("options serialize as a config");
+        crate::config::compact_document(&mut doc);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&doc).expect("document prints")
+        );
+        return Err(0);
     }
     Ok(options)
 }
@@ -2616,6 +2638,117 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         options.serve = Some(serve);
     }
     Ok(())
+}
+
+/// Serialize `Options` back into a `Config` — the inverse of
+/// `apply_config`, covering every option the schema knows (`--wozbug`,
+/// `--break` and the hidden `--screenshot` are debug tooling, not machine
+/// configuration). The machine description is explicit — the slot table
+/// and the display/cpu settings are written out even when they equal the
+/// defaults — so the output is stable against future default changes;
+/// off-by-default extras (strict, debug, boot delay) appear only when
+/// enabled. This is the one Options→Config mapping: `--print-config`
+/// uses it today, the palette's "save current setup" (JSON_CONFIG
+/// Phase C) reuses it later.
+fn options_to_config(options: &Options) -> config::Config {
+    config::Config {
+        schema: Some(
+            "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json"
+                .to_string(),
+        ),
+        description: None,
+        machine: Some(config::Machine {
+            model: Some(match options.model {
+                // `ewm two` never sets Apple2 (that is `ewm one`'s machine).
+                TwoType::Apple2 | TwoType::Apple2Plus => config::Model::TwoPlus,
+                TwoType::Apple2E => config::Model::TwoE,
+            }),
+            aux: options.aux.as_deref().map(aux_token_to_config),
+            slots: Some(
+                options
+                    .slots
+                    .iter()
+                    .map(|(slot, card)| (slot.to_string(), card.clone()))
+                    .collect(),
+            ),
+            memory: options
+                .memory
+                .iter()
+                .map(|region| config::MemoryRegion {
+                    kind: if region.rom {
+                        config::MemoryKind::Rom
+                    } else {
+                        config::MemoryKind::Ram
+                    },
+                    address: format!("0x{:04x}", region.address),
+                    path: region.path.clone(),
+                })
+                .collect(),
+        }),
+        display: config::Display {
+            monitor: Some(match options.monitor {
+                MonitorStyle::Green => config::Monitor::Green,
+                MonitorStyle::Amber => config::Monitor::Amber,
+                MonitorStyle::White => config::Monitor::White,
+                MonitorStyle::Rgb => config::Monitor::Rgb,
+            }),
+            scanlines: Some(match options.scanlines {
+                Scanlines::Off => config::ScanlinesSetting::Off,
+                Scanlines::Light => config::ScanlinesSetting::Light,
+                Scanlines::Heavy => config::ScanlinesSetting::Heavy,
+            }),
+            fps: Some(options.fps),
+        },
+        cpu: config::Cpu {
+            speed: Some(match options.speed {
+                SPEED_FASTER => config::CpuSpeed::Faster,
+                SPEED_FAST => config::CpuSpeed::Fast,
+                _ => config::CpuSpeed::Normal,
+            }),
+            strict: options.strict.then_some(true),
+        },
+        input: config::Input {
+            controller: options.controller.clone(),
+        },
+        boot: config::Boot {
+            delay: (options.boot_delay > 0.0).then_some(options.boot_delay),
+        },
+        debug: config::Debug {
+            trace: options.trace_path.clone(),
+            enabled: options.debug.then_some(true),
+        },
+        remote: match &options.serve {
+            Some(serve) => config::Remote {
+                protocol: Some(config::RemoteProtocol::Vnc),
+                bind: Some(serve.bind.clone()),
+                port: Some(serve.port),
+                websocket: serve.websocket,
+                web: serve.web.then_some(true),
+                view_only: serve.view_only.then_some(true),
+                password: serve.password.clone(),
+            },
+            None => config::Remote::default(),
+        },
+        state: config::State {
+            path: options.state.clone(),
+        },
+    }
+}
+
+/// A validated `--aux` token ("ramworksiii:1m") back to its config form —
+/// the inverse of the token building in `apply_config`.
+fn aux_token_to_config(token: &str) -> config::Aux {
+    let (card, size) = match token.split_once(':') {
+        Some((card, size)) => (card, Some(size.to_string())),
+        None => (token, None),
+    };
+    let card = match card {
+        "80col" => config::AuxKind::Col80,
+        "ext80col" => config::AuxKind::Ext80Col,
+        "ramworksiii" => config::AuxKind::RamWorksIII,
+        _ => unreachable!("aux tokens are validated when Options is built"),
+    };
+    config::Aux { card, size }
 }
 
 /// Build the machine `main()` runs from the parsed options: construct from
@@ -4430,6 +4563,98 @@ mod tests {
             Err(1)
         ));
         assert!(matches!(parse(&["--config-overlay"]), Err(1)));
+    }
+
+    /// options_to_config → compacted JSON, written to a scratch file —
+    /// what --print-config emits, on disk so it can be fed back.
+    fn print_to_file(options: &Options, name: &str) -> std::path::PathBuf {
+        let config = options_to_config(options);
+        let mut doc = serde_json::to_value(&config).expect("options serialize");
+        config::compact_document(&mut doc);
+        let dir = std::env::temp_dir().join("ewm-print-config-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join(name);
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&doc).expect("document prints"),
+        )
+        .expect("write printed config");
+        path
+    }
+
+    #[test]
+    fn print_config_round_trips_the_options() {
+        // The e2e gate: a command line composed from every source kind —
+        // base, overlay, --set, convenience flags — prints a document
+        // that, fed back via --config, yields the identical Options.
+        // (Paths are absolute or fixture-resolved, so the round trip is
+        // location-independent.)
+        let o = opts(&[
+            "--config",
+            "builtin:2e",
+            "--config-overlay",
+            fixture!("drive-with-total-replay.json"),
+            "--set",
+            "display:monitor=amber",
+            "--color",
+            "white",
+            "--scanlines",
+            "heavy",
+            "--fps",
+            "60",
+            "--strict",
+            "--boot-delay",
+            "1.5",
+            "--memory",
+            "rom:53248:/abs/custom.bin",
+            "--serve",
+            "vnc://0.0.0.0:5901?web=5701&password=secret",
+        ]);
+        // The convenience flag beat the --set; the overlay's drive is in.
+        assert_eq!(o.monitor, MonitorStyle::White);
+        assert_eq!(hdd_image(&o, 7), Some(fixture!("Total Replay.hdv")));
+
+        let path = print_to_file(&o, "composed.json");
+        let fed_back = opts(&["--config", path.to_str().unwrap()]);
+        assert_eq!(o, fed_back);
+    }
+
+    #[test]
+    fn print_config_round_trips_the_default_machine() {
+        // Even bare `ewm two --print-config` describes the machine fully:
+        // model, the seeded slot table, display and cpu settings.
+        let o = opts(&[]);
+        let path = print_to_file(&o, "default.json");
+        let text = std::fs::read_to_string(&path).expect("printed config");
+        assert!(text.contains(r#""model": "2plus""#), "{text}");
+        assert!(text.contains(r#""thunderclock""#), "{text}");
+        assert!(text.contains(r#""monitor": "green""#), "{text}");
+        assert!(text.contains(r#""speed": "normal""#), "{text}");
+        // Off-by-default extras stay out of the document.
+        assert!(!text.contains("strict"), "{text}");
+        assert!(!text.contains("remote"), "{text}");
+        let fed_back = opts(&["--config", path.to_str().unwrap()]);
+        assert_eq!(o, fed_back);
+
+        // A bare slots table survives the round trip as {} — "no cards",
+        // not the default layout.
+        let o = opts(&["--config", fixture!("bare.json")]);
+        assert!(o.slots.is_empty());
+        let path = print_to_file(&o, "bare.json");
+        let fed_back = opts(&["--config", path.to_str().unwrap()]);
+        assert_eq!(o, fed_back);
+    }
+
+    #[test]
+    fn print_config_exits_zero_after_printing() {
+        let args: Vec<String> = ["--print-config"].iter().map(|s| s.to_string()).collect();
+        assert!(matches!(parse_options(&args), Err(0)));
+        // A validation error still exits nonzero — the linter behavior.
+        let args: Vec<String> = ["--set", "display:fps=0", "--print-config"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert!(matches!(parse_options(&args), Err(1)));
     }
 
     #[test]

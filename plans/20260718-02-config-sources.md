@@ -59,7 +59,7 @@ becomes a final-document check. That is the heart of Phase C2.
 | C1 | Built-in configs: `builtin:` scheme, embed `configs/`, listing | S/M | Done |
 | C2 | Partial configs: optional `machine`/`model`, split validation | M | Done |
 | C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Done |
-| C4 | `--print-config`: inspect the merged document | S | Not started |
+| C4 | `--print-config`: inspect the merged document | S | Done |
 | C5 | Docs sweep + `notes/JSON_CONFIG.md` as-built update | S | Not started |
 
 C1 is independent; C2 must land before C3 (overlay loading needs partial
@@ -202,6 +202,9 @@ first-class answer:
   function so Phase C reuses it. If that turns out to drag in too much,
   the fallback (decide at kickoff) is printing the document *before*
   convenience flags with a note, and leaving flag capture to Phase C.
+  **Decision (as built): the full mapping** (`options_to_config` in
+  `two.rs`) — the fallback wasn't needed; see `notes/JSON_CONFIG.md`
+  "Config sources — `--print-config`".
 - **Gate:** e2e test — a composed command line prints a document that,
   fed back via `--config`, yields the identical `Options`; full standard
   gates.
