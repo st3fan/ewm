@@ -146,7 +146,7 @@ fn usage() {
     eprintln!();
     eprintln!("Supported models:");
     eprintln!("  apple1    Classic Apple 1, 6502, 8KB RAM, Woz Monitor");
-    eprintln!("  replica1  Replica 1, 65C02, 48KB RAM, KRUSADER");
+    eprintln!("  replica1  Replica 1, 65C02, 32KB RAM, KRUSADER");
 }
 
 fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl3::video::Window, event: &Event) {
