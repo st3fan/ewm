@@ -403,6 +403,126 @@ const TTY_ESC_WINDOW: std::time::Duration = std::time::Duration::from_millis(50)
 /// whatever the last command started (two emulated seconds).
 const TTY_EOF_GRACE_CYCLES: u64 = 2 * ONE_CPS as u64;
 
+// Telnet (RFC 854), the ~40-line subset (plan T2): raw telnet clients
+// default to line mode with local echo, but the monitor wants
+// character-at-a-time and echoes itself. The filter stays dormant until
+// the first inbound IAC — nc and local terminals never see a byte of
+// negotiation — then announces WILL ECHO + WILL SGA, strips and refuses
+// everything else, and maps BREAK/Interrupt-Process (telnet's `send
+// brk`, the serial-terminal "attention") to the RESET button.
+const IAC: u8 = 255;
+const IAC_SE: u8 = 240;
+const IAC_BRK: u8 = 243;
+const IAC_IP: u8 = 244;
+const IAC_SB: u8 = 250;
+const IAC_WILL: u8 = 251;
+const IAC_WONT: u8 = 252;
+const IAC_DO: u8 = 253;
+const IAC_DONT: u8 = 254;
+const OPT_ECHO: u8 = 1;
+const OPT_SGA: u8 = 3;
+
+/// What one inbound byte turned into, once telnet framing is peeled off.
+enum TelnetOut {
+    /// Nothing for the machine (protocol bytes, or swallowed).
+    None,
+    /// A key for the machine.
+    Key(u8),
+    /// BREAK / Interrupt Process: press the RESET button.
+    Reset,
+}
+
+/// The inbound telnet state machine. Dormant (pure passthrough) until
+/// the first IAC; `replies` collects protocol responses for the caller
+/// to write raw.
+#[derive(Default)]
+struct TelnetFilter {
+    active: bool,
+    state: TelnetState,
+}
+
+#[derive(Default, PartialEq)]
+enum TelnetState {
+    #[default]
+    Data,
+    /// Seen IAC, waiting for the command byte.
+    Command,
+    /// Seen IAC WILL/WONT/DO/DONT, waiting for the option byte.
+    Option(u8),
+    /// Inside IAC SB … IAC SE subnegotiation.
+    Subnegotiation,
+    /// Seen IAC inside a subnegotiation (SE ends it).
+    SubnegotiationCommand,
+}
+
+impl TelnetFilter {
+    fn feed(&mut self, b: u8, replies: &mut Vec<u8>) -> TelnetOut {
+        match self.state {
+            TelnetState::Data => {
+                if b != IAC {
+                    return TelnetOut::Key(b);
+                }
+                if !self.active {
+                    // First contact from a telnet client: negotiate
+                    // character-at-a-time with remote echo.
+                    self.active = true;
+                    replies.extend_from_slice(&[IAC, IAC_WILL, OPT_ECHO, IAC, IAC_WILL, OPT_SGA]);
+                }
+                self.state = TelnetState::Command;
+                TelnetOut::None
+            }
+            TelnetState::Command => {
+                self.state = TelnetState::Data;
+                match b {
+                    IAC_BRK | IAC_IP => TelnetOut::Reset,
+                    IAC_WILL | IAC_WONT | IAC_DO | IAC_DONT => {
+                        self.state = TelnetState::Option(b);
+                        TelnetOut::None
+                    }
+                    IAC_SB => {
+                        self.state = TelnetState::Subnegotiation;
+                        TelnetOut::None
+                    }
+                    // IAC IAC would be a literal 0xFF — not an Apple 1
+                    // key; dropped like every other 8-bit byte. The rest
+                    // (NOP, AYT, …) are swallowed.
+                    _ => TelnetOut::None,
+                }
+            }
+            TelnetState::Option(verb) => {
+                self.state = TelnetState::Data;
+                match verb {
+                    // DO ECHO / DO SGA: already announced, stay silent
+                    // (replying again would loop). Anything else the
+                    // client asks us to enable: refuse.
+                    IAC_DO if b != OPT_ECHO && b != OPT_SGA => {
+                        replies.extend_from_slice(&[IAC, IAC_WONT, b]);
+                    }
+                    // Whatever the client offers to enable on its side:
+                    // decline; we speak plain bytes.
+                    IAC_WILL => replies.extend_from_slice(&[IAC, IAC_DONT, b]),
+                    _ => {}
+                }
+                TelnetOut::None
+            }
+            TelnetState::Subnegotiation => {
+                if b == IAC {
+                    self.state = TelnetState::SubnegotiationCommand;
+                }
+                TelnetOut::None
+            }
+            TelnetState::SubnegotiationCommand => {
+                self.state = if b == IAC_SE {
+                    TelnetState::Data
+                } else {
+                    TelnetState::Subnegotiation
+                };
+                TelnetOut::None
+            }
+        }
+    }
+}
+
 /// Run the machine as a character terminal over `input`/`output` until
 /// input EOF or the far side hangs up. Generic over the streams so tests
 /// drive it with in-memory pipes; `throttle` paces to 1.023 MHz
@@ -444,6 +564,7 @@ where
 
     // Bytes wait here until the PIA's one-byte latch is free.
     let mut pending: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
+    let mut telnet = TelnetFilter::default();
     let mut eof = false;
     let mut grace = TTY_EOF_GRACE_CYCLES;
     // The Meta-R window: when the *last* pending byte is an ESC, hold it
@@ -475,23 +596,42 @@ where
 
         // Gather input. When throttling, most of the tick's wall-clock
         // budget is spent waiting here…
+        let mut raw: Vec<u8> = Vec::new();
         if throttle {
             let budget = TTY_TICK.saturating_sub(tick_start.elapsed());
             match rx.recv_timeout(budget) {
-                Ok(b) => pending.push_back(b),
+                Ok(b) => raw.push(b),
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => eof = true,
             }
         }
         loop {
             match rx.try_recv() {
-                Ok(b) => pending.push_back(b),
+                Ok(b) => raw.push(b),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     eof = true;
                     break;
                 }
             }
+        }
+        let mut replies: Vec<u8> = Vec::new();
+        for b in raw {
+            match telnet.feed(b, &mut replies) {
+                TelnetOut::None => {}
+                TelnetOut::Key(b) => pending.push_back(b),
+                TelnetOut::Reset => {
+                    // The RESET button: immediate, and typed-ahead keys
+                    // are gone with the press.
+                    pending.clear();
+                    esc_deadline = None;
+                    last_fed = 0;
+                    one.cpu.reset();
+                }
+            }
+        }
+        if !replies.is_empty() && (output.write_all(&replies).is_err() || output.flush().is_err()) {
+            return Ok(());
         }
 
         // Feed the machine, at most one byte per tick, latch permitting.
@@ -1192,6 +1332,103 @@ mod tests {
         assert!(text.matches('\\').count() > baseline, "{text:?}");
         let cancel = text.rfind('\\').expect("cancel prompt");
         assert!(text[cancel..].contains('A'), "{text:?}");
+    }
+
+    #[test]
+    fn telnet_filter_negotiates_and_strips() {
+        let mut f = TelnetFilter::default();
+        let mut replies = Vec::new();
+        // Plain bytes: dormant passthrough, not a reply byte in sight.
+        assert!(matches!(f.feed(b'A', &mut replies), TelnetOut::Key(b'A')));
+        assert!(replies.is_empty() && !f.active);
+        // First IAC activates: announce WILL ECHO + WILL SGA once.
+        // Client volley: IAC DO ECHO, IAC WILL NAWS (31).
+        for b in [255, 253, 1, 255, 251, 31] {
+            assert!(matches!(f.feed(b, &mut replies), TelnetOut::None));
+        }
+        assert!(f.active);
+        assert_eq!(
+            replies,
+            // WILL ECHO, WILL SGA, then DONT NAWS (no reply to DO ECHO —
+            // already announced; replying again would loop).
+            vec![255, 251, 1, 255, 251, 3, 255, 254, 31]
+        );
+        // DO of something we cannot serve: refuse. (DO LINEMODE = 34.)
+        replies.clear();
+        for b in [255, 253, 34] {
+            assert!(matches!(f.feed(b, &mut replies), TelnetOut::None));
+        }
+        assert_eq!(replies, vec![255, 252, 34]);
+        // Subnegotiation is swallowed whole, including inner IACs.
+        replies.clear();
+        for b in [255, 250, 31, 0, 80, 0, 24, 255, 240] {
+            assert!(matches!(f.feed(b, &mut replies), TelnetOut::None));
+        }
+        assert!(replies.is_empty());
+        // BREAK and IP are the RESET button; data flows again after.
+        assert!(matches!(f.feed(255, &mut replies), TelnetOut::None));
+        assert!(matches!(f.feed(243, &mut replies), TelnetOut::Reset));
+        assert!(matches!(f.feed(b'B', &mut replies), TelnetOut::Key(b'B')));
+        // IAC IAC (a literal 0xFF) is not an Apple 1 key: dropped.
+        assert!(matches!(f.feed(255, &mut replies), TelnetOut::None));
+        assert!(matches!(f.feed(255, &mut replies), TelnetOut::None));
+    }
+
+    /// A `Read` that delivers fixed stages with a pause between them —
+    /// for exercising out-of-band arrivals (telnet BREAK is immediate
+    /// and flushes typed-ahead, so it must arrive *after* earlier input
+    /// has been consumed, as it would in a real session).
+    struct StagedInput {
+        stages: std::vec::IntoIter<Vec<u8>>,
+        pause: std::time::Duration,
+        started: bool,
+    }
+
+    impl std::io::Read for StagedInput {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            match self.stages.next() {
+                Some(stage) => {
+                    if self.started {
+                        std::thread::sleep(self.pause);
+                    }
+                    self.started = true;
+                    buf[..stage.len()].copy_from_slice(&stage);
+                    Ok(stage.len())
+                }
+                None => Ok(0),
+            }
+        }
+    }
+
+    #[test]
+    fn tty_session_speaks_telnet_when_spoken_to() {
+        // A telnet client's opening volley and a monitor command, then —
+        // once BASIC is up — BREAK: the reply stream carries our
+        // negotiation, and BREAK resets back to the monitor.
+        let mut volley = vec![255u8, 253, 1]; // IAC DO ECHO
+        volley.extend_from_slice(b"E000R\r"); // into Integer BASIC
+        let input = StagedInput {
+            stages: vec![volley, vec![255, 243]].into_iter(), // IAC BRK
+            pause: std::time::Duration::from_millis(300),
+            started: false,
+        };
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut out = Vec::new();
+        tty_session(&mut one, input, &mut out, false).expect("session runs to EOF");
+        // Negotiation bytes are in the output stream, before the text.
+        let wills = [255u8, 251, 1, 255, 251, 3];
+        assert!(
+            out.windows(wills.len()).any(|w| w == wills),
+            "no WILL ECHO/SGA in {out:?}"
+        );
+        let text: String = out.iter().map(|&b| (b & 0x7f) as char).collect();
+        let basic = text.find('>').expect("no BASIC prompt");
+        assert!(
+            text[basic..].contains('\\'),
+            "BREAK did not reset: {text:?}"
+        );
     }
 
     #[test]
