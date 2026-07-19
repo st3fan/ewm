@@ -338,7 +338,7 @@
           "type": "string"
         },
         "path": {
-          "description": "File whose contents fill the region.",
+          "description": "File whose contents fill the region, or `builtin:<name>` for one\nof the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,\n`builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`).",
           "type": "string"
         },
         "type": {

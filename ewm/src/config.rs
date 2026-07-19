@@ -254,7 +254,9 @@ pub struct MemoryRegion {
     pub kind: MemoryKind,
     /// Load address, hex (`"0xd000"`) or decimal (`"53248"`).
     pub address: String,
-    /// File whose contents fill the region.
+    /// File whose contents fill the region, or `builtin:<name>` for one
+    /// of the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,
+    /// `builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`).
     pub path: String,
 }
 
@@ -474,6 +476,51 @@ const BUILTINS: &[(&str, &str)] = &[
     ("replica1", include_str!("../../configs/replica1.json")),
 ];
 
+/// The mountable one-family ROM images: the files under `roms/` a memory
+/// region can name as `"path": "builtin:<name>"` — embedded so built-in
+/// configs stay self-contained. Name = the file's stem, sorted, like
+/// `BUILTINS`. Provenance and layout: notes/APPLE1.md.
+const ROM_BUILTINS: &[(&str, &[u8])] = &[
+    (
+        "Krusader-1.3-6502",
+        include_bytes!("../../roms/Krusader-1.3-6502.rom"),
+    ),
+    (
+        "Krusader-1.3-65C02",
+        include_bytes!("../../roms/Krusader-1.3-65C02.rom"),
+    ),
+    ("WozMon", include_bytes!("../../roms/WozMon.rom")),
+    (
+        "apple1-basic",
+        include_bytes!("../../roms/apple1-basic.rom"),
+    ),
+];
+
+/// Look up an embedded ROM image by its `builtin:` name.
+pub fn rom_builtin(name: &str) -> Result<&'static [u8], String> {
+    match ROM_BUILTINS.iter().find(|(n, _)| *n == name) {
+        Some((_, data)) => Ok(data),
+        None => {
+            let names: Vec<&str> = ROM_BUILTINS.iter().map(|(n, _)| *n).collect();
+            Err(format!(
+                "no built-in ROM {name:?} (available: {})",
+                names.join(", ")
+            ))
+        }
+    }
+}
+
+/// The bytes a memory region's `path` names: `builtin:<name>` resolves
+/// against the embedded ROM images and never touches the filesystem (a
+/// literal file named `builtin:x` is reachable as `./builtin:x`, the
+/// same escape hatch `--config` has); anything else is a file path.
+pub fn read_memory_image(path: &str) -> Result<Vec<u8>, String> {
+    match path.strip_prefix("builtin:") {
+        Some(name) => Ok(rom_builtin(name)?.to_vec()),
+        None => std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}")),
+    }
+}
+
 /// Name and description of every built-in config, for `builtin:list`.
 pub fn builtin_list() -> Vec<(&'static str, Option<String>)> {
     BUILTINS
@@ -531,7 +578,15 @@ fn referenced_files(config: &Config) -> Vec<&str> {
                 | SlotCard::Empty => {}
             }
         }
-        files.extend(machine.memory.iter().map(|r| r.path.as_str()));
+        // builtin: images are embedded, not files — a config carrying
+        // them stays self-contained.
+        files.extend(
+            machine
+                .memory
+                .iter()
+                .map(|r| r.path.as_str())
+                .filter(|p| !p.starts_with("builtin:")),
+        );
     }
     files.extend(config.debug.trace.as_deref());
     files.extend(config.state.path.as_deref());
@@ -1097,7 +1152,10 @@ fn resolve_paths(config: &mut Config, base: &Path) {
             }
         }
         for region in &mut machine.memory {
-            resolve(base, &mut region.path);
+            // builtin: is a scheme, not a relative path.
+            if !region.path.starts_with("builtin:") {
+                resolve(base, &mut region.path);
+            }
         }
     }
     if let Some(p) = &mut config.debug.trace {
@@ -1220,6 +1278,77 @@ mod tests {
             err,
             r#"no built-in config "foo" (available: 2e, 2plus, apple1, replica1)"#
         );
+    }
+
+    #[test]
+    fn rom_builtins_resolve_and_list() {
+        assert_eq!(rom_builtin("WozMon").unwrap().len(), 256);
+        assert_eq!(rom_builtin("apple1-basic").unwrap().len(), 4096);
+        assert_eq!(rom_builtin("Krusader-1.3-6502").unwrap().len(), 4096);
+        assert_eq!(rom_builtin("Krusader-1.3-65C02").unwrap().len(), 4096);
+        // Names are exact (= the file stems), and unknowns list them all.
+        let err = rom_builtin("wozmon").unwrap_err();
+        assert_eq!(
+            err,
+            "no built-in ROM \"wozmon\" (available: Krusader-1.3-6502, \
+             Krusader-1.3-65C02, WozMon, apple1-basic)"
+        );
+        // The table stays sorted so the listing reads predictably.
+        assert!(ROM_BUILTINS.windows(2).all(|w| w[0].0 < w[1].0));
+    }
+
+    #[test]
+    fn rom_decomposition_matches_the_historical_images() {
+        // Provenance (notes/APPLE1.md): BASIC + the 6502 Krusader slice
+        // reassemble the historical 8KB krusader.rom; WozMon is the
+        // historical apple1.rom; BASIC + the 65C02 slice reassemble the
+        // Krusader 1.3 65C02 distribution — all pinned by SHA-1 (the
+        // crate's own implementation, RFC-vector-tested in ws.rs).
+        fn hex(digest: [u8; 20]) -> String {
+            digest.iter().map(|b| format!("{b:02x}")).collect()
+        }
+        let sha1 = |data: &[u8]| hex(crate::ws::sha1(data));
+
+        let mut image = rom_builtin("apple1-basic").unwrap().to_vec();
+        image.extend_from_slice(rom_builtin("Krusader-1.3-6502").unwrap());
+        assert_eq!(sha1(&image), "5e5ca9d94bc83a79e06806a9df180aa29d8e1a0a");
+
+        assert_eq!(
+            sha1(rom_builtin("WozMon").unwrap()),
+            "224767aa499dc98767e042f375ced1359be8a35f"
+        );
+
+        let mut image = rom_builtin("apple1-basic").unwrap().to_vec();
+        image.extend_from_slice(rom_builtin("Krusader-1.3-65C02").unwrap());
+        assert_eq!(sha1(&image), "f038b2d8761171ff770ce032ce0a22918cc96872");
+    }
+
+    #[test]
+    fn memory_images_resolve_builtins_without_the_filesystem() {
+        // builtin: resolves against the embedded table, never the
+        // filesystem: a valid name yields the image, an unknown name gets
+        // the registry error — not a "cannot read" from a file probe.
+        assert_eq!(read_memory_image("builtin:WozMon").unwrap().len(), 256);
+        let err = read_memory_image("builtin:nope").unwrap_err();
+        assert!(err.starts_with("no built-in ROM"), "{err}");
+
+        // The escape hatch: a path *containing* a directory component is
+        // a file, even if the file is literally named builtin:WozMon.
+        let junk = scratch("builtin:WozMon", "junk");
+        let data = read_memory_image(junk.to_str().unwrap()).expect("literal file loads");
+        assert_eq!(data, b"junk");
+
+        // A builtin: region path is a scheme, not a relative path: it
+        // survives per-file path resolution untouched...
+        let config = parse(
+            r#"{"machine": {"model": "2plus",
+                "memory": [{"type": "rom", "address": "0xd000", "path": "builtin:WozMon"}]}}"#,
+        )
+        .expect("builtin memory path parses");
+        let machine = config.machine.as_ref().expect("machine");
+        assert_eq!(machine.memory[0].path, "builtin:WozMon");
+        // ...and does not count as a file reference (self-containment).
+        assert_eq!(referenced_files(&config), Vec::<&str>::new());
     }
 
     #[test]

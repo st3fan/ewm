@@ -6,7 +6,7 @@
 pub const CHR_WIDTH: usize = 7;
 pub const CHR_HEIGHT: usize = 8;
 
-static CHR_ROM: &[u8; 2048] = include_bytes!("../../rom/3410036.bin");
+static CHR_ROM: &[u8; 2048] = include_bytes!("../../roms/3410036.bin");
 
 /// The Enhanced Apple //e 4K video ROM (`342-0265-A`). Only the first 2K is
 /// used for display: it holds the complete glyph repertoire — upper case and
@@ -15,7 +15,7 @@ static CHR_ROM: &[u8; 2048] = include_bytes!("../../rom/3410036.bin");
 /// synthesized by XOR, as for the ][+ set, so the ROM's baked-inverse second
 /// half is not needed.
 static CHR_ROM_IIE: &[u8; 4096] =
-    include_bytes!("../../rom/Apple IIe Video - Enhanced - 342-0265-A - 2732.bin");
+    include_bytes!("../../roms/Apple IIe Video - Enhanced - 342-0265-A - 2732.bin");
 
 pub type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
 
