@@ -1,0 +1,9 @@
+{
+  "$schema": "../../../schema/ewm-config-overlay.schema.json",
+  "description": "Overlay: a hard drive with Total Replay in slot 7",
+  "machine": {
+    "slots": {
+      "7": { "card": "harddrive", "image": "Total Replay.hdv" }
+    }
+  }
+}

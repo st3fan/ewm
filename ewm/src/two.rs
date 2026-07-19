@@ -2083,7 +2083,9 @@ fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
     eprintln!("                    config (builtin:2plus, builtin:2e; builtin:list lists");
-    eprintln!("                    them); flags override it");
+    eprintln!("                    them); at most one; flags override it");
+    eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
+    eprintln!("                    applied in order with --config and --set");
     eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
     eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
     eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
@@ -2208,12 +2210,13 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
         slots: default_slot_cards(),
         ..Options::default()
     };
-    // Pass 1: build the config document — --config files and --set
-    // overrides deep-merge left-to-right — and seed the options from it,
-    // so that in pass 2 — the flag loop, which only assigns a field when
-    // its flag is present — anything given explicitly on the command line
-    // overrides the document.
+    // Pass 1: build the config document — the --config base, --config-overlay
+    // layers, and --set overrides deep-merge strictly in command-line order —
+    // and seed the options from it, so that in pass 2 — the flag loop, which
+    // only assigns a field when its flag is present — anything given
+    // explicitly on the command line overrides the document.
     let mut doc: Option<serde_json::Value> = None;
+    let mut config_seen = false;
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -2233,11 +2236,41 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     }
                     return Err(0);
                 }
+                // One complete machine per command line: two --config files
+                // deep-merging reads as an accident now that partial layers
+                // have their own flag.
+                if config_seen {
+                    eprintln!(
+                        "only one --config allowed; use --config-overlay for additional layers"
+                    );
+                    return Err(1);
+                }
+                config_seen = true;
                 match crate::config::load_source_document(source) {
                     Ok(value) => match doc.as_mut() {
                         Some(doc) => crate::config::merge_documents(doc, value),
                         None => doc = Some(value),
                     },
+                    Err(e) => {
+                        eprintln!("{e}");
+                        return Err(1);
+                    }
+                }
+            }
+            "--config-overlay" => {
+                let Some(source) = it.next() else {
+                    usage();
+                    return Err(1);
+                };
+                match crate::config::load_overlay_document(source) {
+                    Ok(value) => {
+                        // Without a --config the document starts from the
+                        // default machine, like bare --set does.
+                        let doc = doc.get_or_insert_with(
+                            || serde_json::json!({"machine": {"model": "2plus"}}),
+                        );
+                        crate::config::merge_overlay_document(doc, value);
+                    }
                     Err(e) => {
                         eprintln!("{e}");
                         return Err(1);
@@ -2273,7 +2306,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 usage();
                 return Err(0);
             }
-            "--config" | "--set" => {
+            "--config" | "--config-overlay" | "--set" => {
                 // Applied in pass 1.
                 it.next();
             }
@@ -4283,6 +4316,120 @@ mod tests {
                 .collect();
             assert!(matches!(parse_options(&args), Err(1)), "{bad}");
         }
+    }
+
+    #[test]
+    fn config_overlay_extends_the_default_machine() {
+        // Overlay-only, no --config: the default machine plus a hard drive
+        // in slot 7 — the materialization rule, not a literal one-slot
+        // table (the Total Replay worked example from the plan).
+        let o = opts(&["--config-overlay", fixture!("drive-with-total-replay.json")]);
+        assert_eq!(o.model, TwoType::Apple2Plus);
+        assert_eq!(o.slots.get(&0), Some(&config::SlotCard::Language));
+        assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
+        assert!(matches!(
+            o.slots.get(&6),
+            Some(config::SlotCard::Diskii { .. })
+        ));
+        // The overlay's relative image path resolves against the overlay
+        // file's directory, like a config's paths do.
+        assert_eq!(hdd_image(&o, 7), Some(fixture!("Total Replay.hdv")));
+    }
+
+    #[test]
+    fn config_overlay_composes_in_command_line_order() {
+        // base + overlay + overlay + --set, left to right.
+        let o = opts(&[
+            "--config",
+            "builtin:2plus",
+            "--config-overlay",
+            fixture!("amber-monitor.json"),
+            "--config-overlay",
+            fixture!("drive-with-total-replay.json"),
+            "--set",
+            "display:scanlines=light",
+        ]);
+        assert_eq!(o.model, TwoType::Apple2Plus);
+        assert_eq!(o.monitor, MonitorStyle::Amber, "overlay overrides the base");
+        assert_eq!(o.scanlines, Scanlines::Light, "the --set layers on top");
+        assert_eq!(hdd_image(&o, 7), Some(fixture!("Total Replay.hdv")));
+        // The base's explicit table stays literal — no thunderclock is
+        // materialized into it (the asymmetry the plan calls out).
+        assert_eq!(o.slots.get(&1), None);
+
+        // Order is strict: a --set before an overlay loses to it...
+        let o = opts(&[
+            "--set",
+            "display:monitor=green",
+            "--config-overlay",
+            fixture!("amber-monitor.json"),
+        ]);
+        assert_eq!(o.monitor, MonitorStyle::Amber);
+        // ...and a --set after it wins.
+        let o = opts(&[
+            "--config-overlay",
+            fixture!("amber-monitor.json"),
+            "--set",
+            "display:monitor=green",
+        ]);
+        assert_eq!(o.monitor, MonitorStyle::Green);
+    }
+
+    #[test]
+    fn config_overlay_takes_complete_configs_and_builtins() {
+        // A complete config is a valid overlay, and builtin: resolution is
+        // shared with --config. Overlaying the ][+ built-in onto the (slotless)
+        // default machine materializes the default table first, so the
+        // clock survives — unlike `--config builtin:2plus`, whose explicit
+        // table is literal.
+        let o = opts(&["--config-overlay", "builtin:2plus"]);
+        assert_eq!(o.model, TwoType::Apple2Plus);
+        assert_eq!(o.monitor, MonitorStyle::Green);
+        assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
+        assert_eq!(o.slots.get(&0), Some(&config::SlotCard::Language));
+    }
+
+    #[test]
+    fn config_overlay_error_cases_exit() {
+        let parse = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            parse_options(&args)
+        };
+        // A second --config is refused (overlays are the layering spelling).
+        assert!(matches!(
+            parse(&["--config", "builtin:2plus", "--config", "builtin:2e"]),
+            Err(1)
+        ));
+        // A partial file handed to --config is refused per file (C2)...
+        assert!(matches!(
+            parse(&["--config", fixture!("amber-monitor.json")]),
+            Err(1)
+        ));
+        // ...but is exactly what --config-overlay takes.
+        let o = opts(&[
+            "--config",
+            "builtin:2e",
+            "--config-overlay",
+            fixture!("amber-monitor.json"),
+        ]);
+        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(o.monitor, MonitorStyle::Amber);
+        // Structural errors in an overlay exit 1 (the message names the
+        // overlay file — pinned in the config module's tests).
+        let dir = std::env::temp_dir().join("ewm-two-overlay-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let bad = dir.join("typo.json");
+        std::fs::write(&bad, r#"{"display": {"monitr": "amber"}}"#).expect("write overlay");
+        assert!(matches!(
+            parse(&["--config-overlay", bad.to_str().unwrap()]),
+            Err(1)
+        ));
+        // Unknown builtin and missing value error like --config's.
+        assert!(matches!(
+            parse(&["--config-overlay", "builtin:nope"]),
+            Err(1)
+        ));
+        assert!(matches!(parse(&["--config-overlay"]), Err(1)));
     }
 
     #[test]
