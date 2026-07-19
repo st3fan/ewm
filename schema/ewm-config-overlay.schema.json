@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Config",
-  "description": "A complete EWM machine configuration, for `ewm two --config file.json`.\nOnly `machine` is required; every other setting defaults to what a bare\n`ewm two` would do. Explicitly given command-line flags override the file.",
+  "title": "ConfigOverlay",
+  "description": "A partial EWM machine configuration, for `ewm two --config-overlay file.json`: the same shape as ewm-config.schema.json with nothing required, deep-merged onto the base config.",
   "type": "object",
   "properties": {
     "$schema": {
@@ -92,9 +92,6 @@
     }
   },
   "additionalProperties": false,
-  "required": [
-    "machine"
-  ],
   "$defs": {
     "Aux": {
       "description": "The //e auxiliary-slot card.",
@@ -315,10 +312,7 @@
           }
         }
       },
-      "additionalProperties": false,
-      "required": [
-        "model"
-      ]
+      "additionalProperties": false
     },
     "MemoryKind": {
       "description": "Whether a memory region is RAM or ROM.",

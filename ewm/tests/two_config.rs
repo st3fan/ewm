@@ -16,23 +16,25 @@ macro_rules! fixture {
 #[test]
 fn minimal_config_loads() {
     let config = config::load(fixture!("minimal.json")).expect("minimal.json must load");
-    assert_eq!(config.machine.model, Model::TwoPlus);
-    assert_eq!(config.machine.model.two_type(), TwoType::Apple2Plus);
-    assert!(config.machine.aux.is_none());
-    assert!(config.machine.slots.is_none());
-    assert!(config.machine.memory.is_empty());
+    let machine = config.machine.as_ref().expect("machine section");
+    assert_eq!(machine.model, Some(Model::TwoPlus));
+    assert_eq!(machine.model.unwrap().two_type(), TwoType::Apple2Plus);
+    assert!(machine.aux.is_none());
+    assert!(machine.slots.is_none());
+    assert!(machine.memory.is_empty());
 }
 
 #[test]
 fn full_config_loads_with_resolved_paths() {
     let config = config::load(fixture!("full.json")).expect("full.json must load");
-    assert_eq!(config.machine.model, Model::TwoE);
+    let machine = config.machine.as_ref().expect("machine section");
+    assert_eq!(machine.model, Some(Model::TwoE));
 
-    let aux = config.machine.aux.as_ref().expect("aux card");
+    let aux = machine.aux.as_ref().expect("aux card");
     assert_eq!(aux.card, AuxKind::RamWorksIII);
     assert_eq!(aux.size.as_deref(), Some("1m"));
 
-    let slots = config.machine.slots.as_ref().expect("slots present");
+    let slots = machine.slots.as_ref().expect("slots present");
     let SlotCard::Diskii { drive1, drive2 } = &slots["6"] else {
         panic!("slot 6 should be a diskii");
     };
@@ -52,7 +54,7 @@ fn full_config_loads_with_resolved_paths() {
     assert!(std::fs::metadata(drive1.as_deref().unwrap()).is_ok());
     assert!(std::fs::metadata(image).is_ok());
 
-    let region = &config.machine.memory[0];
+    let region = &machine.memory[0];
     assert_eq!(region.kind, MemoryKind::Rom);
     assert_eq!(region.address_value(), Ok(0xd000));
     assert_eq!(region.path, fixture!("custom.bin"));
@@ -64,7 +66,8 @@ fn full_config_loads_with_resolved_paths() {
 fn two_controller_config_loads() {
     // Phase B: arbitrary slot layouts load — two Disk ][ controllers here.
     let config = config::load(fixture!("two-controllers.json")).expect("must load");
-    let slots = config.machine.slots.as_ref().expect("slots present");
+    let machine = config.machine.as_ref().expect("machine section");
+    let slots = machine.slots.as_ref().expect("slots present");
     assert_eq!(slots.len(), 3);
     assert!(matches!(slots["5"], SlotCard::Diskii { .. }));
     assert!(matches!(slots["6"], SlotCard::Diskii { .. }));
@@ -89,6 +92,30 @@ fn builtin_configs_load_and_match_the_committed_files() {
     assert_eq!(
         err,
         r#"no built-in config "replica1" (available: 2e, 2plus)"#
+    );
+}
+
+#[test]
+fn partial_fragment_loads_as_document_but_not_as_config() {
+    // C2: a partial fragment (here: slots only) loads through the
+    // document path — the shape overlays use — but the complete-config
+    // path (`load`, behind --config) rejects it per file.
+    let dir = std::env::temp_dir().join("ewm-config-partial-test");
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let path = dir.join("hdd7.json");
+    std::fs::write(
+        &path,
+        r#"{"machine": {"slots": {"7": {"card": "harddrive", "image": "tr.hdv"}}}}"#,
+    )
+    .expect("write temp config");
+
+    let doc = config::load_document(path.to_str().unwrap()).expect("fragment loads as document");
+    assert!(doc["machine"]["model"].is_null());
+
+    let err = config::load(path.to_str().unwrap()).unwrap_err();
+    assert!(
+        err.ends_with("machine.model is required (is this an overlay? use --config-overlay)"),
+        "{err}"
     );
 }
 

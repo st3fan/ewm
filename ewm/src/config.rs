@@ -6,6 +6,15 @@
 //! `load()` parses, validates semantically, and resolves relative paths
 //! against the config file's directory (the property that makes
 //! `.ewmachine` bundles portable). See notes/JSON_CONFIG.md.
+//!
+//! The types parse arbitrarily *partial* fragments (`machine` and
+//! `machine.model` are `Option`), because overlays layer partial documents
+//! onto a base config (plans/20260718-02-config-sources.md C2). Validation
+//! splits accordingly: `validate` judges what a lone fragment can be judged
+//! on (structure), `validate_complete` judges what only the final layered
+//! document can (the model is present, and the model-dependent
+//! cross-checks). `load` and `--config` still require completeness per
+//! file; `load_document` does not.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -29,8 +38,9 @@ pub struct Config {
     #[serde(default)]
     pub description: Option<String>,
     /// The machine's physical build: model, aux card, slots, and any extra
-    /// memory regions.
-    pub machine: Machine,
+    /// memory regions. Required in a complete config; an overlay may omit
+    /// it.
+    pub machine: Option<Machine>,
     /// Monitor and rendering settings.
     #[serde(default)]
     pub display: Display,
@@ -60,8 +70,9 @@ pub struct Config {
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
-    /// Which Apple II model to emulate.
-    pub model: Model,
+    /// Which Apple II model to emulate. Required in a complete config; an
+    /// overlay may omit it and inherit the base config's model.
+    pub model: Option<Model>,
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
@@ -448,6 +459,8 @@ pub fn load_builtin(name: &str) -> Result<Config, String> {
     let origin = format!("builtin:{name}");
     let config: Config = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
     validate(&config).map_err(|e| format!("{origin}: {e}"))?;
+    validate_complete(&config, "built-in configs must be complete")
+        .map_err(|e| format!("{origin}: {e}"))?;
     let files = referenced_files(&config);
     if !files.is_empty() {
         return Err(format!(
@@ -463,18 +476,22 @@ pub fn load_builtin(name: &str) -> Result<Config, String> {
 /// built-in config.
 fn referenced_files(config: &Config) -> Vec<&str> {
     let mut files: Vec<&str> = Vec::new();
-    for card in config.machine.slots.iter().flat_map(|s| s.values()) {
-        match card {
-            SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
-                files.extend(drive1.as_deref());
-                files.extend(drive2.as_deref());
-            }
-            SlotCard::Harddrive { image } => files.push(image),
-            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty => {
+    if let Some(machine) = &config.machine {
+        for card in machine.slots.iter().flat_map(|s| s.values()) {
+            match card {
+                SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
+                    files.extend(drive1.as_deref());
+                    files.extend(drive2.as_deref());
+                }
+                SlotCard::Harddrive { image } => files.push(image),
+                SlotCard::Thunderclock
+                | SlotCard::Language
+                | SlotCard::Saturn128
+                | SlotCard::Empty => {}
             }
         }
+        files.extend(machine.memory.iter().map(|r| r.path.as_str()));
     }
-    files.extend(config.machine.memory.iter().map(|r| r.path.as_str()));
     files.extend(config.debug.trace.as_deref());
     files.extend(config.state.path.as_deref());
     files
@@ -483,19 +500,25 @@ fn referenced_files(config: &Config) -> Vec<&str> {
 /// Resolve a `--config` source to its JSON-document form, ready for
 /// layering (`merge_documents`, `apply_set`): `builtin:<name>` loads an
 /// embedded config, anything else is a file path (a literal file named
-/// `builtin:…` is reachable as `./builtin:…`).
+/// `builtin:…` is reachable as `./builtin:…`). A `--config` source is a
+/// *complete* machine, so completeness is required per file here — a
+/// partial fragment belongs to `--config-overlay`.
 pub fn load_source_document(source: &str) -> Result<serde_json::Value, String> {
     match source.strip_prefix("builtin:") {
         Some(name) => {
             let config = load_builtin(name)?;
             serde_json::to_value(config).map_err(|e| format!("builtin:{name}: {e}"))
         }
-        None => load_document(source),
+        None => {
+            let config = load(source)?;
+            serde_json::to_value(config).map_err(|e| format!("{source}: {e}"))
+        }
     }
 }
 
-/// Load a machine configuration: read the file, parse it, validate it
-/// semantically, and resolve relative paths against the file's directory.
+/// Load a *complete* machine configuration: read the file, parse it,
+/// validate it structurally and for completeness, and resolve relative
+/// paths against the file's directory.
 pub fn load(path: &str) -> Result<Config, String> {
     let text =
         std::fs::read_to_string(path).map_err(|e| format!("cannot read config {path}: {e}"))?;
@@ -503,12 +526,18 @@ pub fn load(path: &str) -> Result<Config, String> {
     from_str_resolved(&text, path, base)
 }
 
-/// Load a config file as a JSON document: the full typed path (parse,
-/// semantic validation, relative paths resolved against the file's
-/// directory), then back to JSON — ready to layer with other sources
-/// (`merge_documents`, `apply_set`) before the final `from_document`.
+/// Load a config file as a JSON document: the typed *structural* path
+/// (parse, per-file validation with the file named in errors, relative
+/// paths resolved against the file's directory), then back to JSON —
+/// ready to layer with other sources (`merge_documents`, `apply_set`)
+/// before the final `from_document`. Completeness (`machine.model`) is
+/// *not* required here: partial overlay fragments load through this path;
+/// the complete-config path is `load`.
 pub fn load_document(path: &str) -> Result<serde_json::Value, String> {
-    let config = load(path)?;
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read config {path}: {e}"))?;
+    let base = Path::new(path).parent().unwrap_or(Path::new("."));
+    let config = from_str_partial(&text, path, base)?;
     serde_json::to_value(config).map_err(|e| format!("{path}: {e}"))
 }
 
@@ -649,44 +678,53 @@ pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> 
 pub fn from_document(doc: serde_json::Value) -> Result<Config, String> {
     let config: Config = serde_json::from_value(doc).map_err(|e| format!("config: {e}"))?;
     validate(&config).map_err(|e| format!("config: {e}"))?;
+    validate_complete(&config, "start from --config, e.g. --config builtin:2plus")
+        .map_err(|e| format!("config: {e}"))?;
     Ok(config)
 }
 
 /// The testable core of `load`: `origin` names the file in error messages,
 /// `base` is the directory relative paths resolve against.
 fn from_str_resolved(text: &str, origin: &str, base: &Path) -> Result<Config, String> {
+    let config = from_str_partial(text, origin, base)?;
+    validate_complete(&config, "is this an overlay? use --config-overlay")
+        .map_err(|e| format!("{origin}: {e}"))?;
+    Ok(config)
+}
+
+/// The fragment-friendly core shared by `load` and `load_document`: parse,
+/// structural validation, path resolution — no completeness check, so a
+/// partial overlay loads.
+fn from_str_partial(text: &str, origin: &str, base: &Path) -> Result<Config, String> {
     let mut config: Config = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
     validate(&config).map_err(|e| format!("{origin}: {e}"))?;
     resolve_paths(&mut config, base);
     Ok(config)
 }
 
-/// Semantic validation beyond what serde's typed parse enforces.
+/// Structural validation beyond what serde's typed parse enforces:
+/// everything that can be judged on a lone (possibly partial) fragment.
+/// Cross-checks that need `machine.model` live in `validate_complete` —
+/// a fragment adding `machine.aux` can't be judged until the merged
+/// document says what the model is.
 fn validate(config: &Config) -> Result<(), String> {
-    if let Some(aux) = &config.machine.aux {
-        if config.machine.model != Model::TwoE {
-            return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
+    let machine = config.machine.as_ref();
+    if let Some(aux) = machine.and_then(|m| m.aux.as_ref())
+        && let Some(size) = &aux.size
+    {
+        if aux.card != AuxKind::RamWorksIII {
+            return Err("machine.aux.size: only valid with the \"ramworksiii\" card".into());
         }
-        if let Some(size) = &aux.size {
-            if aux.card != AuxKind::RamWorksIII {
-                return Err("machine.aux.size: only valid with the \"ramworksiii\" card".into());
-            }
-            crate::aux::parse_size(size).map_err(|e| format!("machine.aux.size: {e}"))?;
-        }
+        crate::aux::parse_size(size).map_err(|e| format!("machine.aux.size: {e}"))?;
     }
-    if let Some(slots) = &config.machine.slots {
+    if let Some(slots) = machine.and_then(|m| m.slots.as_ref()) {
         for (key, card) in slots {
             match key.as_str() {
                 // Slot 0 is the ][+ memory-expansion socket: no $Cn00
                 // firmware space, so only bankable-RAM cards (or nothing)
-                // fit; the //e has no slot 0 at all.
+                // fit. (That the //e has no slot 0 at all is a model
+                // cross-check, judged in validate_complete.)
                 "0" => {
-                    if config.machine.model == Model::TwoE {
-                        return Err(
-                            "machine.slots: the //e has no slot 0 (its language card is built in)"
-                                .into(),
-                        );
-                    }
                     if !matches!(
                         card,
                         SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty
@@ -728,7 +766,12 @@ fn validate(config: &Config) -> Result<(), String> {
             return Err("machine.slots: at most one Thunderclock".into());
         }
     }
-    for (i, region) in config.machine.memory.iter().enumerate() {
+    for (i, region) in machine
+        .map(|m| m.memory.as_slice())
+        .unwrap_or(&[])
+        .iter()
+        .enumerate()
+    {
         region
             .address_value()
             .map_err(|e| format!("machine.memory[{i}].address: {e}"))?;
@@ -758,26 +801,48 @@ fn validate(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
+/// Completeness validation: the checks only the final layered document can
+/// pass — `machine.model` must be present, plus the cross-checks that need
+/// the model. `hint` finishes the missing-model message with where the
+/// model should have come from (the fix differs per calling path).
+fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
+    let Some(model) = config.machine.as_ref().and_then(|m| m.model) else {
+        return Err(format!("machine.model is required ({hint})"));
+    };
+    let machine = config.machine.as_ref().expect("model implies machine");
+    if machine.aux.is_some() && model != Model::TwoE {
+        return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
+    }
+    if model == Model::TwoE && machine.slots.as_ref().is_some_and(|s| s.contains_key("0")) {
+        return Err("machine.slots: the //e has no slot 0 (its language card is built in)".into());
+    }
+    Ok(())
+}
+
 /// Rewrite every relative path-valued field to be relative to `base` — the
 /// config file's directory — so a config works regardless of the CWD.
 fn resolve_paths(config: &mut Config, base: &Path) {
-    for card in config.machine.slots.iter_mut().flat_map(|s| s.values_mut()) {
-        match card {
-            SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
-                if let Some(p) = drive1 {
-                    resolve(base, p);
+    if let Some(machine) = &mut config.machine {
+        for card in machine.slots.iter_mut().flat_map(|s| s.values_mut()) {
+            match card {
+                SlotCard::Diskii { drive1, drive2 } | SlotCard::Liron { drive1, drive2 } => {
+                    if let Some(p) = drive1 {
+                        resolve(base, p);
+                    }
+                    if let Some(p) = drive2 {
+                        resolve(base, p);
+                    }
                 }
-                if let Some(p) = drive2 {
-                    resolve(base, p);
-                }
-            }
-            SlotCard::Harddrive { image } => resolve(base, image),
-            SlotCard::Thunderclock | SlotCard::Language | SlotCard::Saturn128 | SlotCard::Empty => {
+                SlotCard::Harddrive { image } => resolve(base, image),
+                SlotCard::Thunderclock
+                | SlotCard::Language
+                | SlotCard::Saturn128
+                | SlotCard::Empty => {}
             }
         }
-    }
-    for region in &mut config.machine.memory {
-        resolve(base, &mut region.path);
+        for region in &mut machine.memory {
+            resolve(base, &mut region.path);
+        }
     }
     if let Some(p) = &mut config.debug.trace {
         resolve(base, p);
@@ -802,9 +867,14 @@ mod tests {
         from_str_resolved(text, "test.json", Path::new("/cfg"))
     }
 
-    /// The committed schema/ewm-config.schema.json is derived from these
-    /// structs — this test keeps the two in lockstep, byte for byte.
-    /// Regenerate with:
+    /// The committed schemas are derived from these structs — this test
+    /// keeps them in lockstep, byte for byte. Since C2 the serde types are
+    /// partial-friendly, so the raw generated schema is *overlay*-shaped
+    /// (nothing required); it is committed as
+    /// schema/ewm-config-overlay.schema.json with its own title and
+    /// description, while the complete-config schema gets the requiredness
+    /// (`machine`, `machine.model`) post-processed back in for editors.
+    /// Regenerate both with:
     ///
     ///   EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed
     #[test]
@@ -812,26 +882,43 @@ mod tests {
         let schema = schemars::generate::SchemaSettings::draft2020_12()
             .into_generator()
             .into_root_schema_for::<Config>();
-        let mut generated = serde_json::to_string_pretty(&schema).expect("schema must serialize");
-        generated.push('\n');
+        let mut full = serde_json::to_value(&schema).expect("schema must serialize");
+        let mut overlay = full.clone();
+        full["required"] = serde_json::json!(["machine"]);
+        full["$defs"]["Machine"]["required"] = serde_json::json!(["model"]);
+        overlay["title"] = serde_json::json!("ConfigOverlay");
+        overlay["description"] = serde_json::json!(
+            "A partial EWM machine configuration, for `ewm two --config-overlay \
+             file.json`: the same shape as ewm-config.schema.json with nothing \
+             required, deep-merged onto the base config."
+        );
 
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../schema/ewm-config.schema.json"
-        );
-        if std::env::var_os("EWM_UPDATE_SCHEMA").is_some() {
-            std::fs::write(path, &generated).expect("cannot write the schema");
-            return;
+        for (schema, file) in [
+            (full, "/../schema/ewm-config.schema.json"),
+            (overlay, "/../schema/ewm-config-overlay.schema.json"),
+        ] {
+            // Back through schemars::Schema: its Serialize impl is what
+            // orders the keywords canonically ($schema, title, … last
+            // $defs) instead of alphabetically.
+            let schema = schemars::Schema::try_from(schema).expect("still a schema");
+            let mut generated =
+                serde_json::to_string_pretty(&schema).expect("schema must serialize");
+            generated.push('\n');
+            let path = format!("{}{file}", env!("CARGO_MANIFEST_DIR"));
+            if std::env::var_os("EWM_UPDATE_SCHEMA").is_some() {
+                std::fs::write(&path, &generated).expect("cannot write the schema");
+                continue;
+            }
+            let committed = std::fs::read_to_string(&path).expect(
+                "cannot read the committed schema — regenerate with \
+                 EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed",
+            );
+            assert_eq!(
+                committed, generated,
+                "schema drift in {file} — regenerate with \
+                 EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed"
+            );
         }
-        let committed = std::fs::read_to_string(path).expect(
-            "cannot read schema/ewm-config.schema.json — regenerate with \
-             EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed",
-        );
-        assert_eq!(
-            committed, generated,
-            "schema drift — regenerate with \
-             EWM_UPDATE_SCHEMA=1 cargo test -p ewm schema_matches_committed"
-        );
     }
 
     #[test]
@@ -863,8 +950,9 @@ mod tests {
         // tokens (builtin:2plus, builtin:2e).
         let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
         assert_eq!(models, vec!["2e", "2plus"]);
-        assert_eq!(load_builtin("2plus").unwrap().machine.model, Model::TwoPlus);
-        assert_eq!(load_builtin("2e").unwrap().machine.model, Model::TwoE);
+        let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
+        assert_eq!(model("2plus"), Some(Model::TwoPlus));
+        assert_eq!(model("2e"), Some(Model::TwoE));
     }
 
     #[test]
@@ -913,10 +1001,11 @@ mod tests {
     #[test]
     fn minimal_config_parses() {
         let config = parse(r#"{"machine": {"model": "2plus"}}"#).expect("minimal config");
-        assert_eq!(config.machine.model, Model::TwoPlus);
-        assert!(config.machine.aux.is_none());
-        assert!(config.machine.slots.is_none());
-        assert!(config.machine.memory.is_empty());
+        let machine = config.machine.expect("machine present");
+        assert_eq!(machine.model, Some(Model::TwoPlus));
+        assert!(machine.aux.is_none());
+        assert!(machine.slots.is_none());
+        assert!(machine.memory.is_empty());
         assert_eq!(config.display, Display::default());
         assert_eq!(config.cpu, Cpu::default());
         assert_eq!(config.input, Input::default());
@@ -1056,7 +1145,7 @@ mod tests {
         // A present-but-empty table is a bare machine, distinct from an
         // absent one (the default layout).
         let config = parse(r#"{"machine": {"model": "2plus", "slots": {}}}"#).expect("empty");
-        assert_eq!(config.machine.slots, Some(BTreeMap::new()));
+        assert_eq!(config.machine.unwrap().slots, Some(BTreeMap::new()));
     }
 
     #[test]
@@ -1075,7 +1164,11 @@ mod tests {
         assert!(err.contains("multiple of 64k"), "{err}");
 
         let config = aux("2e", r#"{"card": "ramworksiii", "size": "1m"}"#).expect("valid aux");
-        let aux = config.machine.aux.expect("aux present");
+        let aux = config
+            .machine
+            .expect("machine present")
+            .aux
+            .expect("aux present");
         assert_eq!(aux.card, AuxKind::RamWorksIII);
         assert_eq!(aux.size.as_deref(), Some("1m"));
     }
@@ -1091,7 +1184,8 @@ mod tests {
                 "debug": {"trace": "trace.txt"}}"#,
         )
         .expect("valid config");
-        let slots = config.machine.slots.as_ref().expect("slots present");
+        let machine = config.machine.as_ref().expect("machine present");
+        let slots = machine.slots.as_ref().expect("slots present");
         let SlotCard::Diskii { drive1, drive2 } = &slots["6"] else {
             panic!("slot 6 should be a diskii");
         };
@@ -1101,7 +1195,7 @@ mod tests {
             panic!("slot 7 should be a harddrive");
         };
         assert_eq!(image, "/cfg/hd.hdv");
-        assert_eq!(config.machine.memory[0].path, "/cfg/roms/x.bin");
+        assert_eq!(machine.memory[0].path, "/cfg/roms/x.bin");
         assert_eq!(config.debug.trace.as_deref(), Some("/cfg/trace.txt"));
     }
 
@@ -1246,6 +1340,100 @@ mod tests {
         apply_set(&mut doc, "display:fps=0").unwrap();
         let err = from_document(doc).unwrap_err();
         assert!(err.contains("display.fps"), "{err}");
+    }
+
+    /// A scratch file under the OS temp dir, for exercising the file-based
+    /// loaders on inline JSON.
+    fn scratch(name: &str, text: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("ewm-config-c2-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join(name);
+        std::fs::write(&path, text).expect("write scratch config");
+        path
+    }
+
+    #[test]
+    fn load_document_accepts_partial_fragments() {
+        // A slots-only fragment — a whole valid overlay — loads as a
+        // document, with relative paths resolved against the file's dir.
+        let path = scratch(
+            "overlay.json",
+            r#"{"machine": {"slots": {"7": {"card": "harddrive", "image": "tr.hdv"}}}}"#,
+        );
+        let doc = load_document(path.to_str().unwrap()).expect("fragment loads");
+        assert!(doc["machine"]["model"].is_null());
+        let image = doc["machine"]["slots"]["7"]["image"].as_str().unwrap();
+        assert!(
+            image.ends_with("tr.hdv") && Path::new(image).is_absolute(),
+            "{image}"
+        );
+
+        // The empty fragment is the degenerate overlay.
+        let path = scratch("empty.json", "{}");
+        let doc = load_document(path.to_str().unwrap()).expect("empty fragment loads");
+        assert!(doc["machine"].is_null());
+
+        // Structural errors still name the file.
+        let path = scratch(
+            "bad.json",
+            r#"{"machine": {"slots": {"9": {"card": "empty"}}}}"#,
+        );
+        let err = load_document(path.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.contains("bad.json") && err.contains(r#"no such slot "9""#),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn load_requires_a_complete_config() {
+        // The complete-config path (--config) rejects a fragment per file,
+        // pointing at the overlay flag.
+        let path = scratch("partial.json", r#"{"machine": {"slots": {}}}"#);
+        let err = load(path.to_str().unwrap()).unwrap_err();
+        assert!(
+            err.ends_with(
+                "partial.json: machine.model is required (is this an overlay? use --config-overlay)"
+            ),
+            "{err}"
+        );
+        // load_source_document is the actual --config path; same contract.
+        let err = load_source_document(path.to_str().unwrap()).unwrap_err();
+        assert!(err.contains("machine.model is required"), "{err}");
+    }
+
+    #[test]
+    fn from_document_requires_machine_model() {
+        let message = "config: machine.model is required \
+                       (start from --config, e.g. --config builtin:2plus)";
+        let err = from_document(serde_json::json!({})).unwrap_err();
+        assert_eq!(err, message);
+        let err = from_document(serde_json::json!({"machine": {}})).unwrap_err();
+        assert_eq!(err, message);
+    }
+
+    #[test]
+    fn model_cross_checks_run_on_the_final_document() {
+        // An aux card is structurally fine on a modelless fragment...
+        let fragment = serde_json::json!({"machine": {"aux": {"card": "80col"}}});
+        let config: Config = serde_json::from_value(fragment.clone()).expect("fragment parses");
+        assert!(validate(&config).is_ok());
+
+        // ...and judged against the model once the document is complete.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        merge_documents(&mut doc, fragment.clone());
+        let err = from_document(doc).unwrap_err();
+        assert!(err.contains("//e feature"), "{err}");
+        let mut doc = serde_json::json!({"machine": {"model": "2e"}});
+        merge_documents(&mut doc, fragment);
+        assert!(from_document(doc).is_ok());
+
+        // Same for the //e's missing slot 0.
+        let err = from_document(serde_json::json!(
+            {"machine": {"model": "2e", "slots": {"0": {"card": "language"}}}}
+        ))
+        .unwrap_err();
+        assert!(err.contains("the //e has no slot 0"), "{err}");
     }
 
     #[test]
