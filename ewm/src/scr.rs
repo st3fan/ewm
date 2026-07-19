@@ -87,16 +87,6 @@ const SCANLINE_LIGHT: u8 = 200;
 const SCANLINE_HEAVY: u8 = 140;
 
 impl Scanlines {
-    /// Parse a `--scanlines` flag value.
-    pub fn parse(s: &str) -> Option<Scanlines> {
-        match s {
-            "off" => Some(Scanlines::Off),
-            "light" => Some(Scanlines::Light),
-            "heavy" => Some(Scanlines::Heavy),
-            _ => None,
-        }
-    }
-
     /// The human label used by the command palette.
     pub fn label(self) -> &'static str {
         match self {
@@ -780,11 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn scanlines_parse_flag_values() {
-        assert_eq!(Scanlines::parse("off"), Some(Scanlines::Off));
-        assert_eq!(Scanlines::parse("light"), Some(Scanlines::Light));
-        assert_eq!(Scanlines::parse("heavy"), Some(Scanlines::Heavy));
-        assert_eq!(Scanlines::parse("crt"), None);
+    fn scanlines_defaults_and_labels() {
         assert_eq!(Scanlines::default(), Scanlines::Off);
         assert_eq!(Scanlines::Heavy.label(), "Heavy");
     }

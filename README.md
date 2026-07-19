@@ -29,7 +29,7 @@ and sound.
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
   low-resolution and high-resolution graphics on a green, amber or white
   monochrome monitor or in color (`--color [green|amber|white|rgb]`) with an
-  optional scanline effect (`--scanlines [off|light|heavy]`), both switchable
+  optional scanline effect (`--set display:scanlines=light`), both switchable
   at runtime from the command palette,
   speaker sound, joystick paddles and buttons (game controllers hot-plug —
   Bluetooth pads connect any time — and the command palette picks between

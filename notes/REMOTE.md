@@ -551,9 +551,10 @@ does. Gate run in a real Chrome tab: `http://127.0.0.1:5701/` booted the DOS
 ### Phase 6 — Multi-VM orchestration
 
 > **Suspend/resume is available** (notes/STATE.md): start a machine with
-> `--state <path>` and SIGTERM hibernates it — the state saves atomically
-> and the next start resumes exactly where it left off. A systemd unit
-> gets VM-style suspend/resume by just adding the flag.
+> a state path (config `state.path` / `--set state:path=…`) and SIGTERM
+> hibernates it — the state saves atomically and the next start resumes
+> exactly where it left off. A systemd unit gets VM-style suspend/resume
+> by just adding the setting.
 
 A `systemd` template unit `ewm-vnc@.service` (instance name = config file →
 deterministic port pair) and/or `scripts/ewm-farm.sh` that launches a set of

@@ -2097,16 +2097,9 @@ fn usage() {
     eprintln!(
         "  --color [green|amber|white|rgb]  monitor style (bare --color = rgb; default green)"
     );
-    eprintln!("  --scanlines [off|light|heavy]  scanline effect (bare = light; default off)");
-    eprintln!("  --boot-delay <seconds>  hold the machine at power-on (debugging/recording)");
-    eprintln!("  --fps <fps>       set fps for display (default: 40)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --wozbug [port]   WozBug debugger server on 127.0.0.1 (default port 6502)");
     eprintln!("  --break <addr,..> break at hex addresses or symbols (implies --wozbug)");
-    eprintln!("  --trace <file>    trace cpu to file");
-    eprintln!("  --strict          run emulator in strict mode");
-    eprintln!("  --debug           print debug info");
-    eprintln!("  --state <path>    restore machine state at startup, save it at quit");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
     eprintln!(
         "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
@@ -2338,16 +2331,6 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     })
                     .unwrap_or(MonitorStyle::Rgb);
             }
-            // Same optional-value convention: bare --scanlines means light.
-            "--scanlines" => {
-                options.scanlines = it
-                    .peek()
-                    .and_then(|v| Scanlines::parse(v))
-                    .inspect(|_| {
-                        it.next();
-                    })
-                    .unwrap_or(Scanlines::Light);
-            }
             "--aux" => match it.next() {
                 Some(token) => {
                     // Validate now, store the token: it is parsed again at
@@ -2364,31 +2347,10 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                     return Err(1);
                 }
             },
-            "--boot-delay" => {
-                options.boot_delay = it
-                    .next()
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .unwrap_or(0.0)
-                    .max(0.0);
-            }
-            "--fps" => {
-                // atoi semantics
-                options.fps = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-            }
             "--memory" => match it.next().and_then(|s| parse_memory_option(s)) {
                 Some(m) => options.memory.push(m),
                 None => return Err(1),
             },
-            "--state" => match it.next() {
-                Some(path) => options.state = Some(path.clone()),
-                None => {
-                    usage();
-                    return Err(1);
-                }
-            },
-            "--trace" => options.trace_path = Some("/dev/stderr".to_string()),
-            "--strict" => options.strict = true,
-            "--debug" => options.debug = true,
             // Optional-value convention like --color: bare --wozbug uses
             // the default port.
             "--wozbug" => {
@@ -2438,9 +2400,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 }
             },
             _ => {
-                if let Some(path) = arg.strip_prefix("--trace=") {
-                    options.trace_path = Some(path.to_string());
-                } else if let Some(path) = arg.strip_prefix("--screenshot=") {
+                if let Some(path) = arg.strip_prefix("--screenshot=") {
                     // Hidden debug flag: dump a BMP of the screen after a
                     // fixed number of frames, then exit.
                     options.screenshot = Some(path.to_string());
@@ -4204,27 +4164,43 @@ mod tests {
     }
 
     #[test]
-    fn scanlines_flag_selects_the_effect() {
-        assert_eq!(opts(&[]).scanlines, Scanlines::Off);
-        // Bare --scanlines means the light effect.
-        assert_eq!(opts(&["--scanlines"]).scanlines, Scanlines::Light);
-        assert_eq!(opts(&["--scanlines", "heavy"]).scanlines, Scanlines::Heavy);
-        assert_eq!(opts(&["--scanlines", "off"]).scanlines, Scanlines::Off);
-        // Bare --scanlines followed by another flag: the flag is not consumed.
-        let o = opts(&["--scanlines", "--set", "machine:slots:6:drive1=game.dsk"]);
-        assert_eq!(o.scanlines, Scanlines::Light);
-        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
-    }
-
-    #[test]
-    fn boot_delay_flag_parses_seconds() {
-        assert_eq!(opts(&[]).boot_delay, 0.0);
-        assert_eq!(opts(&["--boot-delay", "3"]).boot_delay, 3.0);
-        assert_eq!(opts(&["--boot-delay", "1.5"]).boot_delay, 1.5);
-        // atoi semantics, like --fps: garbage means no delay.
-        assert_eq!(opts(&["--boot-delay", "soon"]).boot_delay, 0.0);
-        // Negative delays clamp to zero.
-        assert_eq!(opts(&["--boot-delay", "-2"]).boot_delay, 0.0);
+    fn retired_flags_are_unknown() {
+        // Plan 20260719-01 F1: these are config keys now (--set or a
+        // file); the flags fall into the generic usage error.
+        for retired in [
+            "--scanlines",
+            "--boot-delay",
+            "--fps",
+            "--state",
+            "--trace",
+            "--strict",
+            "--debug",
+            "--trace=/dev/stderr",
+        ] {
+            let args: Vec<String> = vec![retired.to_string()];
+            assert!(matches!(parse_options(&args), Err(1)), "{retired}");
+        }
+        // The --set spellings do what the flags did.
+        let o = opts(&[
+            "--set",
+            "display:scanlines=heavy",
+            "--set",
+            "display:fps=60",
+            "--set",
+            "boot:delay=1.5",
+            "--set",
+            "cpu:strict=true",
+            "--set",
+            "debug:enabled=true",
+            "--set",
+            "debug:trace=/dev/stderr",
+        ]);
+        assert_eq!(o.scanlines, Scanlines::Heavy);
+        assert_eq!(o.fps, 60);
+        assert_eq!(o.boot_delay, 1.5);
+        assert!(o.strict);
+        assert!(o.debug);
+        assert_eq!(o.trace_path.as_deref(), Some("/dev/stderr"));
     }
 
     /// A fixture path under ewm/tests/configs/.
@@ -4598,13 +4574,14 @@ mod tests {
             "display:monitor=amber",
             "--color",
             "white",
-            "--scanlines",
-            "heavy",
-            "--fps",
-            "60",
-            "--strict",
-            "--boot-delay",
-            "1.5",
+            "--set",
+            "display:scanlines=heavy",
+            "--set",
+            "display:fps=60",
+            "--set",
+            "cpu:strict=true",
+            "--set",
+            "boot:delay=1.5",
             "--memory",
             "rom:53248:/abs/custom.bin",
             "--serve",
@@ -4881,14 +4858,12 @@ mod tests {
     }
 
     #[test]
-    fn state_flag_parses_and_config_maps() {
+    fn state_path_comes_from_the_document() {
         assert_eq!(opts(&[]).state, None);
         assert_eq!(
-            opts(&["--state", "/tmp/m.state"]).state.as_deref(),
+            opts(&["--set", "state:path=/tmp/m.state"]).state.as_deref(),
             Some("/tmp/m.state")
         );
-        let missing: Vec<String> = vec!["--state".to_string()];
-        assert!(matches!(parse_options(&missing), Err(1)));
     }
 
     /// A remote client types faster than the one-byte keyboard latch can be

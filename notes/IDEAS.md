@@ -157,7 +157,8 @@ backlog beyond it.
 - **Real measured MHz + cycle counters** (S) — replace the fake status-bar
   MHz (REWRITE quirk #3) with the real measured rate; add a user cycle
   counter (reset/read) for timing work.
-- **Trace improvements** (S/M) — `--trace` exists; add address-range
+- **Trace improvements** (S/M) — CPU tracing exists (`debug.trace` /
+  `--set debug:trace=…`); add address-range
   filters, soft-switch access logging (we hand-rolled this repeatedly during
   the //e work), and trace-to-ring-buffer with a palette "dump last 10k".
 - **Disk activity inspector** (M) — current track/sector/bit position, head
