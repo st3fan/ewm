@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "description": "Enhanced //e — RamWorks III, two Disk ][ drives, Total Replay on a hard drive",
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ramworksiii", "size": "1m" },
+    "slots": {
+      "1": { "card": "thunderclock" },
+      "5": { "card": "diskii", "drive1": "../disks/work.dsk" },
+      "6": { "card": "diskii", "drive1": "../disks/DOS33-SystemMaster.dsk" },
+      "7": { "card": "harddrive", "image": "../disks/Total Replay v6.0.1.hdv" }
+    }
+  },
+  "display": { "monitor": "green", "scanlines": "light" },
+  "cpu": { "speed": "normal" }
+}

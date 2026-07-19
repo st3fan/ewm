@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config-overlay.schema.json",
+  "description": "Overlay: a hard drive with Total Replay in slot 7",
+  "machine": {
+    "slots": {
+      "7": { "card": "harddrive", "image": "../disks/Total Replay v6.0.1.hdv" }
+    }
+  }
+}

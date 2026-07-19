@@ -27,7 +27,8 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
 |---|---|---|---|
 | A | `--config` + schema + serde types; today's layout expressible | M | **Done** |
 | B | Real slot flexibility: any slot, multiple Disk ][ controllers, empty slots | M/L | **Done** |
-| C | "Save current setup" from the palette; `.ewmachine` integration | M | Not started |
+| Sources | Built-ins, overlays, `--print-config` (`plans/20260718-02-config-sources.md` C1–C5) | M | **Done** |
+| C | "Save current setup" from the palette; `.ewmachine` integration | M | Not started — seeded by `options_to_config` (C4) |
 
 ## Phase A decisions (recorded as built)
 

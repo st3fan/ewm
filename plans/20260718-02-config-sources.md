@@ -5,7 +5,7 @@
   "one config document, sources layered left-to-right" architecture it
   records and does not repeat the rationale). Update it with *as built*
   notes as phases land.
-- **Status:** draft — iterate here before kickoff
+- **Status:** complete — all phases landed (one PR per phase)
 - **Target:** `main`; one PR per phase unless decided otherwise at kickoff
 
 ## Goal
@@ -60,7 +60,7 @@ becomes a final-document check. That is the heart of Phase C2.
 | C2 | Partial configs: optional `machine`/`model`, split validation | M | Done |
 | C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Done |
 | C4 | `--print-config`: inspect the merged document | S | Done |
-| C5 | Docs sweep + `notes/JSON_CONFIG.md` as-built update | S | Not started |
+| C5 | Docs sweep + `notes/JSON_CONFIG.md` as-built update | S | Done |
 
 C1 is independent; C2 must land before C3 (overlay loading needs partial
 parsing); C4 wants C3 (it is most useful once layering is rich).
@@ -220,7 +220,11 @@ first-class answer:
 - `notes/MAC_APP.md` / `notes/IDEAS.md` touch-ups where they mention
   config loading.
 - **Gate:** the README examples run verbatim (scripted check); standard
-  gates.
+  gates. *(As built: the check is the `readme_two_examples_parse` test
+  in `two.rs` — it extracts every `cargo run --release -- two …` example
+  from the README and runs it through `parse_options`, which opens every
+  `--config`/`--config-overlay` source; the example configs are
+  committed under `examples/`.)*
 
 ## Hazards
 

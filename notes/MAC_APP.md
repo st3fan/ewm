@@ -99,7 +99,12 @@ never seen Homebrew, with no Gatekeeper override.
 - The backlog's **config-file idea**: `ewm two --config machine.json` —
   **JSON, not TOML** (owner's decision; full plan in
   `notes/JSON_CONFIG.md`, including the JSON Schema and configurable
-  slots), populating the same `Options` the flags do.
+  slots), populating the same `Options` the flags do. *As built, the
+  whole source surface landed*: complete configs, built-ins
+  (`builtin:2plus`/`2e`), partial `--config-overlay` layers, `--set`,
+  and `--print-config` — an `.ewmachine` bundle can be a thin layer
+  over these (e.g. a builtin base plus an overlay naming the bundle's
+  disks).
 - An **`.ewmachine` document**: a folder bundle holding the JSON config plus
   its disk images (and, once save states exist, the machine state) — the
   analog of a VMware VM bundle. Registered in `CFBundleDocumentTypes`
