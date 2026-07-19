@@ -27,8 +27,9 @@ path — document → `from_document` → `apply_config`.
 ## The inventory (`ewm two`)
 
 Every flag `parse_options` accepts today, and the verdict. "Retire"
-means the flag is removed and a targeted error names the replacement
-(see *Transition UX*).
+means the flag is removed outright — it falls into the generic
+`usage()` error like any unknown flag. The app is v0.0.1; no
+transition ceremony.
 
 ### Stays — the source surface
 
@@ -88,23 +89,6 @@ surface to `one` only pays for itself bundled with REMOTE.md Phase 7
 record "minimal `one` config (model, memory, debug) + flag retirement"
 as a backlog item there, don't block `two`'s cleanup on it.
 
-## Transition UX
-
-Retired flags must not fall into the generic `usage()` error. One match
-arm keeps the old names and prints a targeted one-liner, exit 1:
-
-```
---color was retired: use --set display:monitor=rgb (or a config file)
-```
-
-Precedent: `--drive1`/`--drive2`/`--hdd` were removed outright with
-`--set` documented as the replacement (JSON_CONFIG "CLI overrides").
-This plan keeps the same removal model (no deprecation release — pre-1.0,
-single owner) but adds the targeted errors because these flags are much
-older and appear in shell history everywhere. Whether the hints stay
-forever (they cost ~a line each) or get dropped after a while: kickoff
-decision, recommend keeping them indefinitely.
-
 ## Known flag consumers to sweep
 
 - `main.rs` top-level usage hint: suggests `two --color --set …` — uses
@@ -124,7 +108,7 @@ decision, recommend keeping them indefinitely.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| F1 | Retire the quiet seven: `--scanlines`, `--fps`, `--strict`, `--debug`, `--boot-delay`, `--trace`, `--state`(*) — retired-flag errors, tests, usage, docs | M | Not started |
+| F1 | Retire the quiet seven: `--scanlines`, `--fps`, `--strict`, `--debug`, `--boot-delay`, `--trace`, `--state`(*) — tests, usage, docs | M | Not started |
 | F2 | Retire the muscle-memory trio: `--model`, `--color`, `--aux` — README quick-start rewritten builtin-first, `main.rs` hint updated | M | Not started |
 | F3 | Retire `--memory`; `apply_set` error text updated; overlay documented as the memory-region path | S | Not started |
 
@@ -136,9 +120,8 @@ flags go. F3 is independent of F2 but reads best last.
 
 - **Gate (every phase):** standard gates (`fmt`, `clippy -D warnings`,
   full `cargo test` incl. golden-BMP); `readme_two_examples_parse`
-  green; a test per retired flag pinning the targeted error message;
-  `--print-config` round-trip tests still pass (they compose via `--set`
-  after F1/F2 rewrites).
+  green; `--print-config` round-trip tests still pass (they compose via
+  `--set` after F1/F2 rewrites).
 
 ## Decisions to make at kickoff
 
@@ -151,23 +134,16 @@ flags go. F3 is independent of F2 but reads best last.
    built-in overlays? Recommendation: keep.
 4. **`--memory`** — overlay-only, or extend `--set` with array append
    first? Recommendation: overlay-only.
-5. **Retired-flag hints** — keep indefinitely or drop later?
-   Recommendation: keep.
-6. **PR granularity** — per phase (default) or one PR.
+5. **PR granularity** — per phase (default) or one PR.
 
 ## Hazards
 
-- **Shell history and scripts break.** That is the point, but the
-  targeted errors must actually name the replacement — a test pins each
-  message.
 - **The optional-value "peek" parsing** (`--color [style]`,
   `--scanlines [level]`, `--wozbug [port]`) is subtle and pinned by
   tests; deleting the first two must not disturb `--wozbug`'s.
 - **`options_to_config` is unaffected** (it maps `Options`, not flags),
   but its round-trip tests compose command lines with retired flags —
   rewrite them to `--set` spellings in the same phase, not after.
-- **External docs/blogs** reference `--color` since the C era; nothing
-  to do beyond the targeted errors, but expect questions.
 
 ## Backlog (recorded, out of scope)
 
