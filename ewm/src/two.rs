@@ -2444,10 +2444,17 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     let machine = config
         .machine
         .expect("from_document guarantees a machine section");
-    options.model = machine
+    let model = machine
         .model
-        .expect("from_document guarantees machine.model")
-        .two_type();
+        .expect("from_document guarantees machine.model");
+    // A one-family document is a valid *config* but not a `two` machine —
+    // the cross-subcommand check (plans/20260719-02-one-config.md O1).
+    options.model = model.two_type().ok_or_else(|| {
+        format!(
+            "machine.model: {:?} is an `ewm one` machine (run: ewm one --config …)",
+            model.token()
+        )
+    })?;
     if let Some(aux) = &machine.aux {
         // Rebuild the aux token so config and power-on share one card
         // construction path.
@@ -4082,6 +4089,27 @@ mod tests {
         match o.slots.get(&slot) {
             Some(config::SlotCard::Harddrive { image }) => Some(image.as_str()),
             _ => None,
+        }
+    }
+
+    #[test]
+    fn one_family_models_are_rejected_by_two() {
+        // A one-family document is a valid config, but two can't run it:
+        // the cross-subcommand check points at ewm one.
+        for model in ["apple1", "replica1"] {
+            let doc = serde_json::json!({"machine": {"model": model}});
+            let config = config::from_document(doc).expect("a valid document");
+            let mut options = Options::default();
+            let err = apply_config(&mut options, config).unwrap_err();
+            assert!(err.contains("machine.model"), "{err}");
+            assert!(err.contains(model), "{err}");
+            assert!(err.contains("ewm one"), "{err}");
+            // The command-line spelling exits 1.
+            let args: Vec<String> = ["--set", &format!("machine:model={model}")]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            assert!(matches!(parse_options(&args), Err(1)), "{model}");
         }
     }
 

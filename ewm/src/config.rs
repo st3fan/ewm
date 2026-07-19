@@ -70,7 +70,7 @@ pub struct Config {
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
-    /// Which Apple II model to emulate. Required in a complete config; an
+    /// Which machine to emulate. Required in a complete config; an
     /// overlay may omit it and inherit the base config's model.
     pub model: Option<Model>,
     /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
@@ -89,7 +89,10 @@ pub struct Machine {
     pub memory: Vec<MemoryRegion>,
 }
 
-/// Which Apple II model to emulate.
+/// Which machine to emulate. The token also decides the machine
+/// *family* — Apple II (`ewm two`) or Apple 1 (`ewm one`) — which the
+/// completeness validation and the subcommands use to keep configs
+/// honest (plans/20260719-02-one-config.md).
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Model {
@@ -99,13 +102,49 @@ pub enum Model {
     /// The Apple //e.
     #[serde(rename = "2e")]
     TwoE,
+    /// The classic Apple 1 (6502, 8KB RAM, Woz Monitor).
+    #[serde(rename = "apple1")]
+    Apple1,
+    /// The Replica 1 (65C02, 32KB RAM, KRUSADER).
+    #[serde(rename = "replica1")]
+    Replica1,
+}
+
+/// The machine family a model belongs to: which subcommand runs it and
+/// which config keys apply to it (see `validate_complete`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Family {
+    /// `ewm two`: the Apple ][+ / //e — slots, aux, display, the works.
+    Apple2,
+    /// `ewm one`: the Apple 1 / Replica 1 — model, memory, debugging.
+    Apple1,
 }
 
 impl Model {
-    pub fn two_type(self) -> TwoType {
+    pub fn family(self) -> Family {
         match self {
-            Model::TwoPlus => TwoType::Apple2Plus,
-            Model::TwoE => TwoType::Apple2E,
+            Model::TwoPlus | Model::TwoE => Family::Apple2,
+            Model::Apple1 | Model::Replica1 => Family::Apple1,
+        }
+    }
+
+    /// The schema token, for error messages.
+    pub fn token(self) -> &'static str {
+        match self {
+            Model::TwoPlus => "2plus",
+            Model::TwoE => "2e",
+            Model::Apple1 => "apple1",
+            Model::Replica1 => "replica1",
+        }
+    }
+
+    /// The `ewm two` machine type; `None` for the one family (callers
+    /// turn that into the cross-subcommand error).
+    pub fn two_type(self) -> Option<TwoType> {
+        match self {
+            Model::TwoPlus => Some(TwoType::Apple2Plus),
+            Model::TwoE => Some(TwoType::Apple2E),
+            Model::Apple1 | Model::Replica1 => None,
         }
     }
 }
@@ -868,18 +907,61 @@ fn validate(config: &Config) -> Result<(), String> {
 
 /// Completeness validation: the checks only the final layered document can
 /// pass — `machine.model` must be present, plus the cross-checks that need
-/// the model. `hint` finishes the missing-model message with where the
-/// model should have come from (the fix differs per calling path).
+/// the model: the //e-only rules within the apple2 family, and the family
+/// table that keeps apple2-only keys off the Apple 1 / Replica 1 (rejected,
+/// not ignored — the TTY is fixed green, the clock fixed 1.023 MHz; remote
+/// and state for the one family are recorded backlog). `hint` finishes the
+/// missing-model message with where the model should have come from (the
+/// fix differs per calling path).
 fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
     let Some(model) = config.machine.as_ref().and_then(|m| m.model) else {
         return Err(format!("machine.model is required ({hint})"));
     };
     let machine = config.machine.as_ref().expect("model implies machine");
-    if machine.aux.is_some() && model != Model::TwoE {
-        return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
-    }
-    if model == Model::TwoE && machine.slots.as_ref().is_some_and(|s| s.contains_key("0")) {
-        return Err("machine.slots: the //e has no slot 0 (its language card is built in)".into());
+    match model.family() {
+        Family::Apple2 => {
+            if machine.aux.is_some() && model != Model::TwoE {
+                return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
+            }
+            if model == Model::TwoE && machine.slots.as_ref().is_some_and(|s| s.contains_key("0")) {
+                return Err(
+                    "machine.slots: the //e has no slot 0 (its language card is built in)".into(),
+                );
+            }
+        }
+        Family::Apple1 => {
+            let token = model.token();
+            if machine.slots.is_some() {
+                return Err(format!("machine.slots: {token:?} has no peripheral slots"));
+            }
+            if machine.aux.is_some() {
+                return Err(format!("machine.aux: {token:?} has no auxiliary slot"));
+            }
+            if config.display != Display::default() {
+                return Err(format!(
+                    "display: not configurable for {token:?} (the TTY is fixed)"
+                ));
+            }
+            if config.cpu.speed.is_some() {
+                return Err(format!(
+                    "cpu.speed: not configurable for {token:?} (the clock is fixed)"
+                ));
+            }
+            if config.input != Input::default() {
+                return Err(format!("input: not configurable for {token:?}"));
+            }
+            if config.boot != Boot::default() {
+                return Err(format!("boot: not configurable for {token:?}"));
+            }
+            if config.remote != Remote::default() {
+                return Err(format!(
+                    "remote: not configurable for {token:?} yet (notes/REMOTE.md Phase 7)"
+                ));
+            }
+            if config.state != State::default() {
+                return Err(format!("state: not configurable for {token:?} yet"));
+            }
+        }
     }
     Ok(())
 }
@@ -1211,6 +1293,86 @@ mod tests {
         // absent one (the default layout).
         let config = parse(r#"{"machine": {"model": "2plus", "slots": {}}}"#).expect("empty");
         assert_eq!(config.machine.unwrap().slots, Some(BTreeMap::new()));
+    }
+
+    #[test]
+    fn model_families_and_tokens() {
+        assert_eq!(Model::TwoPlus.family(), Family::Apple2);
+        assert_eq!(Model::TwoE.family(), Family::Apple2);
+        assert_eq!(Model::Apple1.family(), Family::Apple1);
+        assert_eq!(Model::Replica1.family(), Family::Apple1);
+        assert_eq!(Model::TwoPlus.two_type(), Some(TwoType::Apple2Plus));
+        assert_eq!(Model::TwoE.two_type(), Some(TwoType::Apple2E));
+        assert_eq!(Model::Apple1.two_type(), None);
+        assert_eq!(Model::Replica1.two_type(), None);
+        assert_eq!(Model::Apple1.token(), "apple1");
+        assert_eq!(Model::Replica1.token(), "replica1");
+    }
+
+    #[test]
+    fn one_family_models_parse_with_their_keys() {
+        // Minimal one-family configs are complete and valid.
+        let config = parse(r#"{"machine": {"model": "apple1"}}"#).expect("apple1");
+        assert_eq!(config.machine.unwrap().model, Some(Model::Apple1));
+        // The keys the one family does have: memory, strict, trace.
+        let config = parse(
+            r#"{"machine": {"model": "replica1",
+                "memory": [{"type": "rom", "address": "0xe000", "path": "basic.rom"}]},
+                "cpu": {"strict": true},
+                "debug": {"trace": "trace.txt"}}"#,
+        )
+        .expect("replica1 with memory/strict/trace");
+        let machine = config.machine.expect("machine");
+        assert_eq!(machine.memory.len(), 1);
+        // Paths resolve against the config's directory, as for two.
+        assert_eq!(machine.memory[0].path, "/cfg/basic.rom");
+        assert_eq!(config.debug.trace.as_deref(), Some("/cfg/trace.txt"));
+    }
+
+    #[test]
+    fn one_family_models_reject_apple2_keys() {
+        // The family cross-checks: rejected, not ignored, naming the
+        // offending key and the model.
+        let case = |json: &str, key: &str| {
+            let err = parse(json).unwrap_err();
+            assert!(err.contains(key), "{key}: {err}");
+            assert!(
+                err.contains("apple1") || err.contains("replica1"),
+                "{key}: {err}"
+            );
+        };
+        case(
+            r#"{"machine": {"model": "replica1", "slots": {}}}"#,
+            "machine.slots",
+        );
+        case(
+            r#"{"machine": {"model": "apple1", "aux": {"card": "80col"}}}"#,
+            "machine.aux",
+        );
+        case(
+            r#"{"machine": {"model": "apple1"}, "display": {"monitor": "green"}}"#,
+            "display",
+        );
+        case(
+            r#"{"machine": {"model": "replica1"}, "cpu": {"speed": "normal"}}"#,
+            "cpu.speed",
+        );
+        case(
+            r#"{"machine": {"model": "apple1"}, "input": {"controller": "Pad"}}"#,
+            "input",
+        );
+        case(
+            r#"{"machine": {"model": "apple1"}, "boot": {"delay": 1.5}}"#,
+            "boot",
+        );
+        case(
+            r#"{"machine": {"model": "apple1"}, "remote": {"port": 5901}}"#,
+            "remote",
+        );
+        case(
+            r#"{"machine": {"model": "apple1"}, "state": {"path": "m.state"}}"#,
+            "state",
+        );
     }
 
     #[test]
