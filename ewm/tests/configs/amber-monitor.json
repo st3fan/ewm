@@ -1,0 +1,5 @@
+{
+  "$schema": "../../../schema/ewm-config-overlay.schema.json",
+  "description": "Overlay: an amber phosphor monitor",
+  "display": { "monitor": "amber" }
+}

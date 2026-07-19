@@ -58,7 +58,7 @@ becomes a final-document check. That is the heart of Phase C2.
 |---|---|---|---|
 | C1 | Built-in configs: `builtin:` scheme, embed `configs/`, listing | S/M | Done |
 | C2 | Partial configs: optional `machine`/`model`, split validation | M | Done |
-| C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Not started |
+| C3 | `--config-overlay`: flag, layering rules, slots materialization | M | Done |
 | C4 | `--print-config`: inspect the merged document | S | Not started |
 | C5 | Docs sweep + `notes/JSON_CONFIG.md` as-built update | S | Not started |
 
@@ -173,7 +173,9 @@ The enabling change for overlays, landed separately so C3 stays small.
   (two "complete machines" silently merging). Recommendation: allow at
   most one `--config`; a second errors with `use --config-overlay for
   additional layers`. Mildly breaking, clearly better semantics — but
-  the owner may prefer keeping it as sugar.
+  the owner may prefer keeping it as sugar. **Decision (as built): at
+  most one `--config`**, per the recommendation — see
+  `notes/JSON_CONFIG.md` "Config sources — overlays".
 - Usage text: `--config-overlay <path>  layer a partial config on top;
   repeatable, applied in order`.
 - **Gate:** `two.rs` option tests — base + overlay + overlay + `--set`

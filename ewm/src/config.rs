@@ -526,6 +526,22 @@ pub fn load(path: &str) -> Result<Config, String> {
     from_str_resolved(&text, path, base)
 }
 
+/// Resolve a `--config-overlay` source to its JSON-document form. The
+/// `builtin:` scheme is shared with `--config` (a built-in is a complete
+/// config, which is a valid overlay); anything else is a file loaded
+/// through the structural-only path — an overlay may be arbitrarily
+/// partial, and its relative paths resolve against the overlay file's
+/// directory, the same portability property config files have.
+pub fn load_overlay_document(source: &str) -> Result<serde_json::Value, String> {
+    match source.strip_prefix("builtin:") {
+        Some(name) => {
+            let config = load_builtin(name)?;
+            serde_json::to_value(config).map_err(|e| format!("builtin:{name}: {e}"))
+        }
+        None => load_document(source),
+    }
+}
+
 /// Load a config file as a JSON document: the typed *structural* path
 /// (parse, per-file validation with the file named in errors, relative
 /// paths resolved against the file's directory), then back to JSON —
@@ -598,6 +614,31 @@ fn default_slots_value() -> serde_json::Value {
         "1": { "card": "thunderclock" },
         "6": { "card": "diskii" },
     })
+}
+
+/// Merge a `--config-overlay` document into the base: `merge_documents`
+/// plus the slots-materialization rule `--set` already has — an overlay
+/// carrying a `machine.slots` table onto a document without one
+/// materializes the default table first, so the overlay *extends* the
+/// default machine ("plus a hard drive in slot 7") instead of producing a
+/// literal one-slot table. A base whose explicit table came from
+/// `--config` stays literal, as today: materialization only fills a
+/// missing table, never touches a present one.
+pub fn merge_overlay_document(doc: &mut serde_json::Value, overlay: serde_json::Value) {
+    use serde_json::Value;
+    if matches!(overlay.pointer("/machine/slots"), Some(Value::Object(_)))
+        && let Some(base) = doc.as_object_mut()
+    {
+        let machine = base
+            .entry("machine")
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if let Some(machine) = machine.as_object_mut()
+            && machine.get("slots").is_none_or(|s| s.is_null())
+        {
+            machine.insert("slots".to_string(), default_slots_value());
+        }
+    }
+    merge_documents(doc, overlay);
 }
 
 /// Apply one `--set <key>=<value>` override to the document. The key path
@@ -1240,6 +1281,76 @@ mod tests {
         let mut doc = serde_json::json!({"card": "diskii", "drive1": "a.dsk"});
         merge_documents(&mut doc, serde_json::json!({"card": "empty"}));
         assert_eq!(doc, serde_json::json!({"card": "empty"}));
+    }
+
+    #[test]
+    fn overlay_merge_materializes_the_default_slots() {
+        let hdd7 = serde_json::json!({"machine": {"slots": {"7": {"card": "harddrive", "image": "tr.hdv"}}}});
+
+        // The four base × overlay slots combinations (the plan's hazard).
+        // 1. Slotless base + overlay with slots: materialize, then extend —
+        //    "the default machine plus a hard drive in slot 7".
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        merge_overlay_document(&mut doc, hdd7.clone());
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({
+                "0": {"card": "language"},
+                "1": {"card": "thunderclock"},
+                "6": {"card": "diskii"},
+                "7": {"card": "harddrive", "image": "tr.hdv"},
+            })
+        );
+
+        // 2. A base with an explicit table stays literal; the overlay
+        //    merges into it key by key.
+        let mut doc =
+            serde_json::json!({"machine": {"model": "2plus", "slots": {"6": {"card": "diskii"}}}});
+        merge_overlay_document(&mut doc, hdd7);
+        assert_eq!(
+            doc["machine"]["slots"],
+            serde_json::json!({
+                "6": {"card": "diskii"},
+                "7": {"card": "harddrive", "image": "tr.hdv"},
+            })
+        );
+
+        // 3. An overlay without slots never materializes: a slotless base
+        //    stays slotless (the default machine at build time)...
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        merge_overlay_document(
+            &mut doc,
+            serde_json::json!({"display": {"monitor": "amber"}}),
+        );
+        assert_eq!(doc["machine"], serde_json::json!({"model": "2plus"}));
+        assert_eq!(doc["display"]["monitor"], serde_json::json!("amber"));
+
+        // 4. ...and a base's explicit table is untouched.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus", "slots": {}}});
+        merge_overlay_document(&mut doc, serde_json::json!({"cpu": {"strict": true}}));
+        assert_eq!(doc["machine"]["slots"], serde_json::json!({}));
+
+        // A null machine.slots (how a fragment that never mentioned slots
+        // serializes) is a merge no-op, not a table.
+        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        merge_overlay_document(
+            &mut doc,
+            serde_json::json!({"machine": {"model": "2e", "slots": null}}),
+        );
+        assert_eq!(doc["machine"], serde_json::json!({"model": "2e"}));
+    }
+
+    #[test]
+    fn overlay_sources_resolve_builtins_and_fragments() {
+        // The builtin: scheme is shared with --config...
+        let builtin = load_overlay_document("builtin:2plus").expect("builtin overlay");
+        assert_eq!(builtin["machine"]["model"], serde_json::json!("2plus"));
+        let err = load_overlay_document("builtin:nope").unwrap_err();
+        assert!(err.starts_with("no built-in config"), "{err}");
+        // ...while a file may be arbitrarily partial.
+        let path = scratch("frag.json", r#"{"display": {"monitor": "amber"}}"#);
+        let doc = load_overlay_document(path.to_str().unwrap()).expect("fragment loads");
+        assert_eq!(doc["display"]["monitor"], serde_json::json!("amber"));
     }
 
     #[test]

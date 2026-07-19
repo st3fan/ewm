@@ -190,6 +190,39 @@ for `--config-overlay` (C3):
   (own title/description) for editor support of overlay files. One
   regeneration command updates both.
 
+## Config sources — overlays (C3, recorded as built)
+
+Phase C3 of `plans/20260718-02-config-sources.md`:
+
+- **`--config-overlay <source>`** layers a partial config onto the
+  document; repeatable, and all sources — the `--config` base, overlays,
+  `--set` — apply strictly in command-line order through the existing
+  merge. Overlay files load through the structural-only typed path
+  (`load_overlay_document` → `load_document`): the overlay file is named
+  in errors and its relative paths resolve against its own directory.
+  The `builtin:` scheme is shared with `--config` (a complete config is
+  a valid overlay); overlay-only command lines start from the default
+  machine, like bare `--set`.
+- **One `--config` max** (plan recommendation adopted): a second errors
+  with `only one --config allowed; use --config-overlay for additional
+  layers`. Mildly breaking — two `--config` files used to deep-merge —
+  but that read as an accident once partial layers had their own flag.
+- **Slots materialization extends to overlays**
+  (`merge_overlay_document`): an overlay carrying `machine.slots` onto a
+  slotless document materializes the default table first, so
+  `--config-overlay hdd7.json` means "the default machine plus a hard
+  drive in slot 7". A base's explicit table (from `--config`) stays
+  literal — materialization fills a missing table, never touches a
+  present one. All four base × overlay combinations are pinned in
+  `config.rs` tests; `--set`'s materialization is untouched (the boo
+  launcher's drag-drop paths behave identically).
+- **Known edge, accepted**: overlaying a complete *//e* config onto the
+  slotless ][+ default (`ewm two --config-overlay builtin:2e`) fails
+  completeness — materialization brings in the ][+ default table, whose
+  slot 0 the //e rejects. Consistent with the rules (an overlay means
+  "default machine plus this"); start from `--config builtin:2e`
+  instead.
+
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
