@@ -298,8 +298,6 @@ cargo test
 This runs the full verification suite: the Klaus Dormann 6502 and 65C02
 functional tests, golden instruction traces, headless machine boot tests,
 a complete DOS 3.3 boot with `CATALOG`, and a golden screenshot comparison.
-The cc65 assembly sources under `tests/` are manual test programs for the
-machines themselves and are not part of the automated suite.
 
 ## Experimental
 
