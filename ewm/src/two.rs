@@ -2099,7 +2099,7 @@ fn usage() {
     );
     eprintln!("  --scanlines [off|light|heavy]  scanline effect (bare = light; default off)");
     eprintln!("  --boot-delay <seconds>  hold the machine at power-on (debugging/recording)");
-    eprintln!("  --fps <fps>       set fps for display (default: 30)");
+    eprintln!("  --fps <fps>       set fps for display (default: 40)");
     eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --wozbug [port]   WozBug debugger server on 127.0.0.1 (default port 6502)");
     eprintln!("  --break <addr,..> break at hex addresses or symbols (implies --wozbug)");
@@ -4655,6 +4655,75 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         assert!(matches!(parse_options(&args), Err(1)));
+    }
+
+    /// Split a README shell example into args: whitespace-separated with
+    /// single- and double-quote grouping (the two forms the examples use;
+    /// no escape handling).
+    fn shell_words(text: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quote: Option<char> = None;
+        for c in text.chars() {
+            match quote {
+                Some(q) if c == q => quote = None,
+                Some(_) => word.push(c),
+                None if c == '\'' || c == '"' => quote = Some(c),
+                None if c.is_whitespace() => {
+                    if !word.is_empty() {
+                        words.push(std::mem::take(&mut word));
+                    }
+                }
+                None => word.push(c),
+            }
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+        words
+    }
+
+    #[test]
+    fn readme_two_examples_parse() {
+        // The C5 gate: every `cargo run --release -- two …` example in the
+        // README parses with today's flags, example files included (they
+        // are committed under examples/). parse_options opens every
+        // --config/--config-overlay source, so a renamed flag, a bad
+        // example path, or an example config that stops validating fails
+        // here. (Boot-ability is not checked; --set media paths are never
+        // opened at parse time.)
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+        let readme = std::fs::read_to_string(format!("{root}/README.md")).expect("README.md");
+        // Join backslash line continuations into single commands.
+        let text = readme.replace("\\\n", " ");
+        let mut checked = 0;
+        for line in text.lines() {
+            let Some(command) = line.trim().strip_prefix("cargo run --release -- two") else {
+                continue;
+            };
+            let mut args = shell_words(command);
+            // The README's paths are relative to the repo root; this test
+            // runs in ewm/. Anchor the arguments that parse_options opens.
+            for i in 1..args.len() {
+                if matches!(args[i - 1].as_str(), "--config" | "--config-overlay")
+                    && !args[i].starts_with("builtin:")
+                {
+                    args[i] = format!("{root}/{}", args[i]);
+                }
+            }
+            let result = parse_options(&args);
+            // Ok = a machine; Err(0) = a query that printed and exited
+            // (--print-config, builtin:list).
+            assert!(
+                matches!(result, Ok(_) | Err(0)),
+                "README example failed: {line}"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked >= 8,
+            "only {checked} README `two` examples found — did the extractor break?"
+        );
     }
 
     #[test]

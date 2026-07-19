@@ -83,8 +83,8 @@ cargo run --release -- two --color --set 'machine:slots:7={"card":"harddrive","i
 # A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
 cargo run --release -- two --color --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
-# Enhanced Apple //e booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --model 2e --color --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+# Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
+cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
 cargo run --release -- two --model 2e --aux ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
@@ -103,13 +103,52 @@ work the same way. Values are JSON when they parse as JSON (numbers,
 booleans, whole objects like the hard-drive example above) and plain
 strings otherwise.
 
-A whole machine can also be described in a JSON file and started with
-`--config`; files and `--set` overrides layer left-to-right, and the
-remaining convenience flags override the result:
+The machine configuration is fully compositional: four source kinds,
+one document, merged strictly in command-line order —
+
+- **`--config <source>`** — a *complete* machine, from a JSON file or a
+  built-in config; at most one, the base of the document;
+- **`--config-overlay <source>`** — a *partial* config layered on top;
+  repeatable;
+- **`--set <key>=<value>`** — single-value overrides;
+- and the remaining convenience flags (`--model`, `--color`, …), which
+  override the finished document.
+
+Ready-made configs for the classic machines are built into the binary
+— an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced
+//e with the extended 80-column card, a UniDisk 3.5 controller in slot
+5, and a color monitor (`builtin:2e`); `--config builtin:list` lists
+them, and the same files live in `configs/`.
+
+An overlay describes just the part of the machine it cares about. This
+one (`examples/drive-with-total-replay.json`) adds a hard drive with
+Total Replay to whatever machine it lands on:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config-overlay.schema.json",
+  "machine": {
+    "slots": {
+      "7": { "card": "harddrive", "image": "../disks/Total Replay v6.0.1.hdv" }
+    }
+  }
+}
+```
 
 ```
-cargo run --release -- two --config myiie.json
+cargo run --release -- two --config builtin:2plus \
+    --config-overlay examples/drive-with-total-replay.json \
+    --set display:monitor=amber
 ```
+
+Overlays without a `--config` extend the *default* machine, so the same
+overlay alone means "the default ][+ plus a hard drive in slot 7":
+
+```
+cargo run --release -- two --config-overlay examples/drive-with-total-replay.json
+```
+
+A whole machine also fits in one file (`examples/myiie.json`):
 
 ```json
 {
@@ -119,9 +158,9 @@ cargo run --release -- two --config myiie.json
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },
-      "5": { "card": "diskii", "drive1": "disks/work.dsk" },
-      "6": { "card": "diskii", "drive1": "disks/DOS33-SystemMaster.dsk" },
-      "7": { "card": "harddrive", "image": "disks/Total Replay v6.0.1.hdv" }
+      "5": { "card": "diskii", "drive1": "../disks/work.dsk" },
+      "6": { "card": "diskii", "drive1": "../disks/DOS33-SystemMaster.dsk" },
+      "7": { "card": "harddrive", "image": "../disks/Total Replay v6.0.1.hdv" }
     }
   },
   "display": { "monitor": "green", "scanlines": "light" },
@@ -129,16 +168,8 @@ cargo run --release -- two --config myiie.json
 }
 ```
 
-Ready-made configs for the classic machines are built into the binary
-— an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced
-//e with the extended 80-column card, a UniDisk 3.5 controller in slot
-5, and a color monitor (`builtin:2e`); `--config builtin:list` lists
-them, and the same files live in `configs/`.
-Neither names a disk, so pair them with a `--set` override, which
-merges into the config's slot 6 card:
-
 ```
-cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config examples/myiie.json
 ```
 
 The machine's physical layout lives in `slots`: any card in any slot,
@@ -149,11 +180,23 @@ default machine has a Language Card (the classic 64K build), and
 `--set machine:slots:0:card=saturn128` swaps it for a Saturn Systems
 128K RAM Board — eight Language-Card-compatible 16K banks. An explicit
 `slots` table is taken literally, so leave out `"0"` — or pass
-`--set machine:slots:0:card=empty` — for a stock 48K machine. Relative paths resolve against the config file's
-directory, so a config travels with its disks. The committed JSON
-Schema (`schema/ewm-config.schema.json`) gives editors validation and
-autocomplete via the `$schema` key; `notes/JSON_CONFIG.md` has the full
-plan.
+`--set machine:slots:0:card=empty` — for a stock 48K machine.
+
+Relative paths resolve against their file's directory, so a config —
+or an overlay — travels with its disks. The committed JSON Schemas
+(`schema/ewm-config.schema.json` for complete configs,
+`schema/ewm-config-overlay.schema.json` for overlays) give editors
+validation and autocomplete via the `$schema` key;
+`notes/JSON_CONFIG.md` has the full plan.
+
+With sources layering, `--print-config` answers "what machine did I
+just describe?" — it prints the final merged configuration (sources
+*and* convenience flags applied) as JSON and exits, nonzero on any
+error, so it doubles as a config linter for scripts and CI:
+
+```
+cargo run --release -- two --config examples/myiie.json --set display:monitor=amber --print-config
+```
 
 ### Debugging with WozBug
 
