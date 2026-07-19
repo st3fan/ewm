@@ -115,6 +115,9 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
   **deep-merge** instead of a later file's slots table replacing
   wholesale. The remaining convenience flags (`--model`, `--color`, …)
   still override the finished document, per the Phase A precedence design.
+  *(Since superseded: the per-setting convenience flags were retired by
+  `plans/20260719-01-flag-retirement.md`; `--serve` is the one
+  document-overriding flag left.)*
 - **Merge rules** (`config::merge_documents`): objects merge recursively;
   `null` and empty-array overlays are no-ops (a source that doesn't set a
   field must not clear it); two objects whose `"card"` discriminators
@@ -257,20 +260,23 @@ Phase C4 of `plans/20260718-02-config-sources.md`:
 
 ## What is configurable today (the schema inventory)
 
+Since `plans/20260719-01-flag-retirement.md`, the CLI column is
+`--set <key>=<value>` (or any config source) for everything — the
+per-setting convenience flags are gone.
+
 | Source | Setting | Values |
 |---|---|---|
-| CLI | `--model` | `2plus`, `2e` |
-| CLI | `--set <key>=<value>` | any config key by colon path (drives, slots, display, …) |
-| CLI | `--aux` | `80col`, `ext80col`, `ramworksiii[:SIZE]` (//e only) |
-| CLI + palette | monitor style | `green`, `amber`, `white`, `rgb` |
-| CLI + palette | scanlines | `off`, `light`, `heavy` |
-| CLI | `--boot-delay` | seconds |
-| CLI | `--fps` | display refresh |
-| CLI | `--memory` | `ram\|rom:address:path` regions |
-| CLI | `--trace`, `--strict`, `--debug` | debugging |
-| palette only | CPU speed | 1.023 MHz (normal), 3.58 MHz, 7.16 MHz — the classic accelerator steps |
-| palette only | game controller | picked by name when several are present |
-| *(new)* | slots 0–7 | card per slot (below); slot 0 is the ][+ language-card socket |
+| config + `--set` | `machine.model` | `2plus`, `2e` |
+| config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
+| config + `--set` + palette | `display.monitor` | `green`, `amber`, `white`, `rgb` |
+| config + `--set` + palette | `display.scanlines` | `off`, `light`, `heavy` |
+| config + `--set` | `boot.delay` | seconds |
+| config + `--set` | `display.fps` | display refresh |
+| config / overlay files | `machine.memory` | `type`/`address`/`path` regions (`--set` cannot reach arrays) |
+| config + `--set` | `debug.trace`, `cpu.strict`, `debug.enabled` | debugging |
+| config + `--set` + palette | `cpu.speed` | 1.023 MHz (normal), 3.58 MHz, 7.16 MHz — the classic accelerator steps |
+| config + `--set` + palette | `input.controller` | picked by name when several are present |
+| config + `--set` | slots 0–7 | card per slot (below); slot 0 is the ][+ language-card socket |
 
 ## Slot 0 decisions (recorded as built)
 

@@ -1,8 +1,9 @@
 # Machine State — Save on Quit, Restore on Start
 
 A working document for **persistent machine state**: start the emulator with
-`--state=/some/mystate` and it restores that state at startup (when the file
-exists) and saves it back at quit — suspend/resume for an Apple II, the way a
+`--set state:path=/some/mystate` (or config `state.path`; the `--state` flag
+was retired by `plans/20260719-01-flag-retirement.md`) and it restores that
+state at startup (when the file exists) and saves it back at quit — suspend/resume for an Apple II, the way a
 VM hibernates. Like `REMOTE.md` and `VNC.md`, re-read at the start of every
 session and updated as phases land. **The tree must stay green
 (`cargo fmt --check`, `clippy --all-targets -D warnings`, `cargo test`) after
@@ -21,7 +22,7 @@ resolves device identity (§3.3).
 ## 1. Goals and UX
 
 ```
-ewm two --state ~/machines/dos33.state \
+ewm two --set state:path=~/machines/dos33.state \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 ```
 
@@ -191,7 +192,7 @@ chunk  := tag [u8;4] | u32 length | payload (length bytes)
 floppy writes are in-memory only (nothing in `dsk.rs` writes the image file
 back), so a resumed session must carry the modified image or silently lose
 writes. This also documents an existing sharp edge worth its own backlog
-line: today, quitting *without* `--state` discards floppy writes.
+line: today, quitting *without* a state path discards floppy writes.
 
 **Cycle-stamp rule**: several components hold absolute cycle timestamps
 (motor spin-down, speaker toggles, paddle timers) relative to
@@ -314,8 +315,8 @@ construction.
   tiny; blocked only by prioritization.
 - Save-while-running: palette command and/or periodic autosave (the frame
   boundary makes this nearly free once S4 lands).
-- Named snapshots (`--state` a directory; save slots).
+- Named snapshots (`state.path` a directory; save slots).
 - Compression (worth revisiting only if RamWorks-sized states annoy).
 - Floppy write-back as a feature of its own (today's quit discards floppy
-  writes even without `--state` — surprising, and orthogonal to state).
+  writes even without a state path — surprising, and orthogonal to state).
 - WozBug: dump/inspect a state file offline.

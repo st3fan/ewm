@@ -139,7 +139,7 @@ pub enum AuxKind {
 }
 
 impl AuxKind {
-    /// The card's `--aux` flag token, so config and CLI share one
+    /// The card's aux token, so config and the power-on path share one
     /// construction path (`crate::aux::parse`).
     pub fn flag_token(self) -> &'static str {
         match self {
@@ -704,7 +704,7 @@ pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> 
         let map = match node {
             Value::Array(_) => {
                 return Err(format!(
-                    "--set {expr}: cannot index into the {:?} array (memory regions come from --memory)",
+                    "--set {expr}: cannot index into the {:?} array (memory regions come from a config or overlay file)",
                     segments[..i].join(":")
                 ));
             }

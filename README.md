@@ -28,8 +28,8 @@ and sound.
   drives, a slot 7 hard drive for 32MB ProDOS block images (boots
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
   low-resolution and high-resolution graphics on a green, amber or white
-  monochrome monitor or in color (`--color [green|amber|white|rgb]`) with an
-  optional scanline effect (`--scanlines [off|light|heavy]`), both switchable
+  monochrome monitor or in color (`--set display:monitor=rgb`) with an
+  optional scanline effect (`--set display:scanlines=light`), both switchable
   at runtime from the command palette,
   speaker sound, joystick paddles and buttons (game controllers hot-plug —
   Bluetooth pads connect any time — and the command palette picks between
@@ -42,12 +42,13 @@ and sound.
   ("Liron", `{"card": "liron"}`), a SmartPort card ProDOS boots from
 * **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
   language card and MMU/IOU soft switches, a swappable auxiliary slot
-  (`--aux`): the Extended 80-Column Text Card (64K, default), the plain
+  (`machine.aux`): the Extended 80-Column Text Card (64K, default), the plain
   80-Column Text Card (1K), or an Applied Engineering RamWorks III with up
-  to 8MB (`--aux ramworksiii:1m`), 40- and 80-column text with lower
+  to 8MB (`--set 'machine:aux={"card":"ramworksiii","size":"1m"}'`), 40- and
+  80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
   graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
-  hard drive, clock and sound. Start it with `two --model 2e`.
+  hard drive, clock and sound. Start it with `two --config builtin:2e`.
 
 ## Requirements
 
@@ -75,19 +76,25 @@ Or start a machine directly:
 
 ```
 # Apple ][+ with color graphics and the DOS 3.3 sample programs disk
-cargo run --release -- two --color --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
+cargo run --release -- two --set display:monitor=rgb \
+    --set machine:slots:6:drive1=disks/DOS33-SamplePrograms.dsk
 
 # Apple ][+ booting Total Replay from a ProDOS hard drive image
-cargo run --release -- two --color --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
+cargo run --release -- two --set display:monitor=rgb \
+    --set 'machine:slots:7={"card":"harddrive","image":"disks/Total Replay v6.0.1.hdv"}'
 
 # A copy-protected WOZ 1.0 image (bit-accurate Disk II emulation)
-cargo run --release -- two --color --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
+cargo run --release -- two --set display:monitor=rgb \
+    --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --config builtin:2e --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --model 2e --aux ramworksiii --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+cargo run --release -- two --config builtin:2e \
+    --set machine:aux:card=ramworksiii \
+    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --model replica1
@@ -96,6 +103,80 @@ cargo run --release -- one --model replica1
 cargo run --release -- one --model apple1
 ```
 
+### The three `two` machine profiles
+
+Bare `ewm two` boots the **default machine**: an Apple ][+ with the 16K
+Language Card in slot 0 (the classic 64K build), a Thunderclock in
+slot 1, and a Disk II controller in slot 6, on a green monochrome
+monitor. In config terms (`--print-config` prints the full document):
+
+```json
+{
+  "machine": {
+    "model": "2plus",
+    "slots": {
+      "0": { "card": "language" },
+      "1": { "card": "thunderclock" },
+      "6": { "card": "diskii" }
+    }
+  }
+}
+```
+
+Two more profiles ship *inside the binary* as built-in configs —
+`--config builtin:list` lists them, and the same files live in
+`configs/`:
+
+**`builtin:2plus`** — an Apple ][+ with the 64K Language Card and a
+Disk II in slot 6, on a green monochrome monitor. The default machine
+minus the clock card:
+
+```json
+{
+  "description": "Apple ][+ — 64K Language Card, Disk II in slot 6, green monitor",
+  "machine": {
+    "model": "2plus",
+    "slots": {
+      "0": { "card": "language" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "green" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:2plus
+```
+
+**`builtin:2e`** — an Enhanced Apple //e with the Extended 80-Column
+Card (64K) in the auxiliary slot, a UniDisk 3.5 controller in slot 5,
+a Disk II in slot 6, and an RGB color monitor:
+
+```json
+{
+  "description": "Enhanced Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
+  "machine": {
+    "model": "2e",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "5": { "card": "liron" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:2e
+```
+
+None of the profiles mounts a disk — pair them with a `--set` override
+or an overlay, as in the examples above.
+
+### Composing a machine
+
 `--set <key>=<value>` overrides one value in the machine configuration
 by its colon-separated key path — any key the JSON config (below)
 accepts, so `--set display:monitor=amber` or `--set cpu:speed=3.58mhz`
@@ -103,22 +184,14 @@ work the same way. Values are JSON when they parse as JSON (numbers,
 booleans, whole objects like the hard-drive example above) and plain
 strings otherwise.
 
-The machine configuration is fully compositional: four source kinds,
+The machine configuration is fully compositional: three source kinds,
 one document, merged strictly in command-line order —
 
 - **`--config <source>`** — a *complete* machine, from a JSON file or a
   built-in config; at most one, the base of the document;
 - **`--config-overlay <source>`** — a *partial* config layered on top;
   repeatable;
-- **`--set <key>=<value>`** — single-value overrides;
-- and the remaining convenience flags (`--model`, `--color`, …), which
-  override the finished document.
-
-Ready-made configs for the classic machines are built into the binary
-— an Apple ][+ with a green monitor (`builtin:2plus`) and an Enhanced
-//e with the extended 80-column card, a UniDisk 3.5 controller in slot
-5, and a color monitor (`builtin:2e`); `--config builtin:list` lists
-them, and the same files live in `configs/`.
+- **`--set <key>=<value>`** — single-value overrides.
 
 An overlay describes just the part of the machine it cares about. This
 one (`examples/drive-with-total-replay.json`) adds a hard drive with
@@ -198,36 +271,24 @@ error, so it doubles as a config linter for scripts and CI:
 cargo run --release -- two --config examples/myiie.json --set display:monitor=amber --print-config
 ```
 
-### Debugging with WozBug
+Each subcommand accepts `--help` for all options.
 
-`--wozbug` starts WozBug — a minimal, Woz-Monitor-dialect debugger — as a
-line server on a local TCP port (default 6502, naturally). `--break`
-arms breakpoints at boot, by hex address or built-in symbol (RWTS, MLI,
-COUT, …), and implies the server:
+### Key commands
 
-```
-cargo run --release -- two --break RWTS \
-    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
-# in another terminal:
-nc localhost 6502
-```
+| Key | Action | Machines |
+|---|---|---|
+| Cmd-K | Open or close the Command Palette | all |
+| Cmd-R | Reset the machine (warm) | all |
+| Cmd-Shift-R | Reboot: power off, power on | ][+ / //e |
+| Cmd-P | Pause / unpause | ][+ / //e |
+| Cmd-Return | Toggle fullscreen | all |
+| Cmd-I | Toggle the status bar with drive lights | ][+ / //e |
 
-When a breakpoint hits, the machine freezes and the client sees the
-registers. `280.29F` dumps memory (a bare Return continues), `300:A9 20`
-deposits, `R`/`PC=BD00` show and set registers, `S` single-steps, `G`
-resumes, and `DSK`/`SW`/`TEXT`/`SLOTS` dump the disk controllers, soft
-switches, text screen, and slot table. `?` lists everything; the plan
-lives in `notes/DEBUGGING_TOOLS.md`.
-
-Each subcommand accepts `--help` for all options. Useful keys while the
-emulator runs:
-
-| Key | Action |
-|---|---|
-| Cmd-R | Reset the machine |
-| Cmd-Return | Toggle fullscreen |
-| Cmd-P | Pause (Apple ][+ / //e) |
-| Cmd-I | Toggle the status bar with drive lights (Apple ][+ / //e) |
+While the palette is open it owns the keyboard: type to filter, ↑/↓ to
+move, Return to run the selected command, Esc (or Cmd-K again) to
+close. Every other key goes to the emulated machine — including
+Ctrl-A…Z, which arrive as control characters. Dropping a disk image on
+a running ][+ / //e window swaps it into drive 1.
 
 There are also headless terminal consoles, handy for quick experiments
 without a window:
@@ -236,17 +297,6 @@ without a window:
 cargo run -p ewm --example one                                  # Woz Monitor
 cargo run -p ewm --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
-
-## Native Mac app
-
-`scripts/make-app.sh` assembles a self-contained, double-clickable
-`dist/EWM.app` — SDL3 is compiled in statically (CMake required at build
-time), the icon is `][` rendered by the emulator's own character generator,
-and the bundle is ad-hoc signed for local use. Opening the app boots the
-bootloader menu; opening a disk image with it (or dragging one onto the
-window) boots the ][+ with that disk — dropping a floppy on a running
-machine swaps drive 1. See `notes/MAC_APP.md` for the plan (signing and
-notarization for distribution are Phase 2).
 
 ## Testing
 
@@ -257,8 +307,23 @@ cargo test
 This runs the full verification suite: the Klaus Dormann 6502 and 65C02
 functional tests, golden instruction traces, headless machine boot tests,
 a complete DOS 3.3 boot with `CATALOG`, and a golden screenshot comparison.
-The cc65 assembly sources under `tests/` are manual test programs for the
-machines themselves and are not part of the automated suite.
+
+## Experimental
+
+Working, but still settling — each has a full working document in
+`notes/`:
+
+- **WozBug** — a minimal Woz-Monitor-dialect debugger served on a local
+  TCP port: `--wozbug [port]`, `--break RWTS` arms breakpoints at boot,
+  then `nc localhost 6502`. See
+  [DEBUGGING_TOOLS.md](notes/DEBUGGING_TOOLS.md).
+- **Remote console (VNC)** — `--serve vnc://…` (or the config `remote`
+  block) boots headless and serves the machine over RFB to any VNC
+  client, with an optional embedded browser console (noVNC). See
+  [REMOTE.md](notes/REMOTE.md).
+- **Native Mac app** — `scripts/make-app.sh` builds a self-contained,
+  double-clickable `dist/EWM.app`; opening or dropping a disk image on
+  it boots that disk. See [MAC_APP.md](notes/MAC_APP.md).
 
 ## History
 

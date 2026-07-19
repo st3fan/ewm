@@ -1380,7 +1380,7 @@ impl Two {
             TwoType::Apple2Plus => {
                 if let Some(card) = aux {
                     return Err(format!(
-                        "the Apple ][+ has no auxiliary slot (--aux {})",
+                        "the Apple ][+ has no auxiliary slot (machine.aux: {})",
                         card.label()
                     ));
                 }
@@ -2065,48 +2065,19 @@ struct MemoryOption {
     path: String,
 }
 
-fn parse_memory_option(s: &str) -> Option<MemoryOption> {
-    let mut parts = s.splitn(3, ':');
-    let kind = parts.next()?;
-    if kind != "ram" && kind != "rom" {
-        return None;
-    }
-    let address = parts.next()?;
-    let path = parts.next()?;
-    Some(MemoryOption {
-        rom: kind == "rom",
-        address: address.parse::<i64>().unwrap_or(0) as u16,
-        path: path.to_string(),
-    })
-}
-
 fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
     eprintln!("                    config (builtin:2plus, builtin:2e; builtin:list lists");
-    eprintln!("                    them); at most one; flags override it");
+    eprintln!("                    them); at most one, the base of the document");
     eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
     eprintln!("                    applied in order with --config and --set");
     eprintln!("  --set <key>=<val> override one config value; files and sets layer in order");
     eprintln!("                    (e.g. --set machine:slots:6:drive1=game.dsk)");
     eprintln!("  --print-config    print the machine the command line describes (sources");
     eprintln!("                    plus flags) as config JSON and exit");
-    eprintln!("  --model <2plus|2e> machine to emulate (default: 2plus)");
-    eprintln!("  --aux <card>      //e aux-slot card: 80col, ext80col (default) or");
-    eprintln!("                    ramworksiii[:SIZE] with SIZE 64k..8m (default 8m)");
-    eprintln!(
-        "  --color [green|amber|white|rgb]  monitor style (bare --color = rgb; default green)"
-    );
-    eprintln!("  --scanlines [off|light|heavy]  scanline effect (bare = light; default off)");
-    eprintln!("  --boot-delay <seconds>  hold the machine at power-on (debugging/recording)");
-    eprintln!("  --fps <fps>       set fps for display (default: 40)");
-    eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
     eprintln!("  --wozbug [port]   WozBug debugger server on 127.0.0.1 (default port 6502)");
     eprintln!("  --break <addr,..> break at hex addresses or symbols (implies --wozbug)");
-    eprintln!("  --trace <file>    trace cpu to file");
-    eprintln!("  --strict          run emulator in strict mode");
-    eprintln!("  --debug           print debug info");
-    eprintln!("  --state <path>    restore machine state at startup, save it at quit");
     eprintln!("  --serve <url>     boot headless and serve over VNC (notes/REMOTE.md),");
     eprintln!(
         "                    e.g. vnc://0.0.0.0:5901?password=secret  (macOS needs a password);"
@@ -2124,7 +2095,7 @@ struct Options {
     slots: BTreeMap<u8, config::SlotCard>,
     monitor: MonitorStyle,
     scanlines: Scanlines,
-    /// The //e auxiliary-slot card as its validated `--aux` token (None =
+    /// The //e auxiliary-slot card as its validated aux token (None =
     /// the default extended 80-col card). Kept as a token and parsed at
     /// each power-on, so a reboot can construct a fresh card.
     aux: Option<String>,
@@ -2318,79 +2289,8 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 // Applied in pass 1.
                 it.next();
             }
-            "--model" => match it.next().map(String::as_str) {
-                Some("2plus" | "2+" | "][+" | "2") => options.model = TwoType::Apple2Plus,
-                Some("2e" | "//e" | "iie") => options.model = TwoType::Apple2E,
-                _ => {
-                    usage();
-                    return Err(1);
-                }
-            },
-            // Bare --color keeps its historical meaning (an RGB color
-            // monitor); an optional value picks a monochrome phosphor
-            // instead. Peek-don't-consume so `--color --set k=v` works.
-            "--color" => {
-                options.monitor = it
-                    .peek()
-                    .and_then(|v| MonitorStyle::parse(v))
-                    .inspect(|_| {
-                        it.next();
-                    })
-                    .unwrap_or(MonitorStyle::Rgb);
-            }
-            // Same optional-value convention: bare --scanlines means light.
-            "--scanlines" => {
-                options.scanlines = it
-                    .peek()
-                    .and_then(|v| Scanlines::parse(v))
-                    .inspect(|_| {
-                        it.next();
-                    })
-                    .unwrap_or(Scanlines::Light);
-            }
-            "--aux" => match it.next() {
-                Some(token) => {
-                    // Validate now, store the token: it is parsed again at
-                    // each power-on (a reboot builds a fresh card).
-                    if let Err(e) = crate::aux::parse(token) {
-                        eprintln!("{e}");
-                        usage();
-                        return Err(1);
-                    }
-                    options.aux = Some(token.clone());
-                }
-                None => {
-                    usage();
-                    return Err(1);
-                }
-            },
-            "--boot-delay" => {
-                options.boot_delay = it
-                    .next()
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .unwrap_or(0.0)
-                    .max(0.0);
-            }
-            "--fps" => {
-                // atoi semantics
-                options.fps = it.next().and_then(|s| s.parse().ok()).unwrap_or(0);
-            }
-            "--memory" => match it.next().and_then(|s| parse_memory_option(s)) {
-                Some(m) => options.memory.push(m),
-                None => return Err(1),
-            },
-            "--state" => match it.next() {
-                Some(path) => options.state = Some(path.clone()),
-                None => {
-                    usage();
-                    return Err(1);
-                }
-            },
-            "--trace" => options.trace_path = Some("/dev/stderr".to_string()),
-            "--strict" => options.strict = true,
-            "--debug" => options.debug = true,
-            // Optional-value convention like --color: bare --wozbug uses
-            // the default port.
+            // Optional-value convention (peek-don't-consume): bare --wozbug
+            // uses the default port.
             "--wozbug" => {
                 options.wozbug = Some(
                     it.peek()
@@ -2438,9 +2338,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 }
             },
             _ => {
-                if let Some(path) = arg.strip_prefix("--trace=") {
-                    options.trace_path = Some(path.to_string());
-                } else if let Some(path) = arg.strip_prefix("--screenshot=") {
+                if let Some(path) = arg.strip_prefix("--screenshot=") {
                     // Hidden debug flag: dump a BMP of the screen after a
                     // fixed number of frames, then exit.
                     options.screenshot = Some(path.to_string());
@@ -2551,7 +2449,7 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
         .expect("from_document guarantees machine.model")
         .two_type();
     if let Some(aux) = &machine.aux {
-        // Rebuild the --aux flag token so config and CLI share one card
+        // Rebuild the aux token so config and power-on share one card
         // construction path.
         let token = match &aux.size {
             Some(size) => format!("{}:{size}", aux.card.flag_token()),
@@ -2735,7 +2633,7 @@ fn options_to_config(options: &Options) -> config::Config {
     }
 }
 
-/// A validated `--aux` token ("ramworksiii:1m") back to its config form —
+/// A validated aux token ("ramworksiii:1m") back to its config form —
 /// the inverse of the token building in `apply_config`.
 fn aux_token_to_config(token: &str) -> config::Aux {
     let (card, size) = match token.split_once(':') {
@@ -2758,9 +2656,9 @@ fn build_machine(options: &Options) -> Result<Two, String> {
     // Slot 0 never becomes a SlotDevice: it is the ][+ memory-expansion
     // socket, consumed here as a machine-level Slot0. On the //e the
     // language card is built in, so the default table's slot 0 entry is
-    // simply that there — but anything else in slot 0 (only reachable
-    // through --set plus --model, config validation rejects slot 0 on a
-    // //e) is an error, not a silent no-op.
+    // simply that there — but anything else in slot 0 (only reachable by
+    // --set writing both the model and slot 0, since config validation
+    // rejects slot 0 on a //e) is an error, not a silent no-op.
     let slot0 = match options.slots.get(&0) {
         Some(config::SlotCard::Language) => Slot0::Language,
         Some(config::SlotCard::Saturn128) => Slot0::Saturn128,
@@ -3540,7 +3438,7 @@ pub fn main(args: &[String]) -> i32 {
     // from the command palette.
     let mut speed: u32 = options.speed;
     // Monitor style, switchable from the command palette; the renderer was
-    // seeded from --color above.
+    // seeded from the config document above.
     let mut monitor_style = options.monitor;
     // Scanline effect, switchable from the command palette.
     let mut scanlines = options.scanlines;
@@ -4188,43 +4086,66 @@ mod tests {
     }
 
     #[test]
-    fn color_flag_selects_the_monitor_style() {
-        // No flag: the historical green-monochrome default.
+    fn monitor_model_and_aux_come_from_the_document() {
+        // No sources: the historical green-monochrome default.
         assert_eq!(opts(&[]).monitor, MonitorStyle::Green);
-        // Bare --color keeps its historical meaning: an RGB color monitor.
-        assert_eq!(opts(&["--color"]).monitor, MonitorStyle::Rgb);
-        // A style value picks a phosphor.
-        assert_eq!(opts(&["--color", "amber"]).monitor, MonitorStyle::Amber);
-        assert_eq!(opts(&["--color", "white"]).monitor, MonitorStyle::White);
-        assert_eq!(opts(&["--color", "rgb"]).monitor, MonitorStyle::Rgb);
-        // Bare --color followed by another flag: the flag is not consumed.
-        let o = opts(&["--color", "--set", "machine:slots:6:drive1=game.dsk"]);
+        // Plan 20260719-01 F2: the muscle-memory trio are config keys now.
+        for retired in ["--model", "--color", "--aux"] {
+            let args: Vec<String> = vec![retired.to_string()];
+            assert!(matches!(parse_options(&args), Err(1)), "{retired}");
+        }
+        let o = opts(&["--set", "display:monitor=rgb"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
-        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
+        let o = opts(&["--set", "machine:model=2e"]);
+        assert_eq!(o.model, TwoType::Apple2E);
+        let o = opts(&[
+            "--set",
+            "machine:model=2e",
+            "--set",
+            r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
+        ]);
+        assert_eq!(o.aux.as_deref(), Some("ramworksiii:128k"));
     }
 
     #[test]
-    fn scanlines_flag_selects_the_effect() {
-        assert_eq!(opts(&[]).scanlines, Scanlines::Off);
-        // Bare --scanlines means the light effect.
-        assert_eq!(opts(&["--scanlines"]).scanlines, Scanlines::Light);
-        assert_eq!(opts(&["--scanlines", "heavy"]).scanlines, Scanlines::Heavy);
-        assert_eq!(opts(&["--scanlines", "off"]).scanlines, Scanlines::Off);
-        // Bare --scanlines followed by another flag: the flag is not consumed.
-        let o = opts(&["--scanlines", "--set", "machine:slots:6:drive1=game.dsk"]);
-        assert_eq!(o.scanlines, Scanlines::Light);
-        assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
-    }
-
-    #[test]
-    fn boot_delay_flag_parses_seconds() {
-        assert_eq!(opts(&[]).boot_delay, 0.0);
-        assert_eq!(opts(&["--boot-delay", "3"]).boot_delay, 3.0);
-        assert_eq!(opts(&["--boot-delay", "1.5"]).boot_delay, 1.5);
-        // atoi semantics, like --fps: garbage means no delay.
-        assert_eq!(opts(&["--boot-delay", "soon"]).boot_delay, 0.0);
-        // Negative delays clamp to zero.
-        assert_eq!(opts(&["--boot-delay", "-2"]).boot_delay, 0.0);
+    fn retired_flags_are_unknown() {
+        // Plan 20260719-01 F1: these are config keys now (--set or a
+        // file); the flags fall into the generic usage error.
+        for retired in [
+            "--scanlines",
+            "--boot-delay",
+            "--fps",
+            "--state",
+            "--trace",
+            "--strict",
+            "--debug",
+            "--trace=/dev/stderr",
+            "--memory",
+        ] {
+            let args: Vec<String> = vec![retired.to_string()];
+            assert!(matches!(parse_options(&args), Err(1)), "{retired}");
+        }
+        // The --set spellings do what the flags did.
+        let o = opts(&[
+            "--set",
+            "display:scanlines=heavy",
+            "--set",
+            "display:fps=60",
+            "--set",
+            "boot:delay=1.5",
+            "--set",
+            "cpu:strict=true",
+            "--set",
+            "debug:enabled=true",
+            "--set",
+            "debug:trace=/dev/stderr",
+        ]);
+        assert_eq!(o.scanlines, Scanlines::Heavy);
+        assert_eq!(o.fps, 60);
+        assert_eq!(o.boot_delay, 1.5);
+        assert!(o.strict);
+        assert!(o.debug);
+        assert_eq!(o.trace_path.as_deref(), Some("/dev/stderr"));
     }
 
     /// A fixture path under ewm/tests/configs/.
@@ -4320,16 +4241,16 @@ mod tests {
     }
 
     #[test]
-    fn cli_flags_override_config() {
+    fn later_sets_override_the_config() {
         let o = opts(&[
             "--config",
             fixture!("full.json"),
-            "--color",
-            "amber",
+            "--set",
+            "display:monitor=amber",
             "--set",
             "machine:slots:6:drive1=other.dsk",
         ]);
-        // The explicitly given flag and the later --set win...
+        // The later --set overrides win...
         assert_eq!(o.monitor, MonitorStyle::Amber);
         assert_eq!(slot6_drives(&o).0, Some("other.dsk"));
         // ...while everything the command line left alone survives, including
@@ -4585,34 +4506,47 @@ mod tests {
     #[test]
     fn print_config_round_trips_the_options() {
         // The e2e gate: a command line composed from every source kind —
-        // base, overlay, --set, convenience flags — prints a document
-        // that, fed back via --config, yields the identical Options.
-        // (Paths are absolute or fixture-resolved, so the round trip is
-        // location-independent.)
+        // base, overlay (including a memory region: overlay files are the
+        // memory-region path since --memory retired), --set, --serve —
+        // prints a document that, fed back via --config, yields the
+        // identical Options. (Paths are absolute or fixture-resolved, so
+        // the round trip is location-independent.)
+        let dir = std::env::temp_dir().join("ewm-print-config-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let memory_overlay = dir.join("memory-overlay.json");
+        std::fs::write(
+            &memory_overlay,
+            r#"{"machine": {"memory":
+                [{"type": "rom", "address": "0xd000", "path": "/abs/custom.bin"}]}}"#,
+        )
+        .expect("write overlay");
         let o = opts(&[
             "--config",
             "builtin:2e",
             "--config-overlay",
             fixture!("drive-with-total-replay.json"),
+            "--config-overlay",
+            memory_overlay.to_str().unwrap(),
             "--set",
             "display:monitor=amber",
-            "--color",
-            "white",
-            "--scanlines",
-            "heavy",
-            "--fps",
-            "60",
-            "--strict",
-            "--boot-delay",
-            "1.5",
-            "--memory",
-            "rom:53248:/abs/custom.bin",
+            "--set",
+            "display:monitor=white",
+            "--set",
+            "display:scanlines=heavy",
+            "--set",
+            "display:fps=60",
+            "--set",
+            "cpu:strict=true",
+            "--set",
+            "boot:delay=1.5",
             "--serve",
             "vnc://0.0.0.0:5901?web=5701&password=secret",
         ]);
-        // The convenience flag beat the --set; the overlay's drive is in.
+        // The later --set won; the overlay's drive and memory region are in.
         assert_eq!(o.monitor, MonitorStyle::White);
         assert_eq!(hdd_image(&o, 7), Some(fixture!("Total Replay.hdv")));
+        assert_eq!(o.memory.len(), 1);
+        assert_eq!(o.memory[0].path, "/abs/custom.bin");
 
         let path = print_to_file(&o, "composed.json");
         let fed_back = opts(&["--config", path.to_str().unwrap()]);
@@ -4776,7 +4710,7 @@ mod tests {
         assert_eq!(opts(&["--wozbug"]).wozbug, Some(6502));
         assert_eq!(opts(&["--wozbug", "7000"]).wozbug, Some(7000));
         // Bare --wozbug followed by another flag: peek-don't-consume.
-        let o = opts(&["--wozbug", "--color", "amber"]);
+        let o = opts(&["--wozbug", "--set", "display:monitor=amber"]);
         assert_eq!(o.wozbug, Some(6502));
         assert_eq!(o.monitor, MonitorStyle::Amber);
         // --break takes hex or symbols and implies the server.
@@ -4859,7 +4793,12 @@ mod tests {
         // so a reboot builds the same machine — aux card included. Before
         // the token change, build_machine consumed the parsed card and a
         // second build would silently fall back to the default aux.
-        let o = opts(&["--model", "2e", "--aux", "ramworksiii:128k"]);
+        let o = opts(&[
+            "--set",
+            "machine:model=2e",
+            "--set",
+            r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
+        ]);
         let first = power_on_machine(&o).expect("first power-on");
         let second = power_on_machine(&o).expect("reboot power-on");
         assert_eq!(first.model(), second.model());
@@ -4881,14 +4820,12 @@ mod tests {
     }
 
     #[test]
-    fn state_flag_parses_and_config_maps() {
+    fn state_path_comes_from_the_document() {
         assert_eq!(opts(&[]).state, None);
         assert_eq!(
-            opts(&["--state", "/tmp/m.state"]).state.as_deref(),
+            opts(&["--set", "state:path=/tmp/m.state"]).state.as_deref(),
             Some("/tmp/m.state")
         );
-        let missing: Vec<String> = vec!["--state".to_string()];
-        assert!(matches!(parse_options(&missing), Err(1)));
     }
 
     /// A remote client types faster than the one-byte keyboard latch can be

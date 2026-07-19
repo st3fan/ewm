@@ -39,7 +39,7 @@ update as phases land. **Every phase passes the full gates** (`cargo fmt
 - **`--wozbug [port]`** (default 6502) starts the line server on
   127.0.0.1; **`--break addr[,addr]`** (hex or symbols — `--break RWTS`)
   arms breakpoints at boot and implies the server. Optional-value parsing
-  follows the `--color` peek convention.
+  peeks without consuming, so a following flag is untouched.
 - **Threading**: the server threads only move strings over channels — the
   frame loop drains commands and runs `execute()` on the machine's own
   thread, so no locking exists and an idle server costs one `try_recv`

@@ -120,7 +120,7 @@ impl Default for AuxBank {
     }
 }
 
-/// Build the card for a `--aux` flag value: `80col` (the 1K Apple 80-Column
+/// Build the card for an aux token: `80col` (the 1K Apple 80-Column
 /// Text Card), `ext80col`/`std` (the Extended 80-Column Text Card, 64K —
 /// the default card), or `ramworksiii[:SIZE]` with SIZE any multiple of 64K
 /// from `64k` to `8m` (omitted: `8m`).
