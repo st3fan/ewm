@@ -184,16 +184,14 @@ work the same way. Values are JSON when they parse as JSON (numbers,
 booleans, whole objects like the hard-drive example above) and plain
 strings otherwise.
 
-The machine configuration is fully compositional: four source kinds,
+The machine configuration is fully compositional: three source kinds,
 one document, merged strictly in command-line order —
 
 - **`--config <source>`** — a *complete* machine, from a JSON file or a
   built-in config; at most one, the base of the document;
 - **`--config-overlay <source>`** — a *partial* config layered on top;
   repeatable;
-- **`--set <key>=<value>`** — single-value overrides;
-- and `--serve <url>`, structured sugar for the whole `remote` block,
-  which overrides the finished document.
+- **`--set <key>=<value>`** — single-value overrides.
 
 An overlay describes just the part of the machine it cares about. This
 one (`examples/drive-with-total-replay.json`) adds a hard drive with
@@ -273,27 +271,6 @@ error, so it doubles as a config linter for scripts and CI:
 cargo run --release -- two --config examples/myiie.json --set display:monitor=amber --print-config
 ```
 
-### Debugging with WozBug
-
-`--wozbug` starts WozBug — a minimal, Woz-Monitor-dialect debugger — as a
-line server on a local TCP port (default 6502, naturally). `--break`
-arms breakpoints at boot, by hex address or built-in symbol (RWTS, MLI,
-COUT, …), and implies the server:
-
-```
-cargo run --release -- two --break RWTS \
-    --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
-# in another terminal:
-nc localhost 6502
-```
-
-When a breakpoint hits, the machine freezes and the client sees the
-registers. `280.29F` dumps memory (a bare Return continues), `300:A9 20`
-deposits, `R`/`PC=BD00` show and set registers, `S` single-steps, `G`
-resumes, and `DSK`/`SW`/`TEXT`/`SLOTS` dump the disk controllers, soft
-switches, text screen, and slot table. `?` lists everything; the plan
-lives in `notes/DEBUGGING_TOOLS.md`.
-
 Each subcommand accepts `--help` for all options. Useful keys while the
 emulator runs:
 
@@ -312,17 +289,6 @@ cargo run -p ewm --example one                                  # Woz Monitor
 cargo run -p ewm --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
 
-## Native Mac app
-
-`scripts/make-app.sh` assembles a self-contained, double-clickable
-`dist/EWM.app` — SDL3 is compiled in statically (CMake required at build
-time), the icon is `][` rendered by the emulator's own character generator,
-and the bundle is ad-hoc signed for local use. Opening the app boots the
-bootloader menu; opening a disk image with it (or dragging one onto the
-window) boots the ][+ with that disk — dropping a floppy on a running
-machine swaps drive 1. See `notes/MAC_APP.md` for the plan (signing and
-notarization for distribution are Phase 2).
-
 ## Testing
 
 ```
@@ -334,6 +300,23 @@ functional tests, golden instruction traces, headless machine boot tests,
 a complete DOS 3.3 boot with `CATALOG`, and a golden screenshot comparison.
 The cc65 assembly sources under `tests/` are manual test programs for the
 machines themselves and are not part of the automated suite.
+
+## Experimental
+
+Working, but still settling — each has a full working document in
+`notes/`:
+
+- **WozBug** — a minimal Woz-Monitor-dialect debugger served on a local
+  TCP port: `--wozbug [port]`, `--break RWTS` arms breakpoints at boot,
+  then `nc localhost 6502`. See
+  [DEBUGGING_TOOLS.md](notes/DEBUGGING_TOOLS.md).
+- **Remote console (VNC)** — `--serve vnc://…` (or the config `remote`
+  block) boots headless and serves the machine over RFB to any VNC
+  client, with an optional embedded browser console (noVNC). See
+  [REMOTE.md](notes/REMOTE.md).
+- **Native Mac app** — `scripts/make-app.sh` builds a self-contained,
+  double-clickable `dist/EWM.app`; opening or dropping a disk image on
+  it boots that disk. See [MAC_APP.md](notes/MAC_APP.md).
 
 ## History
 
