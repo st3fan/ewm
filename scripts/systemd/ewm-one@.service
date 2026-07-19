@@ -1,0 +1,28 @@
+# One telnet connection = one Apple 1 (see ewm-one.socket). The
+# emulator does no networking: systemd hands the accepted connection
+# over as stdin/stdout and `ewm one --tty` speaks bytes — keyboard in,
+# display out, Meta-R (or telnet's `send brk`) is the RESET button.
+#
+# The sandbox can be tight because the binary needs no filesystem at
+# all: the machine configs and ROM images are embedded. Swap the
+# --config for builtin:replica1 (or a config path, if you loosen the
+# sandbox) to serve a different machine.
+
+[Unit]
+Description=Apple 1 for %i
+
+[Service]
+ExecStart=/usr/local/bin/ewm one --config builtin:apple1 --tty
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+MemoryMax=64M
+# Abandoned sessions do not get to keep a 1 MHz loop forever.
+RuntimeMaxSec=4h

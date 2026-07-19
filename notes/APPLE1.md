@@ -121,3 +121,29 @@ map.)
   by a boot-to-BASIC test) + pristine WozMon; `builtin:replica1` =
   65C02 + 32KB + ROM BASIC + the 65C02 Krusader slice, fixing the
   historical 6502-build-on-65C02 mismatch.
+
+## The tty / telnet frontend (plans/20260719-04, as built)
+
+The Apple 1 is a terminal machine, so `ewm one --tty` runs it headless
+with stdin/stdout as the keyboard and display — the local terminal,
+`nc`, or (via `scripts/systemd/`, inetd-style `Accept=yes` socket
+activation with `StandardInput=socket`) one fresh machine per telnet
+connection on port 6502. The emulator does no networking.
+
+- **Pacing**: 20 ms ticks throttled to 1.023 MHz wall-clock (unused
+  tick budget is slept off, so a paste cannot sprint the machine);
+  keys feed one at a time gated on the PIA's one-byte latch
+  (`Pia::key_pending` — IRQA1, cleared when the ROM reads `$D010`).
+- **Mapping**: a–z uppercase in; LF/CRLF → CR in; CR → CRLF out;
+  7-bit printables only. Ctrl bytes and a bare ESC belong to the
+  machine (real CTRL key; ESC is the monitor's cancel-line key).
+- **Reset is Meta-R** — the keyboard's free modifier: a lone ESC is
+  held ~50 ms for the `r` of `ESC r`; matched → warm reset, otherwise
+  the ESC is forwarded. Telnet `BRK`/`IP` (`send brk`) also resets —
+  immediately, flushing typed-ahead, like the real button.
+- **Telnet** (hand-rolled RFC 854 subset): dormant until the first
+  inbound `IAC`, so `nc` and local terminals never see protocol
+  bytes; then `WILL ECHO` + `WILL SGA` are announced (character-at-a-
+  time, remote echo), other negotiations are refused, subnegotiations
+  swallowed. Input EOF gets a two-emulated-second grace so the last
+  command finishes printing.

@@ -1,0 +1,16 @@
+# An Apple 1 per telnet connection (plans/20260719-04-apple1-telnet.md):
+# inetd-style socket activation — systemd accepts each connection on
+# port 6502 and starts a fresh ewm-one@.service instance with the
+# connection as stdin/stdout. Install both units in /etc/systemd/system,
+# then: systemctl enable --now ewm-one.socket
+
+[Unit]
+Description=Apple 1 telnet listener (one machine per connection)
+
+[Socket]
+ListenStream=6502
+Accept=yes
+MaxConnectionsPerSource=4
+
+[Install]
+WantedBy=sockets.target
