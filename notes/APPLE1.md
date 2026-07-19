@@ -128,7 +128,9 @@ The Apple 1 is a terminal machine, so `ewm one --tty` runs it headless
 with stdin/stdout as the keyboard and display — the local terminal,
 `nc`, or (via `scripts/systemd/`, inetd-style `Accept=yes` socket
 activation with `StandardInput=socket`) one fresh machine per telnet
-connection on port 6502. The emulator does no networking.
+connection on port 6502. The emulator does no networking. The build
+(`sdl-static-headless`: static SDL, Unix console build) and server
+setup are documented in `scripts/systemd/README.md`.
 
 - **Pacing**: 20 ms ticks throttled to 1.023 MHz wall-clock (unused
   tick budget is slept off, so a paste cannot sprint the machine);
