@@ -366,7 +366,7 @@ There are also headless terminal consoles, handy for quick experiments
 without a window:
 
 ```
-cargo run -p ewm --example one                                  # Woz Monitor
+cargo run --release -- one --tty                                # Woz Monitor / Integer BASIC (Meta-R resets)
 cargo run -p ewm --example two -- disks/DOS33-SystemMaster.dsk  # AppleSoft / DOS 3.3
 ```
 

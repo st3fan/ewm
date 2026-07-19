@@ -51,6 +51,13 @@ impl Pia {
     pub fn drain_out(&mut self) -> Vec<(u8, u8)> {
         std::mem::take(&mut self.out)
     }
+
+    /// The keyboard latch still holds an unread key (IRQA1 set; reading
+    /// `$D010` clears it) — the pacing predicate for senders that must
+    /// not overwrite the one-byte latch (the tty frontend).
+    pub fn key_pending(&self) -> bool {
+        self.ctla & 0b1000_0000 != 0
+    }
 }
 
 impl Device for Pia {

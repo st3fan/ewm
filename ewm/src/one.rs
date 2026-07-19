@@ -119,6 +119,13 @@ impl One {
         pia.set_irqa1();
     }
 
+    /// A previously injected key is still waiting in the PIA's one-byte
+    /// latch — hold the next byte until this clears (the tty frontend's
+    /// pacing; the SDL frontend relies on human typing speed instead).
+    pub fn key_pending(&mut self) -> bool {
+        self.cpu.mem.device_mut(self.pia).key_pending()
+    }
+
     /// Bytes the machine wrote to the display since the last drain — the
     /// same stream `ewm_one_pia_callback` fed into the tty, including its
     /// model check: the Apple 1 masks display output to 7 bits.
@@ -179,6 +186,8 @@ pub(crate) struct Options {
     memory: Vec<crate::config::MemoryRegion>,
     trace_path: Option<String>,
     strict: bool,
+    /// Headless: stdin/stdout is the keyboard and display (`--tty`).
+    tty: bool,
 }
 
 impl Default for Options {
@@ -190,6 +199,7 @@ impl Default for Options {
             memory: Vec::new(),
             trace_path: None,
             strict: false,
+            tty: false,
         }
     }
 }
@@ -224,6 +234,8 @@ fn usage() {
     eprintln!("                    (e.g. --set cpu:strict=true)");
     eprintln!("  --print-config    print the machine the command line describes (sources");
     eprintln!("                    plus flags) as config JSON and exit");
+    eprintln!("  --tty             headless: the terminal (stdin/stdout) is the keyboard");
+    eprintln!("                    and display; Meta-R resets, EOF ends the session");
 }
 
 /// Seed `Options` from the layered config document (pass 1 of
@@ -336,6 +348,7 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
                 it.next();
             }
             "--print-config" => print_config = true,
+            "--tty" => options.tty = true,
             _ => {
                 usage();
                 return Err(1);
@@ -368,6 +381,174 @@ fn build_machine(options: &Options) -> Result<One, String> {
         one.cpu.trace = Some(Box::new(std::io::BufWriter::new(file)));
     }
     Ok(one)
+}
+
+// --- tty frontend (plans/20260719-04-apple1-telnet.md T1) ---
+//
+// The Apple 1 is a terminal machine — one PIA, bytes in, bytes out — so
+// a byte stream *is* a faithful display. `--tty` runs headless with
+// stdin/stdout as the keyboard and display: an Apple 1 in the local
+// terminal, under `nc`, or per-connection under systemd socket
+// activation (`StandardInput=socket` — the emulator does no networking).
+
+/// Emulated cycles per tick: the loop steps the machine in fiftieths of
+/// an emulated second.
+const TTY_TICK_CYCLES: u64 = (ONE_CPS / 50) as u64;
+/// Wall-clock length of a tick when throttling to 1.023 MHz.
+const TTY_TICK: std::time::Duration = std::time::Duration::from_millis(20);
+/// How long a received ESC waits for the `r` of Meta-R before it is
+/// forwarded to the machine as the monitor's cancel-line key.
+const TTY_ESC_WINDOW: std::time::Duration = std::time::Duration::from_millis(50);
+/// Emulated cycles run after input EOF so the machine finishes printing
+/// whatever the last command started (two emulated seconds).
+const TTY_EOF_GRACE_CYCLES: u64 = 2 * ONE_CPS as u64;
+
+/// Run the machine as a character terminal over `input`/`output` until
+/// input EOF or the far side hangs up. Generic over the streams so tests
+/// drive it with in-memory pipes; `throttle` paces to 1.023 MHz
+/// wall-clock (tests pass `false`).
+///
+/// Key mapping: a–z uppercase (the keyboard had no lower case); LF and
+/// CRLF become the CR the machine expects; Ctrl bytes pass through (the
+/// Apple 1 had a real CTRL key) and so does a bare ESC (the monitor's
+/// cancel-line key). The one stolen chord is **Meta-R = reset** — the
+/// keyboard had no Meta, so `ESC` `r` back-to-back (what "Alt sends
+/// Escape" terminals transmit) warm-resets the machine, RESET-button
+/// style; an ESC followed by anything else, or by silence, is forwarded.
+fn tty_session<R, W>(one: &mut One, input: R, output: &mut W, throttle: bool) -> Result<(), String>
+where
+    R: std::io::Read + Send + 'static,
+    W: std::io::Write,
+{
+    use std::sync::mpsc::{RecvTimeoutError, TryRecvError, channel};
+
+    // Blocking reads on their own thread (house style); a closed channel
+    // is EOF.
+    let (tx, rx) = channel::<u8>();
+    std::thread::spawn(move || {
+        let mut input = input;
+        let mut buf = [0u8; 256];
+        loop {
+            match input.read(&mut buf) {
+                Ok(0) | Err(_) => return,
+                Ok(n) => {
+                    for &b in &buf[..n] {
+                        if tx.send(b).is_err() {
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Bytes wait here until the PIA's one-byte latch is free.
+    let mut pending: std::collections::VecDeque<u8> = std::collections::VecDeque::new();
+    let mut eof = false;
+    let mut grace = TTY_EOF_GRACE_CYCLES;
+    // The Meta-R window: when the *last* pending byte is an ESC, hold it
+    // until this deadline before letting it through to the machine.
+    let mut esc_deadline: Option<std::time::Instant> = None;
+    let mut last_fed: u8 = 0;
+
+    loop {
+        let tick_start = std::time::Instant::now();
+        // One tick of machine time, then whatever it printed.
+        let mut spent = 0u64;
+        while spent < TTY_TICK_CYCLES {
+            spent += one.cpu.step() as u64;
+        }
+        let mut chunk = Vec::new();
+        for b in one.drain_display() {
+            match b & 0x7f {
+                0x0d => chunk.extend_from_slice(b"\r\n"),
+                c @ 0x20..=0x7e => chunk.push(c),
+                _ => {}
+            }
+        }
+        if !chunk.is_empty() {
+            // The far side hanging up is a clean end, not an error.
+            if output.write_all(&chunk).is_err() || output.flush().is_err() {
+                return Ok(());
+            }
+        }
+
+        // Gather input. When throttling, most of the tick's wall-clock
+        // budget is spent waiting here…
+        if throttle {
+            let budget = TTY_TICK.saturating_sub(tick_start.elapsed());
+            match rx.recv_timeout(budget) {
+                Ok(b) => pending.push_back(b),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => eof = true,
+            }
+        }
+        loop {
+            match rx.try_recv() {
+                Ok(b) => pending.push_back(b),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    eof = true;
+                    break;
+                }
+            }
+        }
+
+        // Feed the machine, at most one byte per tick, latch permitting.
+        if !one.key_pending()
+            && let Some(&next) = pending.front()
+        {
+            if next == 0x1b && pending.len() == 1 && !eof {
+                // A lone ESC might be the start of Meta-R: hold it for
+                // the window, then let it through as the monitor's key.
+                let deadline =
+                    *esc_deadline.get_or_insert_with(|| std::time::Instant::now() + TTY_ESC_WINDOW);
+                if std::time::Instant::now() < deadline {
+                    continue;
+                }
+            }
+            esc_deadline = None;
+            let b = pending.pop_front().expect("front was Some");
+            if b == 0x1b && pending.front().is_some_and(|r| matches!(r, b'r' | b'R')) {
+                // Meta-R: the RESET button, not machine input.
+                pending.pop_front();
+                one.cpu.reset();
+                last_fed = 0;
+            } else {
+                match b {
+                    // CRLF and lone LF are the terminal's spellings of
+                    // the CR the machine expects.
+                    b'\n' if last_fed == b'\r' => last_fed = 0,
+                    b'\n' => {
+                        one.key(0x0d);
+                        last_fed = b'\r';
+                    }
+                    b => {
+                        one.key(b.to_ascii_uppercase());
+                        last_fed = b;
+                    }
+                }
+            }
+        }
+
+        // After EOF, run out the grace period so the last command's
+        // output makes it to the stream, then end the session.
+        if eof && pending.is_empty() {
+            if grace == 0 {
+                return Ok(());
+            }
+            grace = grace.saturating_sub(TTY_TICK_CYCLES);
+        }
+
+        // …and any budget left (input arrived early) is slept off, so a
+        // paste cannot sprint the machine past 1.023 MHz.
+        if throttle {
+            let remaining = TTY_TICK.saturating_sub(tick_start.elapsed());
+            if !remaining.is_zero() {
+                std::thread::sleep(remaining);
+            }
+        }
+    }
 }
 
 fn keydown(one: &mut One, tty: &mut Tty, window: &mut sdl3::video::Window, event: &Event) {
@@ -432,12 +613,32 @@ fn step_cpu(one: &mut One, cycles: u32) {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    let pad = sdl::window_padding();
-
     let options = match parse_options(args) {
         Ok(options) => options,
         Err(code) => return code,
     };
+
+    // --tty never touches SDL: the terminal is the machine's terminal.
+    if options.tty {
+        let mut one = match build_machine(&options) {
+            Ok(one) => one,
+            Err(e) => {
+                eprintln!("{e}");
+                return 1;
+            }
+        };
+        one.cpu.reset();
+        let stdout = std::io::stdout();
+        return match tty_session(&mut one, std::io::stdin(), &mut stdout.lock(), true) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        };
+    }
+
+    let pad = sdl::window_padding();
 
     // Setup SDL
 
@@ -927,6 +1128,70 @@ mod tests {
         run(&mut one, 1_000_000, &mut output);
         let text: String = output.iter().map(|&b| (b & 0x7f) as char).collect();
         assert!(text.contains('>'), "no Integer BASIC prompt, got {text:?}");
+    }
+
+    /// Drive a whole tty session over in-memory streams: `input` is
+    /// typed (then EOF), and whatever the machine printed comes back.
+    fn tty(config: &str, input: &str) -> String {
+        let o = opts(&["--config", config]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut out = Vec::new();
+        tty_session(
+            &mut one,
+            std::io::Cursor::new(input.as_bytes().to_vec()),
+            &mut out,
+            false,
+        )
+        .expect("session runs to EOF");
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn tty_session_reaches_the_monitor_and_dumps_memory() {
+        // Lower case, LF line ending — both get translated on the way in;
+        // the dump proves the whole loop: boot, latch-paced typing,
+        // display draining, EOF grace.
+        let text = tty("builtin:replica1", "e000.e003\n");
+        assert!(text.contains('\\'), "no monitor prompt: {text:?}");
+        assert!(text.contains("E000: 4C B0 E2"), "no dump: {text:?}");
+        // CRLF is one Enter, not two: the dump line appears once.
+        let text = tty("builtin:replica1", "e000.e003\r\n");
+        assert_eq!(text.matches("E000:").count(), 1, "{text:?}");
+    }
+
+    #[test]
+    fn tty_meta_r_resets_the_machine() {
+        // Start Integer BASIC, then Meta-R (ESC r back to back): the
+        // machine warm-resets to the monitor — a fresh "\" prompt after
+        // BASIC's ">" — instead of BASIC seeing ESC and a stray r.
+        let text = tty("builtin:apple1", "E000R\r\x1br");
+        let basic = text.find('>').expect("no BASIC prompt");
+        let after = &text[basic..];
+        assert!(
+            after.contains('\\'),
+            "no monitor prompt after reset: {text:?}"
+        );
+    }
+
+    #[test]
+    fn tty_bare_esc_belongs_to_the_monitor() {
+        // ESC is the Woz monitor's cancel-line key: a held ESC that is
+        // *not* followed by r goes to the machine, which answers with a
+        // fresh prompt. (At EOF the hold window collapses immediately.)
+        let boot = tty("builtin:apple1", "");
+        let baseline = boot.matches('\\').count();
+        let text = tty("builtin:apple1", "E000.\x1b");
+        assert!(
+            text.matches('\\').count() > baseline,
+            "cancel did not reach the monitor: {text:?}"
+        );
+        // ESC followed by a non-r byte: both reach the machine (the A is
+        // echoed after the cancel prompt).
+        let text = tty("builtin:apple1", "\x1bA");
+        assert!(text.matches('\\').count() > baseline, "{text:?}");
+        let cancel = text.rfind('\\').expect("cancel prompt");
+        assert!(text[cancel..].contains('A'), "{text:?}");
     }
 
     #[test]
