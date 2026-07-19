@@ -23,8 +23,12 @@ fn usage() {
 
 fn run_boo(args: &[String]) -> i32 {
     match boo::main(args) {
-        boo::BooChoice::BootApple1 => one::main(&["--model".to_string(), "apple1".to_string()]),
-        boo::BooChoice::BootReplica1 => one::main(&["--model".to_string(), "replica1".to_string()]),
+        boo::BooChoice::BootApple1 => {
+            one::main(&["--config".to_string(), "builtin:apple1".to_string()])
+        }
+        boo::BooChoice::BootReplica1 => {
+            one::main(&["--config".to_string(), "builtin:replica1".to_string()])
+        }
         boo::BooChoice::BootApple2Plus => two::main(&[]),
         // A dropped or Finder-opened disk image boots the ][+ with it (the
         // default model until machine configs exist; see notes/MAC_APP.md).

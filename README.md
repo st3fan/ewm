@@ -97,10 +97,10 @@ cargo run --release -- two --config builtin:2e \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Replica 1 (Woz Monitor + KRUSADER)
-cargo run --release -- one --model replica1
+cargo run --release -- one --config builtin:replica1
 
 # Classic Apple 1
-cargo run --release -- one --model apple1
+cargo run --release -- one --config builtin:apple1
 ```
 
 ### The three `two` machine profiles

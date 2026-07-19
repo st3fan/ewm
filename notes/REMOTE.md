@@ -565,7 +565,7 @@ configs on a port range. Document the reverse-proxy + Guacamole options
 ### Phase 7 — Apple 1 / Replica 1 over the same frontend
 Give `one` a `Driver` the same way (its `Tty.pixels` is already a `Vec<u32>`),
 so the Woz Monitor / KRUSADER machines are reachable remotely too. **Gate:**
-`ewm one --model replica1 --serve vnc://…` reachable from noVNC.
+`ewm one --config builtin:replica1 --serve vnc://…` reachable from noVNC.
 
 ### Track B (optional) — native RDP, audio, gateways
 - **B1:** an `ironrdp-server` frontend (Tokio) reusing the same `Driver`

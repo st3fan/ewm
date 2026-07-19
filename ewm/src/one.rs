@@ -85,14 +85,14 @@ impl One {
             .collect()
     }
 
-    /// Add an extra RAM region (`--memory ram:addr:path`). Like the C
+    /// Add an extra RAM region (config `machine.memory`). Like the C
     /// linked list, regions added later are dispatched first — but base RAM
     /// wins, per the `addr < ram_size` fast path in mem.c.
     pub fn add_ram(&mut self, start: u16, data: Vec<u8>) {
         self.cpu.mem.add_ram(start, data);
     }
 
-    /// Add an extra ROM region (`--memory rom:addr:path`).
+    /// Add an extra ROM region (config `machine.memory`).
     pub fn add_rom(&mut self, start: u16, data: Vec<u8>) {
         self.cpu.mem.add_rom(start, data);
     }
@@ -119,23 +119,6 @@ struct MemoryOption {
     rom: bool,
     address: u16,
     path: String,
-}
-
-/// Port of `parse_memory_option`: `ram|rom:address:path`, address parsed
-/// with atoi semantics (decimal, 0 on garbage).
-fn parse_memory_option(s: &str) -> Option<MemoryOption> {
-    let mut parts = s.splitn(3, ':');
-    let kind = parts.next()?;
-    if kind != "ram" && kind != "rom" {
-        return None;
-    }
-    let address = parts.next()?;
-    let path = parts.next()?;
-    Some(MemoryOption {
-        rom: kind == "rom",
-        address: address.parse::<i64>().unwrap_or(0) as u16,
-        path: path.to_string(),
-    })
 }
 
 #[derive(Debug, PartialEq)]
@@ -169,14 +152,6 @@ fn usage() {
     eprintln!("                    (e.g. --set cpu:strict=true)");
     eprintln!("  --print-config    print the machine the command line describes (sources");
     eprintln!("                    plus flags) as config JSON and exit");
-    eprintln!("  --model <model>   model to emulate (default: replica1)");
-    eprintln!("  --memory <region> add memory region (ram|rom:address:path)");
-    eprintln!("  --trace <file>    trace cpu to file");
-    eprintln!("  --strict          run emulator in strict mode");
-    eprintln!();
-    eprintln!("Supported models:");
-    eprintln!("  apple1    Classic Apple 1, 6502, 8KB RAM, Woz Monitor");
-    eprintln!("  replica1  Replica 1, 65C02, 32KB RAM, KRUSADER");
 }
 
 /// Seed `Options` from the layered config document (pass 1 of
@@ -299,32 +274,9 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
                 it.next();
             }
             "--print-config" => print_config = true,
-            "--model" => match it.next().map(String::as_str) {
-                Some("apple1") => options.model = OneModel::Apple1,
-                Some("replica1") => options.model = OneModel::Replica1,
-                _ => {
-                    eprintln!("Unknown --model specified");
-                    return Err(1);
-                }
-            },
-            "--memory" => {
-                let Some(m) = it.next().and_then(|s| parse_memory_option(s)) else {
-                    return Err(1);
-                };
-                options.memory.push(m);
-            }
-            "--trace" => {
-                // getopt optional_argument: the value comes as --trace=file.
-                options.trace_path = Some("/dev/stderr".to_string());
-            }
-            "--strict" => options.strict = true,
             _ => {
-                if let Some(path) = arg.strip_prefix("--trace=") {
-                    options.trace_path = Some(path.to_string());
-                } else {
-                    usage();
-                    return Err(1);
-                }
+                usage();
+                return Err(1);
             }
         }
     }
@@ -752,9 +704,22 @@ mod tests {
             o.memory[0].path
         );
         assert!(o.trace_path.as_deref().unwrap().ends_with("one.trace"));
-        // Explicit pass-2 flags still override the document (until O4).
-        let o = opts(&["--config", "builtin:apple1", "--model", "replica1"]);
-        assert_eq!(o.model, OneModel::Replica1);
+    }
+
+    #[test]
+    fn retired_flags_are_unknown() {
+        // Plan 20260719-02 O4: model, memory, trace and strict are config
+        // keys; the flags fall into the generic usage error.
+        for retired in [
+            "--model",
+            "--memory",
+            "--trace",
+            "--strict",
+            "--trace=/dev/stderr",
+        ] {
+            let args: Vec<String> = vec![retired.to_string()];
+            assert!(matches!(parse_options(&args), Err(1)), "{retired}");
+        }
     }
 
     #[test]
