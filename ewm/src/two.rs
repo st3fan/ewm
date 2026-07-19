@@ -4614,6 +4614,8 @@ mod tests {
             if subcommand != "two" && subcommand != "one" {
                 continue;
             }
+            // Trailing shell comments annotate some examples.
+            let command = command.split(" #").next().unwrap_or(command);
             let mut args = shell_words(command);
             // The README's paths are relative to the repo root; this test
             // runs in ewm/. Anchor the arguments that parse_options opens.
