@@ -641,6 +641,30 @@ pub fn merge_overlay_document(doc: &mut serde_json::Value, overlay: serde_json::
     merge_documents(doc, overlay);
 }
 
+/// Compact a serialized config document for human consumption
+/// (`--print-config`, the future "save current setup" — JSON_CONFIG
+/// Phase C): drop `null` members (absent options), empty arrays (no
+/// memory regions), and objects that *become* empty once their nulls are
+/// gone (untouched sections) — while keeping objects that were genuinely
+/// empty in the typed config, like an explicit bare `"slots": {}` table,
+/// which means "no cards", not "default layout".
+pub fn compact_document(doc: &mut serde_json::Value) {
+    use serde_json::Value;
+    fn keep(value: &mut Value) -> bool {
+        match value {
+            Value::Null => false,
+            Value::Array(entries) => !entries.is_empty(),
+            Value::Object(map) if map.is_empty() => true,
+            Value::Object(map) => {
+                map.retain(|_, member| keep(member));
+                !map.is_empty()
+            }
+            _ => true,
+        }
+    }
+    keep(doc);
+}
+
 /// Apply one `--set <key>=<value>` override to the document. The key path
 /// is colon-separated (`machine:slots:6:drive1`); the value is parsed as
 /// JSON when it *is* valid JSON — numbers, booleans, quoted strings, whole
@@ -1338,6 +1362,43 @@ mod tests {
             serde_json::json!({"machine": {"model": "2e", "slots": null}}),
         );
         assert_eq!(doc["machine"], serde_json::json!({"model": "2e"}));
+    }
+
+    #[test]
+    fn compact_document_drops_noise_but_keeps_bare_tables() {
+        let mut doc = serde_json::json!({
+            "machine": {
+                "model": "2plus",
+                "aux": null,
+                "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": null}},
+                "memory": [],
+            },
+            "display": {"monitor": "green", "scanlines": null, "fps": null},
+            "input": {"controller": null},
+        });
+        compact_document(&mut doc);
+        assert_eq!(
+            doc,
+            serde_json::json!({
+                "machine": {
+                    "model": "2plus",
+                    "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}},
+                },
+                "display": {"monitor": "green"},
+            })
+        );
+
+        // An explicit bare slots table survives: {} means "no cards",
+        // where an absent table would mean the default layout.
+        let mut doc = serde_json::json!({
+            "machine": {"model": "2plus", "slots": {}},
+            "cpu": {"speed": null, "strict": null},
+        });
+        compact_document(&mut doc);
+        assert_eq!(
+            doc,
+            serde_json::json!({"machine": {"model": "2plus", "slots": {}}})
+        );
     }
 
     #[test]

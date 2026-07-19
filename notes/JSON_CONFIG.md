@@ -223,6 +223,37 @@ Phase C3 of `plans/20260718-02-config-sources.md`:
   "default machine plus this"); start from `--config builtin:2e`
   instead.
 
+## Config sources — `--print-config` (C4, recorded as built)
+
+Phase C4 of `plans/20260718-02-config-sources.md`:
+
+- **`ewm two … --print-config`** prints the machine the command line
+  describes — sources *and* convenience flags applied, i.e. the machine
+  a real run would build — as config JSON on stdout and exits 0. Any
+  load/validation error still exits nonzero first, so the flag doubles
+  as a config linter for scripts and CI.
+- **`options_to_config` (two.rs) is the one Options→Config mapping** —
+  the inverse of `apply_config`, kept as a single function so the
+  palette's "save current setup" (Phase C) reuses it. The full mapping
+  was implemented; the plan's fallback (print before convenience flags)
+  wasn't needed. `--wozbug`, `--break` and the hidden `--screenshot`
+  are debug tooling, not machine configuration, and don't appear.
+- **The document is explicit where it matters, quiet where it doesn't**:
+  model, slot table, display and cpu settings print even at their
+  defaults (stable against future default changes); off-by-default
+  extras (strict, debug, boot delay, remote) appear only when enabled.
+  `config::compact_document` does the shaping — it drops `null`s, empty
+  arrays, and sections that emptied out, but keeps a genuinely bare
+  `"slots": {}` (which means "no cards", not "default layout"). Keys
+  print in sorted order (documents are sorted maps) — deterministic,
+  semantics-free.
+- The printed document round-trips: fed back via `--config` it yields
+  identical `Options` (pinned by e2e tests, including a composed
+  base + overlay + `--set` + flags command line). Path fields are
+  emitted as the run would use them, so `--set` paths given relative to
+  the CWD print relative and would re-resolve against the printed
+  file's directory — save next to where you ran, or use absolute paths.
+
 ## What is configurable today (the schema inventory)
 
 | Source | Setting | Values |
