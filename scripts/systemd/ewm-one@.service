@@ -12,7 +12,9 @@
 Description=Apple 1 for %i
 
 [Service]
-ExecStart=/usr/local/bin/ewm one --config builtin:apple1 --tty
+# Install banner.txt (next to these units) wherever you like — it is
+# readable under ProtectSystem=strict from /usr or /etc.
+ExecStart=/usr/local/bin/ewm one --config builtin:apple1 --tty --tty-banner /usr/local/share/ewm/banner.txt
 StandardInput=socket
 StandardOutput=socket
 StandardError=journal

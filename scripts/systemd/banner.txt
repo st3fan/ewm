@@ -1,0 +1,10 @@
+*** EWM Apple 1 *** one fresh machine per connection ***
+
+You are at the Woz Monitor ('\' prompt). Try:
+
+  FF00.FF1F      dump a piece of the monitor ROM
+  E000R          start Integer BASIC ('>' prompt)
+
+Meta-R (or telnet's 'send brk') is the RESET button.
+Ctrl-] then 'quit' leaves telnet. Have fun!
+

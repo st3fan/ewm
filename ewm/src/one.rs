@@ -188,6 +188,9 @@ pub(crate) struct Options {
     strict: bool,
     /// Headless: stdin/stdout is the keyboard and display (`--tty`).
     tty: bool,
+    /// Text file printed to the session before the machine boots
+    /// (`--tty-banner`) — instructions for telnet visitors.
+    tty_banner: Option<String>,
 }
 
 impl Default for Options {
@@ -200,6 +203,7 @@ impl Default for Options {
             trace_path: None,
             strict: false,
             tty: false,
+            tty_banner: None,
         }
     }
 }
@@ -236,6 +240,8 @@ fn usage() {
     eprintln!("                    plus flags) as config JSON and exit");
     eprintln!("  --tty             headless: the terminal (stdin/stdout) is the keyboard");
     eprintln!("                    and display; Meta-R resets, EOF ends the session");
+    eprintln!("  --tty-banner <path>  text file printed to the session before the machine");
+    eprintln!("                    boots (instructions for telnet visitors)");
 }
 
 /// Seed `Options` from the layered config document (pass 1 of
@@ -349,6 +355,13 @@ pub(crate) fn parse_options(args: &[String]) -> Result<Options, i32> {
             }
             "--print-config" => print_config = true,
             "--tty" => options.tty = true,
+            "--tty-banner" => match it.next() {
+                Some(path) => options.tty_banner = Some(path.clone()),
+                None => {
+                    usage();
+                    return Err(1);
+                }
+            },
             _ => {
                 usage();
                 return Err(1);
@@ -535,12 +548,35 @@ impl TelnetFilter {
 /// keyboard had no Meta, so `ESC` `r` back-to-back (what "Alt sends
 /// Escape" terminals transmit) warm-resets the machine, RESET-button
 /// style; an ESC followed by anything else, or by silence, is forwarded.
-fn tty_session<R, W>(one: &mut One, input: R, output: &mut W, throttle: bool) -> Result<(), String>
+fn tty_session<R, W>(
+    one: &mut One,
+    input: R,
+    output: &mut W,
+    throttle: bool,
+    banner: Option<&str>,
+) -> Result<(), String>
 where
     R: std::io::Read + Send + 'static,
     W: std::io::Write,
 {
     use std::sync::mpsc::{RecvTimeoutError, TryRecvError, channel};
+
+    // The banner greets the caller before the machine says anything —
+    // instructions for a telnet visitor (--tty-banner). Line endings are
+    // normalized to CRLF for raw terminals.
+    if let Some(banner) = banner {
+        let mut text = Vec::new();
+        for &b in banner.as_bytes() {
+            match b {
+                b'\r' => {}
+                b'\n' => text.extend_from_slice(b"\r\n"),
+                b => text.push(b),
+            }
+        }
+        if output.write_all(&text).is_err() || output.flush().is_err() {
+            return Ok(());
+        }
+    }
 
     // Blocking reads on their own thread (house style); a closed channel
     // is EOF.
@@ -768,8 +804,24 @@ pub fn main(args: &[String]) -> i32 {
             }
         };
         one.cpu.reset();
+        let banner = match &options.tty_banner {
+            Some(path) => match std::fs::read_to_string(path) {
+                Ok(text) => Some(text),
+                Err(e) => {
+                    eprintln!("cannot read banner {path}: {e}");
+                    return 1;
+                }
+            },
+            None => None,
+        };
         let stdout = std::io::stdout();
-        return match tty_session(&mut one, std::io::stdin(), &mut stdout.lock(), true) {
+        return match tty_session(
+            &mut one,
+            std::io::stdin(),
+            &mut stdout.lock(),
+            true,
+            banner.as_deref(),
+        ) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("{e}");
@@ -1282,6 +1334,7 @@ mod tests {
             std::io::Cursor::new(input.as_bytes().to_vec()),
             &mut out,
             false,
+            None,
         )
         .expect("session runs to EOF");
         String::from_utf8_lossy(&out).into_owned()
@@ -1332,6 +1385,38 @@ mod tests {
         assert!(text.matches('\\').count() > baseline, "{text:?}");
         let cancel = text.rfind('\\').expect("cancel prompt");
         assert!(text[cancel..].contains('A'), "{text:?}");
+    }
+
+    #[test]
+    fn tty_banner_greets_before_the_machine() {
+        // The banner prints first, CRLF-normalized, and the machine's
+        // own output follows it.
+        let o = opts(&["--config", "builtin:apple1"]);
+        let mut one = build_machine(&o).expect("machine must construct");
+        one.cpu.reset();
+        let mut out = Vec::new();
+        tty_session(
+            &mut one,
+            std::io::Cursor::new(b"".to_vec()),
+            &mut out,
+            false,
+            Some("Welcome!\nMeta-R resets.\n"),
+        )
+        .expect("session runs to EOF");
+        let text = String::from_utf8_lossy(&out);
+        assert!(
+            text.starts_with("Welcome!\r\nMeta-R resets.\r\n"),
+            "{text:?}"
+        );
+        let banner_end = text.find("resets.").unwrap();
+        assert!(
+            text[banner_end..].contains('\\'),
+            "no prompt after the banner: {text:?}"
+        );
+
+        // The flag needs its value.
+        let args: Vec<String> = ["--tty-banner"].iter().map(|s| s.to_string()).collect();
+        assert!(matches!(parse_options(&args), Err(1)));
     }
 
     #[test]
@@ -1416,7 +1501,7 @@ mod tests {
         let mut one = build_machine(&o).expect("machine must construct");
         one.cpu.reset();
         let mut out = Vec::new();
-        tty_session(&mut one, input, &mut out, false).expect("session runs to EOF");
+        tty_session(&mut one, input, &mut out, false, None).expect("session runs to EOF");
         // Negotiation bytes are in the output stream, before the text.
         let wills = [255u8, 251, 1, 255, 251, 3];
         assert!(

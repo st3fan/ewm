@@ -141,6 +141,10 @@ connection on port 6502. The emulator does no networking.
   held ~50 ms for the `r` of `ESC r`; matched → warm reset, otherwise
   the ESC is forwarded. Telnet `BRK`/`IP` (`send brk`) also resets —
   immediately, flushing typed-ahead, like the real button.
+- **Banner**: `--tty-banner <path>` prints a text file (CRLF-
+  normalized) to the session before the machine says anything —
+  visitor instructions; `scripts/systemd/banner.txt` is the shipped
+  example, wired into the service unit.
 - **Telnet** (hand-rolled RFC 854 subset): dormant until the first
   inbound `IAC`, so `nc` and local terminals never see protocol
   bytes; then `WILL ECHO` + `WILL SGA` are announced (character-at-a-
