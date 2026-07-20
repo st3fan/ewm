@@ -287,7 +287,7 @@
       "type": "object",
       "properties": {
         "aux": {
-          "description": "The //e auxiliary-slot card. Only valid with `\"model\": \"2e\"`; when\nabsent the //e gets the standard Extended 80-Column Text Card.",
+          "description": "The //e auxiliary-slot card. Only valid with `\"model\": \"apple2e\"`; when\nabsent the //e gets the standard Extended 80-Column Text Card.",
           "anyOf": [
             {
               "$ref": "#/$defs/Aux"
@@ -394,12 +394,12 @@
         {
           "description": "The Apple ][+.",
           "type": "string",
-          "const": "2plus"
+          "const": "apple2plus"
         },
         {
           "description": "The Apple //e.",
           "type": "string",
-          "const": "2e"
+          "const": "apple2e"
         },
         {
           "description": "The classic Apple 1 (6502, 8KB RAM, Woz Monitor).",

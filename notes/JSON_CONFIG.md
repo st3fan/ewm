@@ -91,7 +91,7 @@ land. **Every phase passes the full gates** (`cargo fmt --check`,
   slot-keyed map like the controllers.
 - **Absent `machine.slots` = the default layout**; a *present* `slots`
   object (even `{}`) is literal — absent keys inside it are empty slots.
-  This keeps `{"machine": {"model": "2plus"}}` equal to bare `ewm two`
+  This keeps `{"machine": {"model": "apple2plus"}}` equal to bare `ewm two`
   while honoring "an absent slot key means empty". *(The `--drive1`/
   `--drive2`/`--hdd` sugar this section originally described was replaced
   by `--set`; see the CLI overrides decisions below.)*
@@ -147,8 +147,8 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
 - **`--config builtin:<name>`** loads one of the embedded copies of the
   `configs/` files (`include_str!`, a static table in `config.rs` — no
   build script). Names are the schema's model tokens, matching the file
-  stems 1:1: `builtin:2plus` (`configs/2plus.json`) and `builtin:2e`
-  (`configs/2e.json`; the files were renamed from `plus.json` /
+  stems 1:1: `builtin:apple2plus` (`configs/apple2plus.json`) and `builtin:apple2e`
+  (`configs/apple2e.json`; the files were renamed from `plus.json` /
   `enhanced.json`). `builtin:list` prints the names with descriptions
   and exits 0, like `--help`; an unknown name errors listing the
   available names. A literal file named `builtin:x` is reachable as
@@ -161,7 +161,7 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
 - **Top-level `description`** joined the schema — a one-line human
   description shown by `builtin:list`, usable by any config file.
 - **Bare `ewm two` is unchanged** — the in-code default machine
-  (Thunderclock in slot 1) still differs from `builtin:2plus`
+  (Thunderclock in slot 1) still differs from `builtin:apple2plus`
   deliberately; unifying them is backlog in the plan.
 
 ## Config sources — partial configs (C2, recorded as built)
@@ -187,7 +187,7 @@ for `--config-overlay` (C3):
   will load through. `from_document` runs both passes on the final
   layered document; its missing-model message is
   `machine.model is required (start from --config, e.g. --config
-  builtin:2plus)`.
+  builtin:apple2plus)`.
 - **Two schemas, one generator** (plan option 2): the generated schema is
   now overlay-shaped, so the golden test post-processes the requiredness
   (`machine`, `machine.model`) back into `schema/ewm-config.schema.json`
@@ -222,10 +222,10 @@ Phase C3 of `plans/20260718-02-config-sources.md`:
   `config.rs` tests; `--set`'s materialization is untouched (the boo
   launcher's drag-drop paths behave identically).
 - **Known edge, accepted**: overlaying a complete *//e* config onto the
-  slotless ][+ default (`ewm two --config-overlay builtin:2e`) fails
+  slotless ][+ default (`ewm two --config-overlay builtin:apple2e`) fails
   completeness — materialization brings in the ][+ default table, whose
   slot 0 the //e rejects. Consistent with the rules (an overlay means
-  "default machine plus this"); start from `--config builtin:2e`
+  "default machine plus this"); start from `--config builtin:apple2e`
   instead.
 
 ## Config sources — `--print-config` (C4, recorded as built)
@@ -280,7 +280,7 @@ configuration language.
   document is a *valid config* that `two` refuses to run (and vice
   versa), each error pointing at the right subcommand.
 - **The shared source loop** (`config::collect_document`) carries pass 1
-  for both subcommands, parameterized by the seed model (`2plus` /
+  for both subcommands, parameterized by the seed model (`apple2plus` /
   `replica1` — bare `ewm one` boots the Replica 1, the C default) and
   the slots-materialization hook (`two`-only; a one-family document
   never grows the ][+ default table).
@@ -335,7 +335,7 @@ below is **apple2-family only**.
 
 | Source | Setting | Values |
 |---|---|---|
-| config + `--set` | `machine.model` | `2plus`, `2e`, `apple1`, `replica1` |
+| config + `--set` | `machine.model` | `apple2plus`, `apple2e`, `apple1`, `replica1` |
 | config + `--set` | `machine.cpu` | `6502`, `65C02` (apple1 family; absent = the model's CPU) |
 | config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
 | config + `--set` + palette | `display.monitor` | `green`, `amber`, `white`, `rgb` |
@@ -361,7 +361,7 @@ below is **apple2-family only**.
 - **The literal-table rule covers slot 0** — a deliberate breaking
   change, accepted by the owner: a ][+ config whose `slots` table omits
   `"0"` is a stock **48K machine** ($D000–$FFFF motherboard ROM on the
-  bus, slot 0's DEVSEL range unmapped). `configs/2plus.json` declares the
+  bus, slot 0's DEVSEL range unmapped). `configs/apple2plus.json` declares the
   card explicitly. The default table (absent `slots`, and the `--set`
   materialization) gains `"0": {"card": "language"}`, so bare command
   lines stay the classic 64K build; `--set machine:slots:0:card=empty`
@@ -396,7 +396,7 @@ below is **apple2-family only**.
   (`drive1`/`drive2`), **.2mg only**, ProDOS-order, exactly 800 (400K)
   or 1600 (800K) blocks; the 2IMG locked flag mounts read-only;
   write-back lands at `data_offset + block*512`, header preserved. Any
-  slot 1–7, no multiplicity limit; `configs/2e.json` carries one
+  slot 1–7, no multiplicity limit; `configs/apple2e.json` carries one
   in slot 5.
 - **SmartPort identity is real**: signature `$Cn07=$00`, ID type at
   `$CnFB`, ProDOS entry via `$CnFF` with the SmartPort dispatch at
@@ -423,7 +423,7 @@ throughout so editors show help):
 ```json
 {
   "machine": {
-    "model": "2e",
+    "model": "apple2e",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },
@@ -444,7 +444,7 @@ throughout so editors show help):
 Schema rules:
 
 - `machine.model` required; everything else optional with the current
-  defaults (an empty `{ "machine": { "model": "2plus" } }` is today's bare
+  defaults (an empty `{ "machine": { "model": "apple2plus" } }` is today's bare
   `ewm two`).
 - **`slots`**: object keyed `"1"`–`"7"`; each value is a card object
   discriminated by `"card"`: `"diskii"` (`drive1`/`drive2` image paths,
@@ -456,7 +456,7 @@ Schema rules:
   `"harddrive"` cards (Phase B).
 - `machine.aux`: `{ "card": "80col" | "ext80col" | "ramworksiii", "size":
   "64k".."8m" }` — `size` only valid with `ramworksiii`; whole `aux` object
-  only valid with `"model": "2e"` (enforced in code; the schema documents
+  only valid with `"model": "apple2e"` (enforced in code; the schema documents
   it).
 - `cpu.speed`: `"normal" | "3.58mhz" | "7.16mhz"` — exactly the palette's
   accelerator steps (`SPEED_NORMAL/FAST/FASTER`).

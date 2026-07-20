@@ -11,7 +11,7 @@ fn usage() {
     eprintln!();
     eprintln!("Commands:");
     eprintln!("  one     Run the Apple 1 / Replica 1 emulator");
-    eprintln!("  two     Run the Apple ][+ or Enhanced //e (--config builtin:2e) emulator");
+    eprintln!("  two     Run the Apple ][+ or Enhanced //e (--config builtin:apple2e) emulator");
     eprintln!("  boo     Run the 'bootloader' (default)");
     eprintln!();
     eprintln!("If no command is specified, the 'bootloader' will be run, which");

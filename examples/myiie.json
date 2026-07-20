@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
   "description": "Enhanced //e — RamWorks III, two Disk ][ drives, Total Replay on a hard drive",
   "machine": {
-    "model": "2e",
+    "model": "apple2e",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },

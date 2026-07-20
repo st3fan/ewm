@@ -205,7 +205,7 @@ Everything in this section serves that goal.
   setting; real slot flexibility (multiple Disk ][ controllers, empty
   slots, cards in any slot); and the full source surface from
   `plans/20260718-02-config-sources.md`: built-ins
-  (`--config builtin:2plus`), partial `--config-overlay` layers,
+  (`--config builtin:apple2plus`), partial `--config-overlay` layers,
   `--set`, `--print-config`. Remaining: "save current setup" from the
   palette (JSON_CONFIG Phase C; the Options→Config mapping already
   exists). Virtual ]['s configurable virtual machines remain the

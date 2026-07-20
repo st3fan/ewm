@@ -167,7 +167,7 @@ fn restore_rejects_a_different_model() {
         .restore(&mut Reader::new(&bytes))
         .expect_err("model mismatch must be rejected")
         .to_string();
-    assert!(err.contains("2plus"), "{err}");
+    assert!(err.contains("apple2plus"), "{err}");
 }
 
 /// The S4 file surface: `Two::save_state` / `restore_state` round-trip
