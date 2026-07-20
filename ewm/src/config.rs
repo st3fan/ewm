@@ -201,19 +201,23 @@ pub enum SlotCard {
     /// A Disk ][ controller with up to two drives.
     Diskii {
         /// Floppy image for drive 1 (`.dsk`, `.do`, `.po`, `.nib`, `.woz`).
+        /// May be an `http(s)://` URL, downloaded once into the image
+        /// cache and revalidated with ETag / Last-Modified thereafter.
         drive1: Option<String>,
         /// Floppy image for drive 2.
         drive2: Option<String>,
     },
     /// A ProDOS-compatible hard-drive controller.
     Harddrive {
-        /// Block image (`.hdv`, `.po`).
+        /// Block image (`.hdv`, `.po`). May be an `http(s)://` URL —
+        /// a downloaded volume mounts memory-only, so ProDOS writes do
+        /// not persist into the cache.
         image: String,
     },
     /// A UniDisk 3.5 Controller ("Liron") with up to two SmartPort 3.5"
     /// drives taking .2mg images of 400K or 800K.
     Liron {
-        /// .2mg image for drive 1.
+        /// .2mg image for drive 1. May be an `http(s)://` URL.
         drive1: Option<String>,
         /// .2mg image for drive 2.
         drive2: Option<String>,
@@ -1326,6 +1330,11 @@ fn resolve_paths(config: &mut Config, base: &Path) {
 }
 
 fn resolve(base: &Path, p: &mut String) {
+    // An http(s) URL is a source, not a relative path (like builtin:) —
+    // it is fetched into the cache when the machine is built.
+    if crate::fetch::is_url(p) {
+        return;
+    }
     if Path::new(p).is_relative() {
         *p = base.join(&*p).to_string_lossy().into_owned();
     }
@@ -1924,6 +1933,31 @@ mod tests {
             .expect("aux present");
         assert_eq!(aux.card, AuxKind::RamWorksIII);
         assert_eq!(aux.size.as_deref(), Some("1m"));
+    }
+
+    #[test]
+    fn http_urls_are_sources_not_relative_paths() {
+        // A disk image may be an http(s) URL: it must survive per-file
+        // path resolution untouched (like builtin:), to be downloaded
+        // into the cache when the machine is built.
+        let config = parse(
+            r#"{"machine": {"model": "2plus", "slots": {
+                "6": {"card": "diskii", "drive1": "https://x.test/games/Frogger.dsk"},
+                "7": {"card": "harddrive", "image": "http://x.test/Total%20Replay.hdv"}}}}"#,
+        )
+        .expect("URL media parses");
+        let slots = config.machine.as_ref().unwrap().slots.as_ref().unwrap();
+        let SlotCard::Diskii { drive1, .. } = &slots["6"] else {
+            panic!("slot 6 should be a diskii");
+        };
+        assert_eq!(drive1.as_deref(), Some("https://x.test/games/Frogger.dsk"));
+        let SlotCard::Harddrive { image } = &slots["7"] else {
+            panic!("slot 7 should be a harddrive");
+        };
+        assert_eq!(image, "http://x.test/Total%20Replay.hdv");
+        // A URL *is* an external reference, so a built-in config may not
+        // carry one (builtins must run offline).
+        assert_eq!(referenced_files(&config).len(), 2);
     }
 
     #[test]

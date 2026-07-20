@@ -557,7 +557,7 @@
               "const": "diskii"
             },
             "drive1": {
-              "description": "Floppy image for drive 1 (`.dsk`, `.do`, `.po`, `.nib`, `.woz`).",
+              "description": "Floppy image for drive 1 (`.dsk`, `.do`, `.po`, `.nib`, `.woz`).\nMay be an `http(s)://` URL, downloaded once into the image\ncache and revalidated with ETag / Last-Modified thereafter.",
               "type": [
                 "string",
                 "null"
@@ -585,7 +585,7 @@
               "const": "harddrive"
             },
             "image": {
-              "description": "Block image (`.hdv`, `.po`).",
+              "description": "Block image (`.hdv`, `.po`). May be an `http(s)://` URL —\na downloaded volume mounts memory-only, so ProDOS writes do\nnot persist into the cache.",
               "type": "string"
             }
           },
@@ -604,7 +604,7 @@
               "const": "liron"
             },
             "drive1": {
-              "description": ".2mg image for drive 1.",
+              "description": ".2mg image for drive 1. May be an `http(s)://` URL.",
               "type": [
                 "string",
                 "null"
