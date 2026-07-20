@@ -60,6 +60,10 @@ tty_test
 
 *.bin
 *.lst
+# …but ROM images under roms/ are committed assets, not build output
+# (they are embedded with include_bytes!; a missing one breaks CI, not
+# just a local build). Keep them out of the *.bin sweep.
+!roms/**/*.bin
 
 *.dsk
 
