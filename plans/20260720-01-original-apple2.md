@@ -1,4 +1,4 @@
-# The Original Apple ][ (`model: 2`) and `builtin:minimal-apple2`
+# The Original Apple ][ (`model: apple2`, `builtin:apple2`)
 
 - **Design docs:** this plan carries its own design (memory map, ROM
   set, behavioral differences) — it is self-contained like the telnet
@@ -6,6 +6,9 @@
   `notes/REWRITE.md` (how the ][+ machine is built). Primary source:
   the *Apple II Reference Manual* (1978),
   <https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Computers/Apple%20II/Apple%20II/Manuals/Apple%20II%20Reference%20Manual%201978.pdf>.
+- **Prerequisite (done):** model tokens spelled out —
+  `2plus`→`apple2plus`, `2e`→`apple2e` — so this machine is `apple2`
+  (the rename PR, #308).
 - **Status:** draft — iterate here before kickoff
 - **Target:** `main`; PR granularity decided at kickoff
 
@@ -15,7 +18,7 @@ A genuine original **Apple ][** (Integer BASIC, non-autostart Monitor),
 distinct from the ][+ we ship today:
 
 ```
-ewm two --config builtin:minimal-apple2       # 48K, no language card, Disk ][ (2 drives)
+ewm two --config builtin:apple2       # 48K, no language card, Disk ][ (2 drives)
 ```
 
 Reset drops to the Monitor `*` prompt; `Ctrl-B` enters Integer BASIC;
@@ -58,7 +61,7 @@ So the main ROM window is `$D000-$FFFF` with a **hole at `$D800-$DFFF`**
   *Integer* ROM, not Applesoft. The minimal machine has no LC, so this
   is a **kickoff decision**: allow `slot 0` on `2` (wire the Integer ROM
   behind the LC) or reject it for now (the minimal config never needs
-  it). Recommendation: reject slot 0 on `2` in phase A2, add LC support
+  it). Recommendation: reject slot 0 on `apple2` in phase A2, add LC support
   only if wanted — keeps the first landing small and faithful to the
   minimal machine.
 
@@ -71,7 +74,7 @@ So the main ROM window is `$D000-$FFFF` with a **hole at `$D800-$DFFF`**
 | A3 | `configs/minimal-apple2.json` builtin; `PR#6` boots DOS 3.3 gate; README + `notes/JSON_CONFIG.md` docs | S/M | Not started |
 
 A1 → A2 → A3 in order. **A1 could fold into A2** (the ROM statics are
-only useful once `new_2` exists) — decide at kickoff. Every phase: the
+only useful once `new_apple2` exists) — decide at kickoff. Every phase: the
 standard gates (`fmt`, `clippy -D warnings`, full `cargo test` incl.
 golden-BMP) plus the phase gate below.
 
@@ -87,35 +90,35 @@ golden-BMP) plus the phase gate below.
   unused until A2, so gate A1 with `#[allow(dead_code)]` or land A1+A2
   together — the fold-in question).
 
-### A2 — The `2` machine
+### A2 — The `apple2` machine
 
-- `config::Model` gains `Two` with serde token `"2"`; `Model::two_type()`
+- `config::Model` gains a variant with serde token `"apple2"`; `Model::two_type()`
   → `TwoType::Apple2` (already in the enum); `family()` = apple2.
-- `Two::new_2(slot0, slots)` mirrors `new_2plus`: assemble the
+- `Two::new_apple2(slot0, slots)` mirrors `new_2plus`: assemble the
   `$D000-$FFFF` ROM (Programmer's Aid at `$D000`, `$D800-$DFFF` left
   unmapped, Integer BASIC `$E000-$F7FF`, Monitor `$F800-$FFFF`) and map
   it. `build_machine`'s `TwoType::Apple2 => Err("unsupported")` arm
   (two.rs) becomes the real constructor.
-- Validation: `2` is apple2-family (slots/aux/display all apply); the
+- Validation: `apple2` is apple2-family (slots/aux/display all apply); the
   slot-0 ruling per the kickoff decision above.
 - Convenience-flag path: `--model 2` already parses to `TwoType::Apple2`
   (two.rs pass 2) — confirm it now builds instead of erroring.
-- **Gate:** a `two_original_boot.rs` test (mirroring `two_boot.rs`):
+- **Gate:** a `two_apple2_boot.rs` test (mirroring `two_boot.rs`):
   reset lands at the Monitor `*` prompt; `Ctrl-B` + `PRINT` exercises
   Integer BASIC; a golden test pins the assembled `$D000-$FFFF` region
   (with the `$D800-$DFFF` hole) byte-for-byte.
 
 ### A3 — The built-in config and docs
 
-- `configs/minimal-apple2.json`: `model: 2`, no slot 0 (48K, no language
+- `configs/minimal-apple2.json`: `model: apple2`, no slot 0 (48K, no language
   card), a Disk ][ in slot 6 (two drives available). Self-contained (no
   media) — the self-containment sweep already covers it. **Naming
   decision:** `builtin:minimal-apple2` (the user's name) and/or a
   `builtin:2` model-token default. Recommendation: ship
-  `minimal-apple2` as asked; add `builtin:2` only if a stock-`2` default
+  `minimal-apple2` as asked; add `builtin:2` only if a stock default
   is wanted (kickoff).
 - `builtin:list` and the name/self-containment tests extend to it.
-- **Gate:** a boot test — `builtin:minimal-apple2` + the DOS 3.3 disk in
+- **Gate:** a boot test — `builtin:apple2` + the DOS 3.3 disk in
   drive 1, `C600G` (or `PR#6`) boots to the DOS prompt (the original ][
   analog of the ][+ auto-boot test). README `two` profiles + schema
   inventory updated.
@@ -143,8 +146,8 @@ golden-BMP) plus the phase gate below.
 
 1. **Language card on `2`** — reject slot 0 for now (recommended,
    smaller) or wire the Integer ROM behind an LC.
-2. **Naming** — `builtin:minimal-apple2` only (as asked), or also a
-   `builtin:2` stock default.
+2. ~~Naming~~ — settled: model `apple2`, `builtin:apple2` (name =
+   token, per the 2plus→apple2plus rename in the prerequisite PR).
 3. **Phase granularity** — fold A1 into A2, or keep the ROM-assets phase
    separate.
 4. **PR granularity** — one PR per phase (default) or the whole plan in
