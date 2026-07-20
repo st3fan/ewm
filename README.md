@@ -328,7 +328,26 @@ default machine has a Language Card (the classic 64K build), and
 `--set machine:slots:0:card=empty` — for a stock 48K machine.
 
 Relative paths resolve against their file's directory, so a config —
-or an overlay — travels with its disks. The committed JSON Schemas
+or an overlay — travels with its disks.
+
+A disk image can also be an **`http(s)://` URL**, so a config travels
+without its disks at all:
+
+```
+cargo run --release -- two \
+    --set 'machine:slots:6:drive1=https://example.com/disks/Frogger.dsk'
+```
+
+The image is downloaded once into `$XDG_CACHE_HOME/ewm` (default
+`~/.cache/ewm`), keyed by a hash of the URL and keeping its own file
+name. Later boots send a conditional request and reuse the cached copy
+on a `304` — and if the server is unreachable, the cached copy is used
+anyway, so a downloaded machine still boots offline. Downloaded hard
+drives mount **memory-only**: ProDOS can write to them, but the writes
+stay in RAM (exactly as floppies behave) so refreshing the cache can
+never destroy them.
+
+The committed JSON Schemas
 (`schema/ewm-config.schema.json` for complete configs,
 `schema/ewm-config-overlay.schema.json` for overlays) give editors
 validation and autocomplete via the `$schema` key;

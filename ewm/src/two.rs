@@ -1563,13 +1563,26 @@ impl Two {
     /// slot: the card's I/O ports in its DEVSEL range plus its boot/driver
     /// firmware ROM at $Cn00.
     pub fn attach_hdd_at(&mut self, slot: u8, path: &str) -> Result<(), String> {
+        self.attach_hdd_at_with_writeback(slot, path, true)
+    }
+
+    /// `attach_hdd_at` with control over whether WRITE_BLOCK reaches the
+    /// file. Downloaded (http) volumes mount with `writeback = false`, so
+    /// writes live only in memory — the same deal floppies get, and it
+    /// keeps a cache revalidation from destroying what ProDOS wrote.
+    pub fn attach_hdd_at_with_writeback(
+        &mut self,
+        slot: u8,
+        path: &str,
+        writeback: bool,
+    ) -> Result<(), String> {
         if !(1..=7).contains(&slot) {
             return Err(format!("no such slot {slot} (slots are 1 through 7)"));
         }
         if self.slot_occupied(slot) {
             return Err(format!("slot {slot} is already occupied"));
         }
-        let hdd = Hdd::new(path)?;
+        let hdd = Hdd::new_with_writeback(path, writeback)?;
         let base = slot_io_base(slot);
         let handle = self.cpu.mem.add_device(base, base + 0xf, hdd);
         self.hdds.insert(slot, handle);
@@ -2638,7 +2651,10 @@ fn build_machine(options: &Options) -> Result<Two, String> {
             config::SlotCard::Diskii { drive1, drive2 } => {
                 for (drive, path) in [(0, drive1), (1, drive2)] {
                     if let Some(path) = path {
-                        two.load_disk_at(slot, drive, path).map_err(|e| {
+                        // An http(s) source is downloaded (and cached)
+                        // first; floppy writes are in-memory anyway.
+                        let local = crate::fetch::local_path(path)?;
+                        two.load_disk_at(slot, drive, &local).map_err(|e| {
                             format!(
                                 "cannot load slot {slot} drive {drive} with {path}: {e}",
                                 drive = drive + 1
@@ -2648,13 +2664,19 @@ fn build_machine(options: &Options) -> Result<Two, String> {
                 }
             }
             config::SlotCard::Harddrive { image } => {
-                two.attach_hdd_at(slot, image)
+                // A downloaded volume mounts read-only: writes stay in
+                // memory (as floppies do) so a later revalidation can
+                // never clobber what the machine wrote into the cache.
+                let local = crate::fetch::local_path(image)?;
+                let writeback = !crate::fetch::is_url(image);
+                two.attach_hdd_at_with_writeback(slot, &local, writeback)
                     .map_err(|e| format!("cannot mount slot {slot} hard drive {image}: {e}"))?;
             }
             config::SlotCard::Liron { drive1, drive2 } => {
                 for (drive, path) in [(0, drive1), (1, drive2)] {
                     if let Some(path) = path {
-                        two.load_2mg_at(slot, drive, path).map_err(|e| {
+                        let local = crate::fetch::local_path(path)?;
+                        two.load_2mg_at(slot, drive, &local).map_err(|e| {
                             format!(
                                 "cannot load slot {slot} 3.5 drive {drive} with {path}: {e}",
                                 drive = drive + 1
@@ -4645,6 +4667,56 @@ mod tests {
             "only {checked_two} two / {checked_one} one README examples found — \
              did the extractor break?"
         );
+    }
+
+    #[test]
+    fn http_drive_is_downloaded_and_mounted() {
+        // The wiring gate for disk images over HTTP: a URL in drive1
+        // reaches the machine as a real file. If the mount path did not
+        // fetch, load_disk_at would try to open "http://..." as a file
+        // and fail — so a machine that builds proves the download.
+        use std::io::{BufRead, BufReader, Write};
+
+        let disk = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../disks/DOS33-SystemMaster.dsk"
+        ))
+        .expect("the DOS 3.3 disk must be present");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let body = disk.clone();
+        let server = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                let mut reader = BufReader::new(&stream);
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                let mut stream = &stream;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nETag: \"dos33\"\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes());
+                let _ = stream.write_all(&body);
+                let _ = stream.flush();
+            }
+        });
+
+        let url = format!("http://127.0.0.1:{port}/DOS33-SystemMaster.dsk");
+        let o = opts(&["--set", &format!("machine:slots:6:drive1={url}")]);
+        let machine = build_machine(&o);
+        let _ = server.join();
+
+        // Clean the cache entry this test created before asserting, so a
+        // failure cannot leave litter behind.
+        if let Ok(dir) = crate::fetch::cache_dir_for(&url) {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        machine.expect("the machine should build from a downloaded disk");
     }
 
     #[test]

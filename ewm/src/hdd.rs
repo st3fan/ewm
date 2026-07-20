@@ -328,8 +328,15 @@ pub const HDD_DRIVER_ENTRY: u16 = hdd_driver_entry(7);
 pub struct Hdd {
     image: Vec<u8>,
     /// The image file, kept open for write-back; `None` when it could not
-    /// be opened writable — writes then fail with WRITE PROTECTED.
+    /// be opened writable — writes then fail with WRITE PROTECTED — or
+    /// when the volume is deliberately memory-only (see `writeback`).
     file: Option<std::fs::File>,
+    /// Whether block writes are meant to reach the file at all. False for
+    /// a downloaded volume: writes update `image` only, exactly as
+    /// floppies behave, so revalidating the cached download can never
+    /// destroy what ProDOS wrote. (Distinct from a *local* image that
+    /// simply would not open writable — that stays WRITE PROTECTED.)
+    writeback: bool,
     block: u16,
     buf: [u8; 512],
     index: usize,
@@ -340,6 +347,14 @@ impl Hdd {
     /// 512-byte blocks, at most 65,535 of them (the ProDOS maximum — Total
     /// Replay's 33,553,920 bytes is exactly that).
     pub fn new(path: &str) -> Result<Hdd, String> {
+        Hdd::new_with_writeback(path, true)
+    }
+
+    /// `new` with control over whether WRITE_BLOCK reaches the file.
+    /// `writeback = false` keeps writes in memory only — how a
+    /// downloaded (http-sourced) volume mounts, so a cache
+    /// revalidation can never clobber what the machine wrote.
+    pub fn new_with_writeback(path: &str, writeback: bool) -> Result<Hdd, String> {
         let image = std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?;
         if image.is_empty() || !image.len().is_multiple_of(512) {
             return Err(format!(
@@ -353,17 +368,22 @@ impl Hdd {
                 image.len() / 512
             ));
         }
-        let file = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .ok();
-        if file.is_none() {
+        let file = writeback
+            .then(|| {
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(path)
+                    .ok()
+            })
+            .flatten();
+        if file.is_none() && writeback {
             eprintln!("[HDD] {path} is not writable; mounting read-only");
         }
         Ok(Hdd {
             image,
             file,
+            writeback,
             block: 0,
             buf: [0; 512],
             index: 0,
@@ -391,11 +411,16 @@ impl Hdd {
         if self.block >= self.blocks() {
             return ERR_IO;
         }
-        let Some(file) = &mut self.file else {
+        // A local image that would not open writable is write-protected;
+        // a memory-only volume (a download) takes the write into `image`.
+        if self.file.is_none() && self.writeback {
             return ERR_WRITE_PROTECTED;
-        };
+        }
         let off = self.block as usize * 512;
         self.image[off..off + 512].copy_from_slice(&self.buf);
+        let Some(file) = &mut self.file else {
+            return 0;
+        };
         let written = file
             .seek(SeekFrom::Start(off as u64))
             .and_then(|_| file.write_all(&self.buf))
@@ -469,6 +494,50 @@ impl ewm_core::state::Persist for Hdd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Write block 0 through the controller registers, the way the
+    /// firmware does: block number, 512 bytes into the buffer, then the
+    /// WRITE_BLOCK strobe at $Cn04.
+    fn write_block_zero(hdd: &mut Hdd, fill: u8) -> u8 {
+        hdd.write(0x0, 0, 0); // block low (also resets the buffer index)
+        hdd.write(0x1, 0, 0); // block high
+        for _ in 0..512 {
+            hdd.write(0x3, fill, 0);
+        }
+        hdd.read(0x4, 0) // execute_write; 0 = success
+    }
+
+    /// A downloaded volume mounts read-only (plans: images over HTTP):
+    /// ProDOS writes land in memory but never touch the cached file, so
+    /// revalidating the download cannot destroy them — while a normal
+    /// local image still writes through.
+    #[test]
+    fn writeback_false_keeps_block_writes_out_of_the_file() {
+        let dir = std::env::temp_dir().join("ewm-hdd-writeback-test");
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("volume.hdv");
+        let original = vec![0xa5u8; 1024]; // two blocks
+        std::fs::write(&path, &original).expect("write image");
+        let path = path.to_str().expect("utf-8 path");
+
+        // Read-only: the write succeeds into memory, the file does not move.
+        let mut hdd = Hdd::new_with_writeback(path, false).expect("mounts");
+        assert_eq!(write_block_zero(&mut hdd, 0x5a), 0, "write should succeed");
+        assert_eq!(hdd.image[..512], [0x5a; 512], "memory should have changed");
+        assert_eq!(
+            std::fs::read(path).expect("reread"),
+            original,
+            "the cached file must be untouched"
+        );
+
+        // Write-back (a normal local image): the file follows.
+        let mut hdd = Hdd::new_with_writeback(path, true).expect("mounts");
+        assert_eq!(write_block_zero(&mut hdd, 0x3c), 0);
+        let on_disk = std::fs::read(path).expect("reread");
+        assert_eq!(on_disk[..512], [0x3c; 512], "the file should have changed");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// The generator reproduces the original hand-assembled slot-7 firmware
     /// byte-for-byte (the literal below is the pre-generator static).

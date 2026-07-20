@@ -293,6 +293,36 @@ configuration language.
   `plans/20260719-01-flag-retirement.md`; config memory regions are an
   upgrade (hex addresses, per-file relative-path resolution).
 
+## Disk images over HTTP (recorded as built)
+
+A floppy or hard-drive image path may be an `http(s)://` URL
+(`ewm/src/fetch.rs`):
+
+- **Cache**: `$XDG_CACHE_HOME/ewm` (else `~/.cache/ewm`) /
+  `<sha1 of the URL>` / `<file name from the URL>`, with a `meta.json`
+  holding the validators. The digest keys the directory because URLs
+  are not filesystem-safe; the file keeps its own name so the cache is
+  browsable and errors read normally. SHA-1 is the crate's own
+  (`ws::sha1`) — no new dependency for hashing.
+- **Freshness**: one *conditional* GET (`If-None-Match` /
+  `If-Modified-Since` from the stored validators) rather than HEAD then
+  GET — a `304` costs a single round trip. If the request fails and a
+  copy is cached, the cached copy is used, so a downloaded machine
+  still boots offline.
+- **A URL is a source, not a path**: `resolve_paths` leaves it alone
+  (like `builtin:`), but `referenced_files` *does* count it, so a
+  built-in config still may not carry one — builtins must run offline.
+- **Downloaded hard drives mount memory-only** (`writeback = false`):
+  ProDOS writes update the in-memory image and never reach the cached
+  file, so revalidating a download cannot destroy them. This needed a
+  real change, not just leaving the file handle unopened — an
+  unopenable file means *WRITE PROTECTED* in `hdd.rs`, which is a
+  different (and still supported) state for a local image.
+- **Dependency**: `ureq` (blocking + rustls) — owner's decision, the
+  one place the tiny-dependency budget gives way, because TLS is not
+  something to hand-roll. It brings ~25 transitive crates including
+  `ring`, so the headless server build now compiles native crypto too.
+
 ## What is configurable today (the schema inventory)
 
 Since `plans/20260719-01-flag-retirement.md`, the CLI column is

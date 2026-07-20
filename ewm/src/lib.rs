@@ -16,6 +16,7 @@ pub mod clk;
 pub mod config;
 pub mod des;
 pub mod dsk;
+pub mod fetch;
 pub mod hdd;
 pub mod led;
 pub mod liron;
