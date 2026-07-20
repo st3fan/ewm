@@ -1,6 +1,6 @@
 {
   "machine": {
-    "model": "2plus",
+    "model": "apple2plus",
     "slots": {
       "1": { "card": "thunderclock" },
       "5": { "card": "diskii", "drive1": "../../../disks/DOS33-SamplePrograms.dsk" },

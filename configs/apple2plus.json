@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
   "description": "Apple ][+ — 64K Language Card, Disk II in slot 6, green monitor",
   "machine": {
-    "model": "2plus",
+    "model": "apple2plus",
     "slots": {
       "0": { "card": "language" },
       "6": { "card": "diskii" }

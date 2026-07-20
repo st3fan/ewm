@@ -77,7 +77,7 @@ fn two_controller_config_loads() {
 fn builtin_configs_load_and_match_the_committed_files() {
     // The `builtin:` source scheme resolves against the embedded copies of
     // the configs/ files; both spellings must describe the same machine.
-    for name in ["2plus", "2e", "apple1", "replica1"] {
+    for name in ["apple1", "apple2e", "apple2plus", "replica1"] {
         let config = config::load_builtin(name).expect("builtin loads");
         assert!(config.description.is_some(), "builtin:{name}");
 
@@ -91,7 +91,7 @@ fn builtin_configs_load_and_match_the_committed_files() {
     let err = config::load_builtin("apple2gs").unwrap_err();
     assert_eq!(
         err,
-        r#"no built-in config "apple2gs" (available: 2e, 2plus, apple1, replica1)"#
+        r#"no built-in config "apple2gs" (available: apple1, apple2e, apple2plus, replica1)"#
     );
 }
 
@@ -129,7 +129,7 @@ fn missing_file_and_bad_multiplicity_error() {
     let path = dir.join("four-controllers.json");
     std::fs::write(
         &path,
-        r#"{"machine": {"model": "2plus", "slots": {
+        r#"{"machine": {"model": "apple2plus", "slots": {
             "3": {"card": "diskii"}, "4": {"card": "diskii"},
             "5": {"card": "diskii"}, "6": {"card": "diskii"}}}}"#,
     )

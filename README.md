@@ -48,7 +48,7 @@ and sound.
   80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
   graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
-  hard drive, clock and sound. Start it with `two --config builtin:2e`.
+  hard drive, clock and sound. Start it with `two --config builtin:apple2e`.
 
 ## Requirements
 
@@ -88,11 +88,11 @@ cargo run --release -- two --set display:monitor=rgb \
     --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --config builtin:2e \
+cargo run --release -- two --config builtin:apple2e \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --config builtin:2e \
+cargo run --release -- two --config builtin:apple2e \
     --set machine:aux:card=ramworksiii \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
@@ -113,7 +113,7 @@ monitor. In config terms (`--print-config` prints the full document):
 ```json
 {
   "machine": {
-    "model": "2plus",
+    "model": "apple2plus",
     "slots": {
       "0": { "card": "language" },
       "1": { "card": "thunderclock" },
@@ -127,7 +127,7 @@ Two more profiles ship *inside the binary* as built-in configs —
 `--config builtin:list` lists them, and the same files live in
 `configs/`:
 
-**`builtin:2plus`** — an Apple ][+ with the 64K Language Card and a
+**`builtin:apple2plus`** — an Apple ][+ with the 64K Language Card and a
 Disk II in slot 6, on a green monochrome monitor. The default machine
 minus the clock card:
 
@@ -135,7 +135,7 @@ minus the clock card:
 {
   "description": "Apple ][+ — 64K Language Card, Disk II in slot 6, green monitor",
   "machine": {
-    "model": "2plus",
+    "model": "apple2plus",
     "slots": {
       "0": { "card": "language" },
       "6": { "card": "diskii" }
@@ -146,10 +146,10 @@ minus the clock card:
 ```
 
 ```
-cargo run --release -- two --config builtin:2plus
+cargo run --release -- two --config builtin:apple2plus
 ```
 
-**`builtin:2e`** — an Enhanced Apple //e with the Extended 80-Column
+**`builtin:apple2e`** — an Enhanced Apple //e with the Extended 80-Column
 Card (64K) in the auxiliary slot, a UniDisk 3.5 controller in slot 5,
 a Disk II in slot 6, and an RGB color monitor:
 
@@ -157,7 +157,7 @@ a Disk II in slot 6, and an RGB color monitor:
 {
   "description": "Enhanced Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
   "machine": {
-    "model": "2e",
+    "model": "apple2e",
     "aux": { "card": "ext80col" },
     "slots": {
       "5": { "card": "liron" },
@@ -169,7 +169,7 @@ a Disk II in slot 6, and an RGB color monitor:
 ```
 
 ```
-cargo run --release -- two --config builtin:2e
+cargo run --release -- two --config builtin:apple2e
 ```
 
 None of the profiles mounts a disk — pair them with a `--set` override
@@ -281,7 +281,7 @@ Total Replay to whatever machine it lands on:
 ```
 
 ```
-cargo run --release -- two --config builtin:2plus \
+cargo run --release -- two --config builtin:apple2plus \
     --config-overlay examples/drive-with-total-replay.json \
     --set display:monitor=amber
 ```
@@ -299,7 +299,7 @@ A whole machine also fits in one file (`examples/myiie.json`):
 {
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
   "machine": {
-    "model": "2e",
+    "model": "apple2e",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },

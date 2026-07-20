@@ -77,7 +77,7 @@ pub struct Machine {
     /// absent the model decides (Apple 1: 6502, Replica 1: 65C02). The
     /// apple2 family's CPU is a model property and rejects this key.
     pub cpu: Option<CpuModel>,
-    /// The //e auxiliary-slot card. Only valid with `"model": "2e"`; when
+    /// The //e auxiliary-slot card. Only valid with `"model": "apple2e"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
     /// The card in each peripheral slot, keyed `"0"` through `"7"` (slot 0
@@ -101,10 +101,10 @@ pub struct Machine {
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Model {
     /// The Apple ][+.
-    #[serde(rename = "2plus")]
+    #[serde(rename = "apple2plus")]
     TwoPlus,
     /// The Apple //e.
-    #[serde(rename = "2e")]
+    #[serde(rename = "apple2e")]
     TwoE,
     /// The classic Apple 1 (6502, 8KB RAM, Woz Monitor).
     #[serde(rename = "apple1")]
@@ -135,8 +135,8 @@ impl Model {
     /// The schema token, for error messages.
     pub fn token(self) -> &'static str {
         match self {
-            Model::TwoPlus => "2plus",
-            Model::TwoE => "2e",
+            Model::TwoPlus => "apple2plus",
+            Model::TwoE => "apple2e",
             Model::Apple1 => "apple1",
             Model::Replica1 => "replica1",
         }
@@ -511,9 +511,9 @@ pub enum RemoteProtocol {
 /// `builtins_load_and_are_self_contained` test. See
 /// plans/20260718-02-config-sources.md (C1).
 const BUILTINS: &[(&str, &str)] = &[
-    ("2e", include_str!("../../configs/2e.json")),
-    ("2plus", include_str!("../../configs/2plus.json")),
     ("apple1", include_str!("../../configs/apple1.json")),
+    ("apple2e", include_str!("../../configs/apple2e.json")),
+    ("apple2plus", include_str!("../../configs/apple2plus.json")),
     ("replica1", include_str!("../../configs/replica1.json")),
 ];
 
@@ -652,7 +652,7 @@ pub enum Collected {
 /// Collect the config document from `--config`, `--config-overlay`, and
 /// `--set`, applied strictly in command-line order through the merge.
 /// `seed_model` is the machine the document starts from when overlays or
-/// sets appear without a `--config` base (`"2plus"` for two,
+/// sets appear without a `--config` base (`"apple2plus"` for two,
 /// `"replica1"` for one). `materialize_slots` enables the overlay
 /// slots-materialization rule — a `two` behavior; a one-family document
 /// must never grow the ][+ default table.
@@ -672,7 +672,7 @@ pub fn collect_document(args: &[String], seed_model: &str, materialize_slots: bo
                 if source == "builtin:list" {
                     for (name, description) in builtin_list() {
                         match description {
-                            Some(description) => println!("{name:<10}{description}"),
+                            Some(description) => println!("{name:<12}{description}"),
                             None => println!("{name}"),
                         }
                     }
@@ -990,8 +990,11 @@ pub fn apply_set(doc: &mut serde_json::Value, expr: &str) -> Result<(), String> 
 pub fn from_document(doc: serde_json::Value) -> Result<Config, String> {
     let config: Config = serde_json::from_value(doc).map_err(|e| format!("config: {e}"))?;
     validate(&config).map_err(|e| format!("config: {e}"))?;
-    validate_complete(&config, "start from --config, e.g. --config builtin:2plus")
-        .map_err(|e| format!("config: {e}"))?;
+    validate_complete(
+        &config,
+        "start from --config, e.g. --config builtin:apple2plus",
+    )
+    .map_err(|e| format!("config: {e}"))?;
     Ok(config)
 }
 
@@ -1163,7 +1166,9 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
                 );
             }
             if machine.aux.is_some() && model != Model::TwoE {
-                return Err("machine.aux: aux cards are a //e feature (model is \"2plus\")".into());
+                return Err(
+                    "machine.aux: aux cards are a //e feature (model is \"apple2plus\")".into(),
+                );
             }
             if model == Model::TwoE && machine.slots.as_ref().is_some_and(|s| s.contains_key("0")) {
                 return Err(
@@ -1429,12 +1434,12 @@ mod tests {
     #[test]
     fn builtin_names_match_their_model() {
         // The naming convention: builtin names are the schema's model
-        // tokens (builtin:2plus, builtin:apple1, …), both families.
+        // tokens (builtin:apple2plus, builtin:apple1, …), both families.
         let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
-        assert_eq!(models, vec!["2e", "2plus", "apple1", "replica1"]);
+        assert_eq!(models, vec!["apple1", "apple2e", "apple2plus", "replica1"]);
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
-        assert_eq!(model("2plus"), Some(Model::TwoPlus));
-        assert_eq!(model("2e"), Some(Model::TwoE));
+        assert_eq!(model("apple2plus"), Some(Model::TwoPlus));
+        assert_eq!(model("apple2e"), Some(Model::TwoE));
         assert_eq!(model("apple1"), Some(Model::Apple1));
         assert_eq!(model("replica1"), Some(Model::Replica1));
     }
@@ -1444,7 +1449,7 @@ mod tests {
         let err = load_builtin("foo").unwrap_err();
         assert_eq!(
             err,
-            r#"no built-in config "foo" (available: 2e, 2plus, apple1, replica1)"#
+            r#"no built-in config "foo" (available: apple1, apple2e, apple2plus, replica1)"#
         );
     }
 
@@ -1452,12 +1457,12 @@ mod tests {
     fn memory_regions_take_exactly_path_or_size() {
         // Structural, family-independent rules (R2).
         let err = parse(
-            r#"{"machine": {"model": "2plus", "memory": [{"type": "ram", "address": "0x4000"}]}}"#,
+            r#"{"machine": {"model": "apple2plus", "memory": [{"type": "ram", "address": "0x4000"}]}}"#,
         )
         .unwrap_err();
         assert!(err.contains("exactly one of"), "{err}");
         let err = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "memory": [{"type": "ram", "address": "0x4000", "path": "x.bin", "size": "4k"}]}}"#,
         )
         .unwrap_err();
@@ -1500,11 +1505,14 @@ mod tests {
         let config = parse(r#"{"machine": {"model": "apple1", "cpu": "65C02"}}"#).expect("cpu");
         assert_eq!(config.machine.unwrap().cpu, Some(CpuModel::M65C02));
         // ...and is rejected for the apple2 family, whose model decides.
-        let err = parse(r#"{"machine": {"model": "2e", "cpu": "6502"}}"#).unwrap_err();
-        assert!(err.contains("machine.cpu") && err.contains("2e"), "{err}");
+        let err = parse(r#"{"machine": {"model": "apple2e", "cpu": "6502"}}"#).unwrap_err();
+        assert!(
+            err.contains("machine.cpu") && err.contains("apple2e"),
+            "{err}"
+        );
         // Size banks are Apple 1 family boards.
         let err = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "memory": [{"type": "ram", "address": "0x4000", "size": "4k"}]}}"#,
         )
         .unwrap_err();
@@ -1557,7 +1565,7 @@ mod tests {
         // fixed board — the machine builders own that layout).
         assert!(
             parse(
-                r#"{"machine": {"model": "2plus", "memory": [
+                r#"{"machine": {"model": "apple2plus", "memory": [
                     {"type": "rom", "address": "0xd000", "path": "a.bin"},
                     {"type": "rom", "address": "0xd000", "path": "b.bin"}]}}"#,
             )
@@ -1626,7 +1634,7 @@ mod tests {
         // A builtin: region path is a scheme, not a relative path: it
         // survives per-file path resolution untouched...
         let config = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "memory": [{"type": "rom", "address": "0xd000", "path": "builtin:WozMon"}]}}"#,
         )
         .expect("builtin memory path parses");
@@ -1639,7 +1647,7 @@ mod tests {
     #[test]
     fn referenced_files_finds_every_path_field() {
         let config = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "slots": {
                     "5": {"card": "liron", "drive1": "/a.2mg"},
                     "6": {"card": "diskii", "drive1": "/b.dsk", "drive2": "/c.dsk"},
@@ -1661,10 +1669,10 @@ mod tests {
 
     #[test]
     fn source_documents_resolve_builtins_and_paths() {
-        let builtin = load_source_document("builtin:2plus").expect("builtin source");
+        let builtin = load_source_document("builtin:apple2plus").expect("builtin source");
         let file = load_document(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../configs/2plus.json"
+            "/../configs/apple2plus.json"
         ))
         .expect("file source");
         // The embedded copy and the committed file are the same config.
@@ -1675,7 +1683,7 @@ mod tests {
 
     #[test]
     fn minimal_config_parses() {
-        let config = parse(r#"{"machine": {"model": "2plus"}}"#).expect("minimal config");
+        let config = parse(r#"{"machine": {"model": "apple2plus"}}"#).expect("minimal config");
         let machine = config.machine.expect("machine present");
         assert_eq!(machine.model, Some(Model::TwoPlus));
         assert!(machine.aux.is_none());
@@ -1690,7 +1698,7 @@ mod tests {
 
     #[test]
     fn unknown_top_level_key_is_rejected() {
-        let err = parse(r#"{"machine": {"model": "2plus"}, "monitr": {}}"#).unwrap_err();
+        let err = parse(r#"{"machine": {"model": "apple2plus"}, "monitr": {}}"#).unwrap_err();
         assert!(err.contains("unknown field `monitr`"), "{err}");
         assert!(err.starts_with("test.json:"), "{err}");
     }
@@ -1700,7 +1708,7 @@ mod tests {
         // The canary for serde's internally-tagged deny_unknown_fields
         // behavior (see notes/JSON_CONFIG.md).
         let err = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "slots": {"6": {"card": "diskii", "driv1": "x.dsk"}}}}"#,
         )
         .unwrap_err();
@@ -1710,14 +1718,17 @@ mod tests {
     #[test]
     fn bad_values_are_rejected_with_expected_lists() {
         let err = parse(r#"{"machine": {"model": "2gs"}}"#).unwrap_err();
-        assert!(err.contains("2plus") && err.contains("2e"), "{err}");
+        assert!(
+            err.contains("apple2plus") && err.contains("apple2e"),
+            "{err}"
+        );
 
-        let err = parse(r#"{"machine": {"model": "2plus"}, "display": {"monitor": "blue"}}"#)
+        let err = parse(r#"{"machine": {"model": "apple2plus"}, "display": {"monitor": "blue"}}"#)
             .unwrap_err();
         assert!(err.contains("green") && err.contains("rgb"), "{err}");
 
         let err =
-            parse(r#"{"machine": {"model": "2plus"}, "cpu": {"speed": "2mhz"}}"#).unwrap_err();
+            parse(r#"{"machine": {"model": "apple2plus"}, "cpu": {"speed": "2mhz"}}"#).unwrap_err();
         assert!(err.contains("normal") && err.contains("3.58mhz"), "{err}");
     }
 
@@ -1725,7 +1736,7 @@ mod tests {
     fn slot_rules() {
         let slot = |n: &str, card: &str| {
             parse(&format!(
-                r#"{{"machine": {{"model": "2plus", "slots": {{"{n}": {card}}}}}}}"#
+                r#"{{"machine": {{"model": "apple2plus", "slots": {{"{n}": {card}}}}}}}"#
             ))
         };
 
@@ -1781,8 +1792,9 @@ mod tests {
             err.contains(r#"the saturn128 card only fits slot "0""#),
             "{err}"
         );
-        let err = parse(r#"{"machine": {"model": "2e", "slots": {"0": {"card": "language"}}}}"#)
-            .unwrap_err();
+        let err =
+            parse(r#"{"machine": {"model": "apple2e", "slots": {"0": {"card": "language"}}}}"#)
+                .unwrap_err();
         assert!(
             err.contains("the //e has no slot 0 (its language card is built in)"),
             "{err}"
@@ -1790,7 +1802,7 @@ mod tests {
 
         // Multiplicity: at most three Disk ][ controllers, one Thunderclock.
         let err = parse(
-            r#"{"machine": {"model": "2plus", "slots": {
+            r#"{"machine": {"model": "apple2plus", "slots": {
                 "3": {"card": "diskii"}, "4": {"card": "diskii"},
                 "5": {"card": "diskii"}, "6": {"card": "diskii"}}}}"#,
         )
@@ -1800,7 +1812,7 @@ mod tests {
             "test.json: machine.slots: at most three Disk ][ controllers"
         );
         let err = parse(
-            r#"{"machine": {"model": "2plus", "slots": {
+            r#"{"machine": {"model": "apple2plus", "slots": {
                 "1": {"card": "thunderclock"}, "2": {"card": "thunderclock"}}}}"#,
         )
         .unwrap_err();
@@ -1809,7 +1821,7 @@ mod tests {
         // Three controllers and two hard drives are fine.
         assert!(
             parse(
-                r#"{"machine": {"model": "2plus", "slots": {
+                r#"{"machine": {"model": "apple2plus", "slots": {
                     "4": {"card": "diskii"}, "5": {"card": "diskii"},
                     "6": {"card": "diskii"}, "2": {"card": "harddrive", "image": "a.hdv"},
                     "7": {"card": "harddrive", "image": "b.hdv"}}}}"#,
@@ -1819,7 +1831,7 @@ mod tests {
 
         // A present-but-empty table is a bare machine, distinct from an
         // absent one (the default layout).
-        let config = parse(r#"{"machine": {"model": "2plus", "slots": {}}}"#).expect("empty");
+        let config = parse(r#"{"machine": {"model": "apple2plus", "slots": {}}}"#).expect("empty");
         assert_eq!(config.machine.unwrap().slots, Some(BTreeMap::new()));
     }
 
@@ -1918,14 +1930,14 @@ mod tests {
             ))
         };
 
-        let err = aux("2e", r#"{"card": "80col", "size": "1m"}"#).unwrap_err();
+        let err = aux("apple2e", r#"{"card": "80col", "size": "1m"}"#).unwrap_err();
         assert!(err.contains("only valid with"), "{err}");
-        let err = aux("2plus", r#"{"card": "80col"}"#).unwrap_err();
+        let err = aux("apple2plus", r#"{"card": "80col"}"#).unwrap_err();
         assert!(err.contains("//e feature"), "{err}");
-        let err = aux("2e", r#"{"card": "ramworksiii", "size": "3k"}"#).unwrap_err();
+        let err = aux("apple2e", r#"{"card": "ramworksiii", "size": "3k"}"#).unwrap_err();
         assert!(err.contains("multiple of 64k"), "{err}");
 
-        let config = aux("2e", r#"{"card": "ramworksiii", "size": "1m"}"#).expect("valid aux");
+        let config = aux("apple2e", r#"{"card": "ramworksiii", "size": "1m"}"#).expect("valid aux");
         let aux = config
             .machine
             .expect("machine present")
@@ -1941,7 +1953,7 @@ mod tests {
         // path resolution untouched (like builtin:), to be downloaded
         // into the cache when the machine is built.
         let config = parse(
-            r#"{"machine": {"model": "2plus", "slots": {
+            r#"{"machine": {"model": "apple2plus", "slots": {
                 "6": {"card": "diskii", "drive1": "https://x.test/games/Frogger.dsk"},
                 "7": {"card": "harddrive", "image": "http://x.test/Total%20Replay.hdv"}}}}"#,
         )
@@ -1963,7 +1975,7 @@ mod tests {
     #[test]
     fn relative_paths_resolve_against_the_config_dir() {
         let config = parse(
-            r#"{"machine": {"model": "2plus",
+            r#"{"machine": {"model": "apple2plus",
                 "slots": {
                     "6": {"card": "diskii", "drive1": "disks/a.dsk", "drive2": "/abs/b.dsk"},
                     "7": {"card": "harddrive", "image": "hd.hdv"}},
@@ -2004,20 +2016,20 @@ mod tests {
     #[test]
     fn merge_layers_objects_and_skips_nulls() {
         let mut doc = serde_json::json!({
-            "machine": {"model": "2plus", "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}}},
+            "machine": {"model": "apple2plus", "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}}},
             "display": {"monitor": "green"},
         });
         merge_documents(
             &mut doc,
             serde_json::json!({
-                "machine": {"model": "2e", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
+                "machine": {"model": "apple2e", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
                 "display": {"monitor": null, "fps": 30},
             }),
         );
         assert_eq!(
             doc,
             serde_json::json!({
-                "machine": {"model": "2e", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
+                "machine": {"model": "apple2e", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
                 "display": {"monitor": "green", "fps": 30},
             })
         );
@@ -2037,7 +2049,7 @@ mod tests {
         // The four base × overlay slots combinations (the plan's hazard).
         // 1. Slotless base + overlay with slots: materialize, then extend —
         //    "the default machine plus a hard drive in slot 7".
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         merge_overlay_document(&mut doc, hdd7.clone());
         assert_eq!(
             doc["machine"]["slots"],
@@ -2051,8 +2063,7 @@ mod tests {
 
         // 2. A base with an explicit table stays literal; the overlay
         //    merges into it key by key.
-        let mut doc =
-            serde_json::json!({"machine": {"model": "2plus", "slots": {"6": {"card": "diskii"}}}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus", "slots": {"6": {"card": "diskii"}}}});
         merge_overlay_document(&mut doc, hdd7);
         assert_eq!(
             doc["machine"]["slots"],
@@ -2064,34 +2075,34 @@ mod tests {
 
         // 3. An overlay without slots never materializes: a slotless base
         //    stays slotless (the default machine at build time)...
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         merge_overlay_document(
             &mut doc,
             serde_json::json!({"display": {"monitor": "amber"}}),
         );
-        assert_eq!(doc["machine"], serde_json::json!({"model": "2plus"}));
+        assert_eq!(doc["machine"], serde_json::json!({"model": "apple2plus"}));
         assert_eq!(doc["display"]["monitor"], serde_json::json!("amber"));
 
         // 4. ...and a base's explicit table is untouched.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus", "slots": {}}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus", "slots": {}}});
         merge_overlay_document(&mut doc, serde_json::json!({"cpu": {"strict": true}}));
         assert_eq!(doc["machine"]["slots"], serde_json::json!({}));
 
         // A null machine.slots (how a fragment that never mentioned slots
         // serializes) is a merge no-op, not a table.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         merge_overlay_document(
             &mut doc,
-            serde_json::json!({"machine": {"model": "2e", "slots": null}}),
+            serde_json::json!({"machine": {"model": "apple2e", "slots": null}}),
         );
-        assert_eq!(doc["machine"], serde_json::json!({"model": "2e"}));
+        assert_eq!(doc["machine"], serde_json::json!({"model": "apple2e"}));
     }
 
     #[test]
     fn compact_document_drops_noise_but_keeps_bare_tables() {
         let mut doc = serde_json::json!({
             "machine": {
-                "model": "2plus",
+                "model": "apple2plus",
                 "aux": null,
                 "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": null}},
                 "memory": [{"type": "ram", "address": "0x0000", "path": null, "size": "4k"}],
@@ -2104,7 +2115,7 @@ mod tests {
             doc,
             serde_json::json!({
                 "machine": {
-                    "model": "2plus",
+                    "model": "apple2plus",
                     "slots": {"6": {"card": "diskii", "drive1": "a.dsk"}},
                     "memory": [{"type": "ram", "address": "0x0000", "size": "4k"}],
                 },
@@ -2112,28 +2123,28 @@ mod tests {
             })
         );
         // An empty memory list still compacts away entirely.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus", "memory": []}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus", "memory": []}});
         compact_document(&mut doc);
-        assert_eq!(doc, serde_json::json!({"machine": {"model": "2plus"}}));
+        assert_eq!(doc, serde_json::json!({"machine": {"model": "apple2plus"}}));
 
         // An explicit bare slots table survives: {} means "no cards",
         // where an absent table would mean the default layout.
         let mut doc = serde_json::json!({
-            "machine": {"model": "2plus", "slots": {}},
+            "machine": {"model": "apple2plus", "slots": {}},
             "cpu": {"speed": null, "strict": null},
         });
         compact_document(&mut doc);
         assert_eq!(
             doc,
-            serde_json::json!({"machine": {"model": "2plus", "slots": {}}})
+            serde_json::json!({"machine": {"model": "apple2plus", "slots": {}}})
         );
     }
 
     #[test]
     fn overlay_sources_resolve_builtins_and_fragments() {
         // The builtin: scheme is shared with --config...
-        let builtin = load_overlay_document("builtin:2plus").expect("builtin overlay");
-        assert_eq!(builtin["machine"]["model"], serde_json::json!("2plus"));
+        let builtin = load_overlay_document("builtin:apple2plus").expect("builtin overlay");
+        assert_eq!(builtin["machine"]["model"], serde_json::json!("apple2plus"));
         let err = load_overlay_document("builtin:nope").unwrap_err();
         assert!(err.starts_with("no built-in config"), "{err}");
         // ...while a file may be arbitrarily partial.
@@ -2144,7 +2155,7 @@ mod tests {
 
     #[test]
     fn set_types_values_as_json_or_string() {
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         apply_set(&mut doc, "display:fps=30").unwrap();
         apply_set(&mut doc, "cpu:strict=true").unwrap();
         apply_set(&mut doc, "display:monitor=amber").unwrap();
@@ -2162,7 +2173,7 @@ mod tests {
     fn set_materializes_the_default_slots_once() {
         // Entering machine:slots on a slotless document brings in the
         // default table, so the override extends the default machine.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
         assert_eq!(
             doc["machine"]["slots"],
@@ -2174,7 +2185,7 @@ mod tests {
         );
         // Opting out of the language card keeps the rest of the default
         // layout: the classic 48K machine.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         apply_set(&mut doc, "machine:slots:0:card=empty").unwrap();
         assert_eq!(
             doc["machine"]["slots"],
@@ -2185,7 +2196,7 @@ mod tests {
             })
         );
         // A document that already has a slots table is taken literally.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus", "slots": {}}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus", "slots": {}}});
         apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
         assert_eq!(
             doc["machine"]["slots"],
@@ -2195,7 +2206,7 @@ mod tests {
 
     #[test]
     fn set_replaces_a_slot_whose_card_changes() {
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         apply_set(&mut doc, "machine:slots:6:drive1=x.dsk").unwrap();
         apply_set(&mut doc, "machine:slots:6:card=harddrive").unwrap();
         apply_set(&mut doc, "machine:slots:6:image=x.hdv").unwrap();
@@ -2217,7 +2228,7 @@ mod tests {
 
     #[test]
     fn set_rejects_bad_expressions() {
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         let err = apply_set(&mut doc, "display:monitor").unwrap_err();
         assert!(err.contains("expected <key>=<value>"), "{err}");
         let err = apply_set(&mut doc, "display::monitor=amber").unwrap_err();
@@ -2231,12 +2242,12 @@ mod tests {
 
     #[test]
     fn from_document_validates_and_names_unknown_fields() {
-        let doc = serde_json::json!({"machine": {"model": "2plus"}, "disply": {}});
+        let doc = serde_json::json!({"machine": {"model": "apple2plus"}, "disply": {}});
         let err = from_document(doc).unwrap_err();
         assert!(err.starts_with("config:"), "{err}");
         assert!(err.contains("unknown field `disply`"), "{err}");
 
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         apply_set(&mut doc, "display:fps=0").unwrap();
         let err = from_document(doc).unwrap_err();
         assert!(err.contains("display.fps"), "{err}");
@@ -2305,7 +2316,7 @@ mod tests {
     #[test]
     fn from_document_requires_machine_model() {
         let message = "config: machine.model is required \
-                       (start from --config, e.g. --config builtin:2plus)";
+                       (start from --config, e.g. --config builtin:apple2plus)";
         let err = from_document(serde_json::json!({})).unwrap_err();
         assert_eq!(err, message);
         let err = from_document(serde_json::json!({"machine": {}})).unwrap_err();
@@ -2320,17 +2331,17 @@ mod tests {
         assert!(validate(&config).is_ok());
 
         // ...and judged against the model once the document is complete.
-        let mut doc = serde_json::json!({"machine": {"model": "2plus"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         merge_documents(&mut doc, fragment.clone());
         let err = from_document(doc).unwrap_err();
         assert!(err.contains("//e feature"), "{err}");
-        let mut doc = serde_json::json!({"machine": {"model": "2e"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2e"}});
         merge_documents(&mut doc, fragment);
         assert!(from_document(doc).is_ok());
 
         // Same for the //e's missing slot 0.
         let err = from_document(serde_json::json!(
-            {"machine": {"model": "2e", "slots": {"0": {"card": "language"}}}}
+            {"machine": {"model": "apple2e", "slots": {"0": {"card": "language"}}}}
         ))
         .unwrap_err();
         assert!(err.contains("the //e has no slot 0"), "{err}");

@@ -1239,8 +1239,8 @@ impl ewm_core::state::Persist for Two {
         w.chunk(*b"INFO", |w| {
             w.put_str(match self.model {
                 TwoType::Apple2 => "2",
-                TwoType::Apple2Plus => "2plus",
-                TwoType::Apple2E => "2e",
+                TwoType::Apple2Plus => "apple2plus",
+                TwoType::Apple2E => "apple2e",
             });
         });
         w.chunk(*b"CPU ", |w| self.cpu.save(w));
@@ -1252,8 +1252,8 @@ impl ewm_core::state::Persist for Two {
         info.done()?;
         let ours = match self.model {
             TwoType::Apple2 => "2",
-            TwoType::Apple2Plus => "2plus",
-            TwoType::Apple2E => "2e",
+            TwoType::Apple2Plus => "apple2plus",
+            TwoType::Apple2E => "apple2e",
         };
         if model != ours {
             return Err(ewm_core::state::Error(format!(
@@ -2081,7 +2081,9 @@ struct MemoryOption {
 fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
-    eprintln!("                    config (builtin:2plus, builtin:2e; builtin:list lists");
+    eprintln!(
+        "                    config (builtin:apple2plus, builtin:apple2e; builtin:list lists"
+    );
     eprintln!("                    them); at most one, the base of the document");
     eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
     eprintln!("                    applied in order with --config and --set");
@@ -2203,7 +2205,7 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
     // and seed the options from it, so that in pass 2 — the flag loop, which
     // only assigns a field when its flag is present — anything given
     // explicitly on the command line overrides the document.
-    let doc = match crate::config::collect_document(args, "2plus", true) {
+    let doc = match crate::config::collect_document(args, "apple2plus", true) {
         crate::config::Collected::Document(doc) => doc,
         crate::config::Collected::Listed => return Err(0),
         crate::config::Collected::Failed => return Err(1),
@@ -4090,11 +4092,11 @@ mod tests {
         }
         let o = opts(&["--set", "display:monitor=rgb"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
-        let o = opts(&["--set", "machine:model=2e"]);
+        let o = opts(&["--set", "machine:model=apple2e"]);
         assert_eq!(o.model, TwoType::Apple2E);
         let o = opts(&[
             "--set",
-            "machine:model=2e",
+            "machine:model=apple2e",
             "--set",
             r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
         ]);
@@ -4191,12 +4193,12 @@ mod tests {
         // describe the same machine (the embedded copy is the file).
         let pairs = [
             (
-                "builtin:2plus",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/2plus.json"),
+                "builtin:apple2plus",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2plus.json"),
             ),
             (
-                "builtin:2e",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/2e.json"),
+                "builtin:apple2e",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2e.json"),
             ),
         ];
         for (builtin, file) in pairs {
@@ -4210,7 +4212,7 @@ mod tests {
         // Built-ins layer like any other source.
         let o = opts(&[
             "--config",
-            "builtin:2e",
+            "builtin:apple2e",
             "--set",
             "machine:slots:6:drive1=game.dsk",
         ]);
@@ -4346,7 +4348,7 @@ mod tests {
         assert!(o.strict);
         let o = opts(&[
             "--set",
-            "machine:model=2plus",
+            "machine:model=apple2plus",
             "--config",
             fixture!("full.json"),
         ]);
@@ -4389,7 +4391,7 @@ mod tests {
         // base + overlay + overlay + --set, left to right.
         let o = opts(&[
             "--config",
-            "builtin:2plus",
+            "builtin:apple2plus",
             "--config-overlay",
             fixture!("amber-monitor.json"),
             "--config-overlay",
@@ -4428,9 +4430,9 @@ mod tests {
         // A complete config is a valid overlay, and builtin: resolution is
         // shared with --config. Overlaying the ][+ built-in onto the (slotless)
         // default machine materializes the default table first, so the
-        // clock survives — unlike `--config builtin:2plus`, whose explicit
+        // clock survives — unlike `--config builtin:apple2plus`, whose explicit
         // table is literal.
-        let o = opts(&["--config-overlay", "builtin:2plus"]);
+        let o = opts(&["--config-overlay", "builtin:apple2plus"]);
         assert_eq!(o.model, TwoType::Apple2Plus);
         assert_eq!(o.monitor, MonitorStyle::Green);
         assert_eq!(o.slots.get(&1), Some(&config::SlotCard::Thunderclock));
@@ -4445,7 +4447,12 @@ mod tests {
         };
         // A second --config is refused (overlays are the layering spelling).
         assert!(matches!(
-            parse(&["--config", "builtin:2plus", "--config", "builtin:2e"]),
+            parse(&[
+                "--config",
+                "builtin:apple2plus",
+                "--config",
+                "builtin:apple2e"
+            ]),
             Err(1)
         ));
         // A partial file handed to --config is refused per file (C2)...
@@ -4456,7 +4463,7 @@ mod tests {
         // ...but is exactly what --config-overlay takes.
         let o = opts(&[
             "--config",
-            "builtin:2e",
+            "builtin:apple2e",
             "--config-overlay",
             fixture!("amber-monitor.json"),
         ]);
@@ -4516,7 +4523,7 @@ mod tests {
         .expect("write overlay");
         let o = opts(&[
             "--config",
-            "builtin:2e",
+            "builtin:apple2e",
             "--config-overlay",
             fixture!("drive-with-total-replay.json"),
             "--config-overlay",
@@ -4554,7 +4561,7 @@ mod tests {
         let o = opts(&[]);
         let path = print_to_file(&o, "default.json");
         let text = std::fs::read_to_string(&path).expect("printed config");
-        assert!(text.contains(r#""model": "2plus""#), "{text}");
+        assert!(text.contains(r#""model": "apple2plus""#), "{text}");
         assert!(text.contains(r#""thunderclock""#), "{text}");
         assert!(text.contains(r#""monitor": "green""#), "{text}");
         assert!(text.contains(r#""speed": "normal""#), "{text}");
@@ -4854,7 +4861,7 @@ mod tests {
         // second build would silently fall back to the default aux.
         let o = opts(&[
             "--set",
-            "machine:model=2e",
+            "machine:model=apple2e",
             "--set",
             r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
         ]);
