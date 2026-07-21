@@ -77,7 +77,7 @@ fn apple1_woz_monitor_dumps_rom() {
     m.type_keys("FF00.FF0F\r");
     m.step(1_000_000);
 
-    let rom = rom("WozMon.rom");
+    let rom = rom("WozMon.bin");
     let text = m.text();
     assert!(
         text.contains(&dump_line(0xff00, &rom[0..8])),
@@ -104,7 +104,7 @@ fn replica1_woz_monitor_dumps_rom() {
     m.type_keys("E000.E00F\r");
     m.step(1_000_000);
 
-    let rom = rom("apple1-basic.rom");
+    let rom = rom("apple1-basic.bin");
     let text = m.text();
     assert!(
         text.contains(&dump_line(0xe000, &rom[0..8])),

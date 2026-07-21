@@ -53,7 +53,7 @@ use ewm_core::mem::Device;
 /// `3a9d881a8a8d30f55b9719aceebbcf717f829d6f` (freitz85/AppleIIMouse), pinned
 /// by `mouse_rom_is_the_committed_image`.
 static MOUSE_ROM: &[u8; 2048] =
-    include_bytes!("../../roms/Apple Mouse Interface Card ROM - 342-0270-C.bin");
+    include_bytes!("../../roms/342-0270-C — AppleMouse II Interface Card (2716).bin");
 
 // PIA port B handshake bits.
 const PB_RDACK: u8 = 0x10;

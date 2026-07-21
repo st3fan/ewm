@@ -42,50 +42,56 @@ pub const TWO_SPEED: u32 = 1_023_000;
 const WOZBUG_DEFAULT_PORT: u16 = 6502;
 
 // The six machine ROMs, $D000-$FFFF (ewm_two_init loads the same files).
-static ROM_341_0011: &[u8] = include_bytes!("../../roms/341-0011.bin"); // AppleSoft BASIC D000
-static ROM_341_0012: &[u8] = include_bytes!("../../roms/341-0012.bin"); // AppleSoft BASIC D800
-static ROM_341_0013: &[u8] = include_bytes!("../../roms/341-0013.bin"); // AppleSoft BASIC E000
-static ROM_341_0014: &[u8] = include_bytes!("../../roms/341-0014.bin"); // AppleSoft BASIC E800
-static ROM_341_0015: &[u8] = include_bytes!("../../roms/341-0015.bin"); // AppleSoft BASIC F000
-static ROM_341_0020: &[u8] = include_bytes!("../../roms/341-0020.bin"); // Autostart Monitor F800
+static ROM_341_0011: &[u8] =
+    include_bytes!("../../roms/341-0011 — Apple II+ AppleSoft BASIC D000 (2716).bin");
+static ROM_341_0012: &[u8] =
+    include_bytes!("../../roms/341-0012 — Apple II+ AppleSoft BASIC D800 (2716).bin");
+static ROM_341_0013: &[u8] =
+    include_bytes!("../../roms/341-0013 — Apple II+ AppleSoft BASIC E000 (2716).bin");
+static ROM_341_0014: &[u8] =
+    include_bytes!("../../roms/341-0014 — Apple II+ AppleSoft BASIC E800 (2716).bin");
+static ROM_341_0015: &[u8] =
+    include_bytes!("../../roms/341-0015 — Apple II+ AppleSoft BASIC F000 (2716).bin");
+static ROM_341_0020: &[u8] =
+    include_bytes!("../../roms/341-0020 — Apple II+ Autostart Monitor F800 (2716).bin");
 
 // The original Apple ][ (1978) ROM set — Integer BASIC and the
 // non-autostart Monitor, distinct from the ][+ Applesoft/Autostart pair
 // above. The 6 × 2K sockets map $D000-$FFFF, but D8-DF was left empty on
 // this build, so $D800-$DFFF is a hole: the machine has Programmer's
 // Aid #1 at $D000, Integer BASIC at $E000-$F7FF, and the Original
-// Monitor at $F800. The character ROM (341-0036) is byte-identical to
-// the committed `roms/3410036.bin` (`chr::CHR_ROM`), so it is reused,
-// not embedded twice — pinned by `apple2_roms_match_the_committed_images`.
-// Wired into a machine by `Two::new_apple2` in a later phase
+// Monitor at $F800. The character ROM (341-0036) is the same committed
+// file `chr::CHR_ROM` embeds, so it is reused, not embedded twice —
+// pinned by `apple2_roms_match_the_committed_images`. Wired into a
+// machine by `Two::new_apple2` in a later phase
 // (plans/20260720-01-original-apple2.md A2).
 static ROM_341_0016: &[u8] =
-    include_bytes!("../../roms/AppleII/Apple Programmer's Aid #1 ROM (D000) - 341-0016 - 2716.bin"); // $D000-$D7FF
+    include_bytes!("../../roms/341-0016 — Apple II Programmer's Aid #1 D000 (2716).bin"); // $D000-$D7FF
 static ROM_341_0001: &[u8] =
-    include_bytes!("../../roms/AppleII/Apple II ROM Pages E0-E7 - 341-0001 - Integer BASIC.bin"); // $E000-$E7FF
+    include_bytes!("../../roms/341-0001 — Apple II Integer BASIC E000 (2716).bin"); // $E000-$E7FF
 static ROM_341_0002: &[u8] =
-    include_bytes!("../../roms/AppleII/Apple II ROM Pages E8-EF - 341-0002 - Integer BASIC.bin"); // $E800-$EFFF
+    include_bytes!("../../roms/341-0002 — Apple II Integer BASIC E800 (2716).bin"); // $E800-$EFFF
 static ROM_341_0003: &[u8] =
-    include_bytes!("../../roms/AppleII/Apple II ROM Pages F0-F7 - 341-0003 - Integer BASIC.bin"); // $F000-$F7FF
+    include_bytes!("../../roms/341-0003 — Apple II Integer BASIC F000 (2716).bin"); // $F000-$F7FF
 static ROM_341_0004: &[u8] =
-    include_bytes!("../../roms/AppleII/Apple II ROM Pages F8-FF - 341-0004 - Original Monitor.bin"); // $F800-$FFFF
+    include_bytes!("../../roms/341-0004 — Apple II Original Monitor F800 (2716).bin"); // $F800-$FFFF
 
 // The two 8K Enhanced //e system ROM halves: CD = $C000-$DFFF, EF =
 // $E000-$FFFF. The language card banks $D000-$FFFF (the CD half's upper 4K
 // plus the whole EF half); $C000-$CFFF is I/O and internal firmware.
 static ROM_IIE_CD: &[u8] =
-    include_bytes!("../../roms/Apple IIe CD Enhanced - 342-0304-A - 2764.bin");
+    include_bytes!("../../roms/342-0304-A — Apple IIe CD Enhanced (2764).bin");
 static ROM_IIE_EF: &[u8] =
-    include_bytes!("../../roms/Apple IIe EF Enhanced - 342-0303-A - 2764.bin");
+    include_bytes!("../../roms/342-0303-A — Apple IIe EF Enhanced (2764).bin");
 
 // The unenhanced (original 1983 //e) system ROM halves — same $C000-$DFFF
 // (CD) / $E000-$FFFF (EF) split as the Enhanced pair above, but without the
 // 65C02/MouseText firmware. Wired into the 6502 //e by `Two::new_2e`; pinned
 // by `iie_unenhanced_system_roms_match_the_committed_images`.
 static ROM_IIE_CD_UNENHANCED: &[u8] =
-    include_bytes!("../../roms/AppleIIe/Apple IIe CD Unenhanced - 342-0135-B - 2764.bin");
+    include_bytes!("../../roms/342-0135-B — Apple IIe CD Unenhanced (2764).bin");
 static ROM_IIE_EF_UNENHANCED: &[u8] =
-    include_bytes!("../../roms/AppleIIe/Apple IIe EF Unenhanced - 342-0134-A - 2764.bin");
+    include_bytes!("../../roms/342-0134-A — Apple IIe EF Unenhanced (2764).bin");
 
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
@@ -4439,17 +4445,15 @@ mod tests {
             assert_eq!(sha1(rom), hash);
         }
 
-        // The character ROM is reused, not re-embedded: the AppleII copy
-        // must equal the committed 3410036.bin that chr::CHR_ROM loads.
-        let apple2_chr = std::fs::read(concat!(
+        // The character ROM (341-0036) is a single committed file that both
+        // `chr::CHR_ROM` and the ][ machine reuse — pinned by SHA-1.
+        let char_rom = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../roms/AppleII/Apple II Character ROM - 341-0036.bin"
+            "/../roms/341-0036 — Apple II Character ROM (2513).bin"
         ))
-        .expect("AppleII char ROM present");
-        let committed_chr =
-            std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../roms/3410036.bin"))
-                .expect("committed char ROM present");
-        assert_eq!(apple2_chr, committed_chr, "char ROMs must be identical");
+        .expect("char ROM present");
+        assert_eq!(char_rom.len(), 2048);
+        assert_eq!(sha1(&char_rom), "f9d312f128c9557d9d6ac03bfad6c3ddf83e5659");
     }
 
     /// Provenance for the unenhanced //e system ROM halves (E2 of
