@@ -166,30 +166,47 @@ impl Cpu {
         self.sp = 0xff;
     }
 
-    pub fn irq(&mut self) -> Result<(), CpuError> {
+    /// The shared interrupt entry sequence: push the return address and the
+    /// status byte, mask further IRQs (`I=1`), and vector. `ret` is the
+    /// address `RTI` resumes at; `pushed_status` is the P byte written to the
+    /// stack — B clear for a hardware IRQ/NMI, B set for BRK.
+    fn enter_interrupt(
+        &mut self,
+        ret: u16,
+        pushed_status: u8,
+        vector: u16,
+    ) -> Result<(), CpuError> {
         if self.strict && self.stack_free() < 3 {
             return Err(CpuError::StackOverflow);
         }
-
-        self.push_word(self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
-        self.push_byte(self.status());
+        self.push_word(ret);
+        self.push_byte(pushed_status);
         self.i = 1;
-        self.pc = self.mem.read_word(VECTOR_IRQ);
-
+        self.pc = self.mem.read_word(vector);
         Ok(())
     }
 
+    /// A hardware maskable interrupt (IRQ): push the **exact** resume PC and
+    /// the status with **B clear**, then vector through `$FFFE`. Callers gate
+    /// this on the `I` flag (a real IRQ is only taken when `I==0`); taking it
+    /// sets `I` so the handler is not re-entered before it `RTI`s. Distinct
+    /// from BRK (see `brk_interrupt`), whose old shared code path pushed
+    /// `PC+1` with B set — wrong for a real interrupt's `RTI`.
+    pub fn irq(&mut self) -> Result<(), CpuError> {
+        self.enter_interrupt(self.pc, self.status() & !0x10, VECTOR_IRQ)
+    }
+
+    /// A non-maskable interrupt (NMI): as `irq`, but vectors through `$FFFA`
+    /// and is not gated by `I`.
     pub fn nmi(&mut self) -> Result<(), CpuError> {
-        if self.strict && self.stack_free() < 3 {
-            return Err(CpuError::StackOverflow);
-        }
+        self.enter_interrupt(self.pc, self.status() & !0x10, VECTOR_NMI)
+    }
 
-        self.push_word(self.pc.wrapping_add(1)); // TODO +1?? Spec says +2 but test fails then
-        self.push_byte(self.status());
-        self.i = 1;
-        self.pc = self.mem.read_word(VECTOR_NMI);
-
-        Ok(())
+    /// The BRK software interrupt: push `PC+1` (past the signature byte the
+    /// instruction reserves) with **B set**, then vector through `$FFFE`.
+    /// Kept deliberately distinct from a hardware `irq`.
+    pub(crate) fn brk_interrupt(&mut self) -> Result<(), CpuError> {
+        self.enter_interrupt(self.pc.wrapping_add(1), self.status(), VECTOR_IRQ)
     }
 
     /// Add a PC breakpoint (idempotent).
@@ -352,6 +369,58 @@ mod tests {
     fn test_cpu(model: Model) -> Cpu {
         // A flat 64K of RAM, as cpu_test.c sets up.
         Cpu::new(model, Memory::new(0x10000))
+    }
+
+    #[test]
+    fn hardware_irq_pushes_exact_pc_b_clear_and_rti_resumes() {
+        // The M1 gate (plans/20260721-01): a real IRQ vectors through $FFFE,
+        // pushes the *exact* resume PC with B clear, sets I, and RTI returns
+        // to the interrupted instruction. (BRK, by contrast, pushes PC+1 with
+        // B set — see the next test.)
+        let mut cpu = test_cpu(Model::M6502);
+        cpu.mem.write(0xff00, 0x40); // handler: RTI
+        cpu.mem.write(0xfffe, 0x00); // IRQ vector -> $FF00
+        cpu.mem.write(0xffff, 0xff);
+        cpu.mem.load(0x0400, &[0xea, 0xea]); // NOPs
+        cpu.reset();
+        cpu.pc = 0x0400;
+        cpu.i = 0; // interrupts enabled
+
+        cpu.step(); // NOP; pc -> $0401, the resume point
+        assert_eq!(cpu.pc, 0x0401);
+
+        cpu.irq().unwrap();
+        assert_eq!(cpu.pc, 0xff00, "vectored through $FFFE");
+        assert_eq!(cpu.i, 1, "IRQ masks further interrupts");
+        // sp was $FF, so the stack holds $01FF=PCH, $01FE=PCL, $01FD=P.
+        assert_eq!(cpu.mem.read(0x01fd) & 0x10, 0, "IRQ pushes B clear");
+        assert_eq!(cpu.mem.read(0x01ff), 0x04, "pushed PCH");
+        assert_eq!(cpu.mem.read(0x01fe), 0x01, "pushed PCL (exact resume PC)");
+
+        cpu.step(); // RTI
+        assert_eq!(cpu.pc, 0x0401, "RTI resumes at the interrupted PC");
+        assert_eq!(cpu.sp, 0xff, "stack fully unwound");
+        assert_eq!(cpu.i, 0, "RTI restores I=0");
+    }
+
+    #[test]
+    fn brk_pushes_pc_plus_one_with_b_set() {
+        // BRK stays distinct from a hardware IRQ: B set, and PC+1 pushed
+        // (past the reserved signature byte).
+        let mut cpu = test_cpu(Model::M6502);
+        cpu.mem.write(0xff00, 0x40); // handler: RTI
+        cpu.mem.write(0xfffe, 0x00);
+        cpu.mem.write(0xffff, 0xff);
+        cpu.mem.load(0x0400, &[0x00]); // BRK
+        cpu.reset();
+        cpu.pc = 0x0400;
+
+        cpu.step(); // BRK
+        assert_eq!(cpu.pc, 0xff00, "BRK vectors through $FFFE");
+        assert_eq!(cpu.mem.read(0x01fd) & 0x10, 0x10, "BRK pushes B set");
+        // step advanced pc past the opcode to $0401, and BRK pushes pc+1.
+        assert_eq!(cpu.mem.read(0x01ff), 0x04, "pushed PCH");
+        assert_eq!(cpu.mem.read(0x01fe), 0x02, "BRK pushes PC+1 = $0402");
     }
 
     #[test]

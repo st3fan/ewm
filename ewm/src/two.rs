@@ -1387,6 +1387,12 @@ pub struct Two {
     slot0: Slot0,
     /// The Saturn board, when `slot0` is `Saturn128`.
     saturn: Option<DeviceHandle<Saturn>>,
+    /// The maskable IRQ line, cached as one bool (plans/20260721-01 M1): the
+    /// OR of every interrupt-capable device's asserted state. The burst loops
+    /// poll it between `cpu.step()`s (`service_irq`); it is refreshed on state
+    /// change, never scanned per instruction. Dormant until a device asserts
+    /// it (the mouse card, Phase M4).
+    irq_line: bool,
 }
 
 impl Two {
@@ -1535,6 +1541,7 @@ impl Two {
             clk,
             slot0,
             saturn,
+            irq_line: false,
         }
     }
 
@@ -1595,6 +1602,7 @@ impl Two {
             clk,
             slot0: Slot0::Empty,
             saturn: None,
+            irq_line: false,
         }
     }
 
@@ -1668,12 +1676,33 @@ impl Two {
             clk,
             slot0: Slot0::Language,
             saturn: None,
+            irq_line: false,
         }
     }
 
     /// The machine variant this instance was constructed as.
     pub fn model(&self) -> TwoType {
         self.model
+    }
+
+    /// Poll the maskable IRQ line between CPU steps (plans/20260721-01 M1).
+    /// Level-sensitive: if a device is asserting and the CPU has interrupts
+    /// enabled (`I==0`), take the IRQ — which sets `I`, so the handler runs to
+    /// its `RTI` before the still-high line is taken again. A `bool && I`
+    /// check, cheap enough for the per-step burst; the line itself is only
+    /// recomputed when a contributor changes, never scanned here. Dormant
+    /// (the line stays low) until the mouse card asserts it (Phase M4).
+    pub fn service_irq(&mut self) {
+        if self.irq_line && self.cpu.i == 0 {
+            let _ = self.cpu.irq();
+        }
+    }
+
+    /// Drive the IRQ line directly, for tests, until Phase M4 wires the mouse
+    /// device's asserted state into a real refresh.
+    #[cfg(test)]
+    fn set_irq_line(&mut self, asserted: bool) {
+        self.irq_line = asserted;
     }
 
     /// The slot 0 socket (slot 0 on the ][+; the //e reports `Language`,
@@ -3273,6 +3302,7 @@ fn serve(mut options: Options) -> i32 {
 
             let mut budget = (speed / fps) as i64;
             while budget > 0 {
+                two.service_irq();
                 match two.cpu.step() {
                     0 => break, // breakpoint (WozBug not wired into serve yet)
                     cycles => budget -= cycles as i64,
@@ -4041,6 +4071,7 @@ pub fn main(args: &[String]) -> i32 {
 
                 let mut budget = (speed / fps) as i64;
                 while budget > 0 {
+                    two.service_irq();
                     match two.cpu.step() {
                         // Stopped on a breakpoint: give the frame up (the
                         // WozBug pump above owns the machine until G).
@@ -5187,6 +5218,42 @@ mod tests {
             assert_eq!(typed_key_byte(m, b'5'), b'5');
             assert_eq!(typed_key_byte(m, b']'), b']');
         }
+    }
+
+    #[test]
+    fn machine_irq_line_is_level_sensitive_and_gated_by_i() {
+        // M1 (plans/20260721-01): the cached IRQ line, polled by service_irq
+        // between CPU steps. A high line with interrupts enabled vectors
+        // through $FFFE; SEI holds it pending until CLI (level-sensitive); a
+        // low line is never taken. Dormant in production until Phase M4.
+        let mut two = Two::new(TwoType::Apple2Plus).unwrap();
+        two.cpu.reset();
+        let vector = two.cpu.mem.read(0xfffe) as u16 | ((two.cpu.mem.read(0xffff) as u16) << 8);
+
+        // Line low: a no-op even with interrupts enabled.
+        two.cpu.i = 0;
+        let pc = two.cpu.pc;
+        two.service_irq();
+        assert_eq!(two.cpu.pc, pc, "no IRQ taken when the line is low");
+
+        // Line high but masked (SEI): held pending.
+        two.set_irq_line(true);
+        two.cpu.i = 1;
+        two.service_irq();
+        assert_eq!(two.cpu.pc, pc, "SEI holds the request pending");
+
+        // CLI: the still-high line is taken, vectoring through $FFFE.
+        two.cpu.i = 0;
+        two.service_irq();
+        assert_eq!(two.cpu.pc, vector, "the IRQ vectors through $FFFE");
+        assert_eq!(two.cpu.i, 1, "taking the IRQ masks further interrupts");
+
+        // De-assert: a low line is not re-taken, even with I clear.
+        two.set_irq_line(false);
+        two.cpu.i = 0;
+        let pc = two.cpu.pc;
+        two.service_irq();
+        assert_eq!(two.cpu.pc, pc, "a de-asserted line is not re-taken");
     }
 
     #[test]
