@@ -70,7 +70,7 @@ So the main ROM window is `$D000-$FFFF` with a **hole at `$D800-$DFFF`**
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | A1 | Embed the `roms/AppleII/` set (statics + provenance/hash test + char-ROM reuse); document the memory map | S | Done |
-| A2 | `config::Model::Two` (`"2"`) + `Two::new_2` from the Integer ROM set; `TwoType::Apple2` becomes buildable; family/validation plumbing; boot-to-Monitor / Integer-BASIC gate + ROM-region golden test | M | Not started |
+| A2 | `config::Model::Two` (`"apple2"`) + `Two::new_apple2` from the Integer ROM set; `TwoType::Apple2` becomes buildable; family/validation plumbing; boot-to-Monitor / Integer-BASIC gate | M | Done |
 | A3 | `configs/minimal-apple2.json` builtin; `PR#6` boots DOS 3.3 gate; README + `notes/JSON_CONFIG.md` docs | S/M | Not started |
 
 A1 → A2 → A3 in order. **A1 could fold into A2** (the ROM statics are

@@ -100,6 +100,9 @@ pub struct Machine {
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(test, derive(schemars::JsonSchema))]
 pub enum Model {
+    /// The original Apple ][ (6502, Integer BASIC, non-autostart Monitor).
+    #[serde(rename = "apple2")]
+    Two,
     /// The Apple ][+.
     #[serde(rename = "apple2plus")]
     TwoPlus,
@@ -127,7 +130,7 @@ pub enum Family {
 impl Model {
     pub fn family(self) -> Family {
         match self {
-            Model::TwoPlus | Model::TwoE => Family::Apple2,
+            Model::Two | Model::TwoPlus | Model::TwoE => Family::Apple2,
             Model::Apple1 | Model::Replica1 => Family::Apple1,
         }
     }
@@ -135,6 +138,7 @@ impl Model {
     /// The schema token, for error messages.
     pub fn token(self) -> &'static str {
         match self {
+            Model::Two => "apple2",
             Model::TwoPlus => "apple2plus",
             Model::TwoE => "apple2e",
             Model::Apple1 => "apple1",
@@ -146,6 +150,7 @@ impl Model {
     /// turn that into the cross-subcommand error).
     pub fn two_type(self) -> Option<TwoType> {
         match self {
+            Model::Two => Some(TwoType::Apple2),
             Model::TwoPlus => Some(TwoType::Apple2Plus),
             Model::TwoE => Some(TwoType::Apple2E),
             Model::Apple1 | Model::Replica1 => None,
@@ -1174,6 +1179,21 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
                 return Err(
                     "machine.slots: the //e has no slot 0 (its language card is built in)".into(),
                 );
+            }
+            // The original Apple ][ had the slot-0 memory-expansion socket
+            // too, but wiring a Language Card / Saturn to bank the *Integer*
+            // ROM is not done yet — a `2` machine is 48K for now. An
+            // explicit "empty" is fine (it is a 48K machine regardless).
+            if model == Model::Two
+                && let Some(slots) = machine.slots.as_ref()
+                && let Some(card) = slots.get("0")
+                && !matches!(card, SlotCard::Empty)
+            {
+                return Err(format!(
+                    "machine.slots: slot \"0\" on the original Apple ][ (a memory-expansion \
+                     card) is not supported yet — it is a 48K machine (got \"{}\")",
+                    card.card_name()
+                ));
             }
         }
         Family::Apple1 => {

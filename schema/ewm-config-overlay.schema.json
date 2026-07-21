@@ -392,6 +392,11 @@
       "description": "Which machine to emulate. The token also decides the machine\n*family* — Apple II (`ewm two`) or Apple 1 (`ewm one`) — which the\ncompleteness validation and the subcommands use to keep configs\nhonest (plans/20260719-02-one-config.md).",
       "oneOf": [
         {
+          "description": "The original Apple ][ (6502, Integer BASIC, non-autostart Monitor).",
+          "type": "string",
+          "const": "apple2"
+        },
+        {
           "description": "The Apple ][+.",
           "type": "string",
           "const": "apple2plus"
