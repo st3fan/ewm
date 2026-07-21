@@ -440,7 +440,7 @@ fn brk(cpu: &mut Cpu) {
     if cpu.model == Model::M65C02 {
         cpu.d = 0;
     }
-    let _ = cpu.irq();
+    let _ = cpu.brk_interrupt();
 }
 
 /* CLx */
