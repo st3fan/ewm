@@ -41,57 +41,22 @@ pub const TWO_SPEED: u32 = 1_023_000;
 /// The WozBug line server's default port. Of course.
 const WOZBUG_DEFAULT_PORT: u16 = 6502;
 
-// The six machine ROMs, $D000-$FFFF (ewm_two_init loads the same files).
-static ROM_341_0011: &[u8] =
-    include_bytes!("../../roms/341-0011 — Apple II+ AppleSoft BASIC D000 (2716).bin");
-static ROM_341_0012: &[u8] =
-    include_bytes!("../../roms/341-0012 — Apple II+ AppleSoft BASIC D800 (2716).bin");
-static ROM_341_0013: &[u8] =
-    include_bytes!("../../roms/341-0013 — Apple II+ AppleSoft BASIC E000 (2716).bin");
-static ROM_341_0014: &[u8] =
-    include_bytes!("../../roms/341-0014 — Apple II+ AppleSoft BASIC E800 (2716).bin");
-static ROM_341_0015: &[u8] =
-    include_bytes!("../../roms/341-0015 — Apple II+ AppleSoft BASIC F000 (2716).bin");
-static ROM_341_0020: &[u8] =
-    include_bytes!("../../roms/341-0020 — Apple II+ Autostart Monitor F800 (2716).bin");
-
-// The original Apple ][ (1978) ROM set — Integer BASIC and the
-// non-autostart Monitor, distinct from the ][+ Applesoft/Autostart pair
-// above. The 6 × 2K sockets map $D000-$FFFF, but D8-DF was left empty on
-// this build, so $D800-$DFFF is a hole: the machine has Programmer's
-// Aid #1 at $D000, Integer BASIC at $E000-$F7FF, and the Original
-// Monitor at $F800. The character ROM (341-0036) is the same committed
-// file `chr::CHR_ROM` embeds, so it is reused, not embedded twice —
-// pinned by `apple2_roms_match_the_committed_images`. Wired into a
-// machine by `Two::new_apple2` in a later phase
-// (plans/20260720-01-original-apple2.md A2).
-static ROM_341_0016: &[u8] =
-    include_bytes!("../../roms/341-0016 — Apple II Programmer's Aid #1 D000 (2716).bin"); // $D000-$D7FF
-static ROM_341_0001: &[u8] =
-    include_bytes!("../../roms/341-0001 — Apple II Integer BASIC E000 (2716).bin"); // $E000-$E7FF
-static ROM_341_0002: &[u8] =
-    include_bytes!("../../roms/341-0002 — Apple II Integer BASIC E800 (2716).bin"); // $E800-$EFFF
-static ROM_341_0003: &[u8] =
-    include_bytes!("../../roms/341-0003 — Apple II Integer BASIC F000 (2716).bin"); // $F000-$F7FF
-static ROM_341_0004: &[u8] =
-    include_bytes!("../../roms/341-0004 — Apple II Original Monitor F800 (2716).bin"); // $F800-$FFFF
-
-// The two 8K Enhanced //e system ROM halves: CD = $C000-$DFFF, EF =
-// $E000-$FFFF. The language card banks $D000-$FFFF (the CD half's upper 4K
-// plus the whole EF half); $C000-$CFFF is I/O and internal firmware.
-static ROM_IIE_CD: &[u8] =
-    include_bytes!("../../roms/342-0304-A — Apple IIe CD Enhanced (2764).bin");
-static ROM_IIE_EF: &[u8] =
-    include_bytes!("../../roms/342-0303-A — Apple IIe EF Enhanced (2764).bin");
-
-// The unenhanced (original 1983 //e) system ROM halves — same $C000-$DFFF
-// (CD) / $E000-$FFFF (EF) split as the Enhanced pair above, but without the
-// 65C02/MouseText firmware. Wired into the 6502 //e by `Two::new_2e`; pinned
-// by `iie_unenhanced_system_roms_match_the_committed_images`.
-static ROM_IIE_CD_UNENHANCED: &[u8] =
-    include_bytes!("../../roms/342-0135-B — Apple IIe CD Unenhanced (2764).bin");
-static ROM_IIE_EF_UNENHANCED: &[u8] =
-    include_bytes!("../../roms/342-0134-A — Apple IIe EF Unenhanced (2764).bin");
+// The machine ROMs are held in the catalog (`rom::rom("<SKU>")`); how each
+// family maps them:
+//
+// - ][+ (1979): AppleSoft BASIC (341-0011..0015) + Autostart Monitor
+//   (341-0020) fill $D000-$FFFF.
+// - ][ (1978): Programmer's Aid #1 (341-0016) at $D000, Integer BASIC
+//   (341-0001..0003) at $E000-$F7FF, Original (non-autostart) Monitor
+//   (341-0004) at $F800; $D800-$DFFF is left empty (unmapped → $00). The
+//   character ROM 341-0036 is the same one `chr` decodes, reused not
+//   re-embedded — pinned by `apple2_roms_match_the_committed_images`.
+// - //e: two 8K system ROM halves, CD = $C000-$DFFF, EF = $E000-$FFFF —
+//   Enhanced (342-0304-A / 342-0303-A, 65C02 + MouseText) or original
+//   (342-0135-B / 342-0134-A, 6502; pinned by
+//   `iie_unenhanced_system_roms_match_the_committed_images`). The language
+//   card banks $D000-$FFFF; $C000-$CFFF is I/O and internal firmware.
+use crate::rom::rom as catalog_rom;
 
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
@@ -1487,15 +1452,10 @@ impl Two {
     /// Port of `ewm_two_init`: the Apple ][+.
     fn new_2plus(slot0: Slot0, slots: &BTreeMap<u8, SlotDevice>) -> Two {
         let mut rom = Vec::with_capacity(0x3000);
-        for part in [
-            ROM_341_0011,
-            ROM_341_0012,
-            ROM_341_0013,
-            ROM_341_0014,
-            ROM_341_0015,
-            ROM_341_0020,
+        for key in [
+            "341-0011", "341-0012", "341-0013", "341-0014", "341-0015", "341-0020",
         ] {
-            rom.extend_from_slice(part);
+            rom.extend_from_slice(catalog_rom(key));
         }
         assert_eq!(rom.len(), 0x3000, "machine ROMs must cover $D000-$FFFF");
 
@@ -1583,10 +1543,10 @@ impl Two {
 
         // The motherboard ROM, in two pieces with the $D800-$DFFF socket
         // left empty (unmapped → reads $00, the bus's unmapped behavior).
-        mem.add_rom(0xd000, ROM_341_0016.to_vec()); // Programmer's Aid #1
+        mem.add_rom(0xd000, catalog_rom("341-0016").to_vec()); // Programmer's Aid #1
         let mut high = Vec::with_capacity(0x2000);
-        for part in [ROM_341_0001, ROM_341_0002, ROM_341_0003, ROM_341_0004] {
-            high.extend_from_slice(part);
+        for key in ["341-0001", "341-0002", "341-0003", "341-0004"] {
+            high.extend_from_slice(catalog_rom(key));
         }
         assert_eq!(
             high.len(),
@@ -1647,8 +1607,17 @@ impl Two {
     /// 342-0303/0304 ROMs (plans/20260720-02-original-iie.md E3).
     fn new_2e(two_type: TwoType, aux: Box<dyn AuxCard>, slots: &BTreeMap<u8, SlotDevice>) -> Two {
         let (cd, ef, cpu_model) = match two_type {
-            TwoType::Apple2E => (ROM_IIE_CD_UNENHANCED, ROM_IIE_EF_UNENHANCED, Model::M6502),
-            _ => (ROM_IIE_CD, ROM_IIE_EF, Model::M65C02), // Apple2EEnhanced
+            TwoType::Apple2E => (
+                catalog_rom("342-0135-B"),
+                catalog_rom("342-0134-A"),
+                Model::M6502,
+            ),
+            // Apple2EEnhanced
+            _ => (
+                catalog_rom("342-0304-A"),
+                catalog_rom("342-0303-A"),
+                Model::M65C02,
+            ),
         };
         assert_eq!(cd.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ef.len(), 0x2000, "//e EF ROM half must be 8K");
@@ -4414,35 +4383,16 @@ mod tests {
                 .map(|b| format!("{b:02x}"))
                 .collect()
         }
-        for (rom, size, hash) in [
-            (
-                ROM_341_0016,
-                2048,
-                "c9a81d704dc2f0c3416c20f9c4ab71fedda937ed",
-            ),
-            (
-                ROM_341_0001,
-                2048,
-                "bf32195efcb34b694c893c2d342321ec3a24b98f",
-            ),
-            (
-                ROM_341_0002,
-                2048,
-                "9767d92d04fc65c626223f25564cca31f5248980",
-            ),
-            (
-                ROM_341_0003,
-                2048,
-                "f268022da555e4c809ca1ae9e5d2f00b388ff61c",
-            ),
-            (
-                ROM_341_0004,
-                2048,
-                "52a18bd578a4694420009cad7a7a5779a8c00226",
-            ),
+        for (key, size, hash) in [
+            ("341-0016", 2048, "c9a81d704dc2f0c3416c20f9c4ab71fedda937ed"),
+            ("341-0001", 2048, "bf32195efcb34b694c893c2d342321ec3a24b98f"),
+            ("341-0002", 2048, "9767d92d04fc65c626223f25564cca31f5248980"),
+            ("341-0003", 2048, "f268022da555e4c809ca1ae9e5d2f00b388ff61c"),
+            ("341-0004", 2048, "52a18bd578a4694420009cad7a7a5779a8c00226"),
         ] {
-            assert_eq!(rom.len(), size, "{hash}");
-            assert_eq!(sha1(rom), hash);
+            let rom = catalog_rom(key);
+            assert_eq!(rom.len(), size, "{key}");
+            assert_eq!(sha1(rom), hash, "{key}");
         }
 
         // The character ROM (341-0036) is a single committed file that both
@@ -4468,20 +4418,21 @@ mod tests {
                 .map(|b| format!("{b:02x}"))
                 .collect()
         }
-        for (rom, size, hash) in [
+        for (key, size, hash) in [
             (
-                ROM_IIE_CD_UNENHANCED,
+                "342-0135-B",
                 8192,
                 "523838c19c79f481fa02df56856da1ec3816d16e",
             ),
             (
-                ROM_IIE_EF_UNENHANCED,
+                "342-0134-A",
                 8192,
                 "8895a4b703f2184b673078f411f4089889b61c54",
             ),
         ] {
-            assert_eq!(rom.len(), size, "{hash}");
-            assert_eq!(sha1(rom), hash);
+            let rom = catalog_rom(key);
+            assert_eq!(rom.len(), size, "{key}");
+            assert_eq!(sha1(rom), hash, "{key}");
         }
     }
 
@@ -4502,7 +4453,7 @@ mod tests {
         assert_eq!(orig.cpu.model, Model::M6502, "the original //e is a 6502");
         assert_eq!(
             top_8k(&mut orig),
-            ROM_IIE_EF_UNENHANCED,
+            catalog_rom("342-0134-A"),
             "$E000-$FFFF must be the unenhanced EF half"
         );
 
@@ -4511,7 +4462,7 @@ mod tests {
         assert_eq!(enh.cpu.model, Model::M65C02, "the Enhanced //e is a 65C02");
         assert_eq!(
             top_8k(&mut enh),
-            ROM_IIE_EF,
+            catalog_rom("342-0303-A"),
             "$E000-$FFFF must be the Enhanced EF half"
         );
 
