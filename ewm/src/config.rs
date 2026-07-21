@@ -93,9 +93,42 @@ pub struct Machine {
     /// is empty, and `"empty"` exists to say it explicitly. A ][+ table
     /// without `"0"` is therefore a 48K machine.
     pub slots: Option<BTreeMap<String, SlotCard>>,
+    /// The Apple II family's socketed motherboard system ROMs — the chips at
+    /// `$D000-$FFFF` (][ / ][+) or the two 8 KB //e halves (`$C000` CD,
+    /// `$E000` EF), each a `builtin:<SKU>` catalog key at its CPU address.
+    /// When absent the `model` selects the standard set. (The language card's
+    /// RAM is not a ROM and is not listed here; the character/video ROM has
+    /// its own `character_rom` key.)
+    #[serde(default)]
+    pub rom: Vec<RomChip>,
     /// Extra RAM or ROM regions loaded from files at startup.
     #[serde(default)]
     pub memory: Vec<MemoryRegion>,
+}
+
+/// One socketed motherboard system-ROM chip: the ROM image and the CPU
+/// address it sits at.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+pub struct RomChip {
+    /// The CPU address the chip sits at, hex (`"0xd000"`) or decimal.
+    pub address: String,
+    /// The ROM image: `builtin:<SKU>` (a catalog key like `builtin:341-0011`)
+    /// or a file path.
+    pub path: String,
+}
+
+impl RomChip {
+    /// The `address` string as a 16-bit value (`0x`-hex or decimal).
+    pub fn address_value(&self) -> Result<u16, String> {
+        MemoryRegion {
+            kind: MemoryKind::Rom,
+            address: self.address.clone(),
+            path: None,
+            size: None,
+        }
+        .address_value()
+    }
 }
 
 /// Which machine to emulate. The token also decides the machine
@@ -1127,6 +1160,18 @@ fn validate(config: &Config) -> Result<(), String> {
                 }
                 parse_memory_size(size).map_err(|e| format!("machine.memory[{i}].size: {e}"))?;
             }
+        }
+    }
+    for (i, chip) in machine
+        .map(|m| m.rom.as_slice())
+        .unwrap_or(&[])
+        .iter()
+        .enumerate()
+    {
+        chip.address_value()
+            .map_err(|e| format!("machine.rom[{i}].address: {e}"))?;
+        if let Some(name) = chip.path.strip_prefix("builtin:") {
+            rom_builtin(name).map_err(|e| format!("machine.rom[{i}].path: {e}"))?;
         }
     }
     if config.display.fps == Some(0) {
