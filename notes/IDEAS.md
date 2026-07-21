@@ -24,12 +24,16 @@ deterministic golden-BMP test culture.
   card: AY-3-8910 PSGs driven by 6522 VIAs (slot 4/5). Ultima III–V, Skyfox,
   many demos. AppleWin and Virtual ][ both emulate it; AppleWin adds the
   SSI263 speech chip. *(infra: `snd.rs` already has a cycle-stamped audio
-  path; the 6522 is a well-contained new device.)*
+  path; the 6522 is a well-contained new device; and the AppleMouse card
+  (`notes/MOUSE.md`) built the reusable maskable-IRQ line the 6522 VIAs
+  assert.)*
 - **Super Serial Card** (M) — slot 2 serial. The killer feature is the
   **virtual modem**: bridge the SSC to a TCP socket so period terminal
   software can "dial" modern telnet BBSes. AppleWin and Virtual ][ do this.
-- **AppleMouse card** (M) — unlocks MousePaint, Dazzle Draw menus, GEOS.
-  Natural fit: we already have SDL mouse events in the frame loop.
+- ~~**AppleMouse card**~~ — **landed** (`plans/20260721-01-apple-mouse-card.md`,
+  as-built `notes/MOUSE.md`): `{"card": "mouse"}` in any slot 1–7, synthetic
+  firmware + a `Mou` device, host pointer input, and VBL/movement/button
+  interrupts on a new reusable maskable-IRQ line (which Mockingboard inherits).
 - ~~**RamWorks III aux-slot memory**~~ — **landed**: `--aux
   ramworksiii[:SIZE]` (64K..8MB, bank register `$C073`), built on a new
   `AuxCard` trait (`ewm/src/aux/`) that also brought the plain 1K

@@ -450,12 +450,14 @@ Schema rules:
   `ewm two`).
 - **`slots`**: object keyed `"1"`–`"7"`; each value is a card object
   discriminated by `"card"`: `"diskii"` (`drive1`/`drive2` image paths,
-  both optional), `"harddrive"` (`image`), `"thunderclock"`, `"empty"`.
+  both optional), `"harddrive"` (`image`), `"liron"` (`drive1`/`drive2` .2mg
+  paths), `"thunderclock"`, `"mouse"`, `"empty"`.
   When the whole `slots` object is **absent** the machine gets the default
   layout (clock in 1, Disk II in 6); when **present** it is literal — an
   absent slot key means empty, and `"empty"` says it explicitly. Up to
-  three `"diskii"` entries, one `"thunderclock"`, any number of
-  `"harddrive"` cards (Phase B).
+  three `"diskii"` entries, one `"thunderclock"`, one `"mouse"`, any number
+  of `"harddrive"` cards (Phase B). `"mouse"` is the AppleMouse II
+  (`notes/MOUSE.md`), both families, any slot 1–7.
 - `machine.aux`: `{ "card": "80col" | "ext80col" | "ramworksiii", "size":
   "64k".."8m" }` — `size` only valid with `ramworksiii`; whole `aux` object
   only valid with a //e model (`"apple2e"` / `"apple2enhanced"`) (enforced in

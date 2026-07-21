@@ -60,6 +60,8 @@ Two
  │             Dsk                Disk II: drives, arm, motor, latch, media
  │             Hdd / Liron        block devices: registers (+ see §5)
  │             Clk                Thunderclock (reads the host clock)
+ │             Mou                AppleMouse: position, clamp, button/moved,
+ │                                mode, read stream, pending IRQ source
  ├─ model, slot0, DeviceHandle<…> construction data — NOT state
  └─ io: MachineIo                 a handle — NOT state
 ```
