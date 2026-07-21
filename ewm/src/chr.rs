@@ -17,6 +17,17 @@ static CHR_ROM: &[u8; 2048] = include_bytes!("../../roms/3410036.bin");
 static CHR_ROM_IIE: &[u8; 4096] =
     include_bytes!("../../roms/Apple IIe Video - Enhanced - 342-0265-A - 2732.bin");
 
+/// The unenhanced (original 1983) Apple //e 4K video ROM (`342-0133-A`).
+/// Same 4K/first-2K-used shape as the Enhanced ROM above, but **without
+/// MouseText**: where the Enhanced set carries the MouseText repertoire at
+/// `$40-$5F`, the original //e shows inverse upper case there. Selected per
+/// machine by the renderer in a later phase
+/// (plans/20260720-02-original-iie.md E3); pinned by
+/// `iie_unenhanced_video_rom_matches_the_committed_image` until then.
+#[allow(dead_code)]
+static CHR_ROM_IIE_UNENHANCED: &[u8; 4096] =
+    include_bytes!("../../roms/AppleIIe/Apple IIe Video - Unenhanced - 342-0133-A - 2732.bin");
+
 pub type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
 
 pub struct Chr {
@@ -203,6 +214,19 @@ impl Default for ChrE {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Provenance for the unenhanced //e video ROM (E2 of
+    /// plans/20260720-02): pinned by SHA-1 so the original-//e character set
+    /// E3 renders from it cannot silently drift.
+    #[test]
+    fn iie_unenhanced_video_rom_matches_the_committed_image() {
+        let hex: String = crate::ws::sha1(CHR_ROM_IIE_UNENHANCED)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(CHR_ROM_IIE_UNENHANCED.len(), 4096);
+        assert_eq!(hex, "58ad0008df72896a18601e090ee0d58155ffa5be");
+    }
 
     fn render(glyph: &Glyph) -> String {
         glyph
