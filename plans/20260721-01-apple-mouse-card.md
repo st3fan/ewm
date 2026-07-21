@@ -12,14 +12,18 @@
   contract.
 - **Backlog origin:** `notes/IDEAS.md` → "AppleMouse card (M) — unlocks
   MousePaint, Dazzle Draw menus, GEOS."
-- **Status:** in progress — M1 (interrupt path) and M2 (the mouse card
-  substrate, polled) landed; M3–M5 remain.
+- **Status:** in progress — M1 (interrupt path), M2 (the mouse card
+  substrate, polled), and M3 (host input) landed; M4–M5 remain.
 - **Target:** `main`; **one PR per phase** (owner directed).
-- **Kickoff decisions (this build):** (1) coordinates — **relative/captured**;
-  (2) clamp — **firmware default `0..=1023`, no `mouse` config fields**;
-  (3) M4 flagship — the **scripted firmware-level end-to-end test** (no
-  redistributable disk image committed); (4) IRQ line — **`Two`-local**,
-  polled by the burst loops.
+- **Kickoff decisions (this build):** (1) coordinates — **absolute/mapped**
+  (revised from relative/captured during M3: both the SDL window pointer and
+  the RFB pointer map their pixel proportionally into the mouse's clamp
+  window via one `feed_mouse_pixel` path — no cursor grab, testable
+  headlessly, friendlier for a windowed emulator; the device still exposes
+  `move_by` for a future relative mode); (2) clamp — **firmware default
+  `0..=1023`, no `mouse` config fields**; (3) M4 flagship — the **scripted
+  firmware-level end-to-end test** (no redistributable disk image committed);
+  (4) IRQ line — **`Two`-local**, polled by the burst loops.
 
 ## Goal
 
@@ -157,7 +161,7 @@ feed the mouse device instead.
 |---|---|---|---|
 | M1 | Maskable-interrupt path: a cached machine IRQ line the burst loops poll; corrected `cpu.irq()` (real-IRQ vs BRK semantics) | M | Done |
 | M2 | The mouse card substrate: `config::SlotCard::Mouse` + `SlotDevice::Mouse`, the `Mou` device, `mouse_rom(slot)`; polled semantics, headless firmware gate | M | Done |
-| M3 | Host input: SDL mouse events + RFB pointer x/y feed the device each frame; capture/grab; the cursor tracks in polled software | S/M | Planned |
+| M3 | Host input: SDL mouse events + RFB pointer x/y feed the device (absolute/mapped); the cursor tracks in polled software | S/M | Done |
 | M4 | Interrupt mode: VBL / movement / button assert the M1 line; ServeMouse clears; MousePaint flagship gate | M | Planned |
 | M5 | Docs + as-built `notes/MOUSE.md`; README example; schema inventory; tick `IDEAS.md` | S | Planned |
 

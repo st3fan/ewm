@@ -349,11 +349,21 @@ impl Mou {
         }
     }
 
-    /// Move the emulated mouse to `(x, y)` within the clamp window and press
-    /// or release the button — the host-input hook (Phase M3) and a test aid.
-    /// Sets "moved" when the clamped position changes.
-    #[allow(dead_code)]
+    /// Move the emulated mouse to an absolute `(x, y)` within the clamp window
+    /// and set the button — the RFB path (a mapped framebuffer pixel) and a
+    /// test aid. Sets "moved" when the clamped position changes.
     pub fn set_host(&mut self, x: i32, y: i32, button: bool) {
+        self.set_host_position(x, y);
+        self.button = button;
+    }
+
+    /// Integrate a relative movement (host deltas) within the clamp window —
+    /// the SDL captured/relative path, which is what the hardware does.
+    pub fn move_by(&mut self, dx: i32, dy: i32) {
+        self.set_host_position(self.x + dx, self.y + dy);
+    }
+
+    fn set_host_position(&mut self, x: i32, y: i32) {
         let nx = x.clamp(self.clamp_x.0, self.clamp_x.1);
         let ny = y.clamp(self.clamp_y.0, self.clamp_y.1);
         if nx != self.x || ny != self.y {
@@ -361,7 +371,22 @@ impl Mou {
         }
         self.x = nx;
         self.y = ny;
-        self.button = button;
+    }
+
+    /// Press or release the host button.
+    pub fn set_button(&mut self, down: bool) {
+        self.button = down;
+    }
+
+    /// The clamp window `(min_x, max_x, min_y, max_y)`, for mapping an
+    /// absolute host pointer (RFB) into it.
+    pub fn clamp(&self) -> (i32, i32, i32, i32) {
+        (
+            self.clamp_x.0,
+            self.clamp_x.1,
+            self.clamp_y.0,
+            self.clamp_y.1,
+        )
     }
 }
 
