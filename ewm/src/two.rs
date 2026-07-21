@@ -1715,21 +1715,38 @@ impl Two {
     /// Poll the maskable IRQ line between CPU steps (plans/20260721-01 M1).
     /// Level-sensitive: if a device is asserting and the CPU has interrupts
     /// enabled (`I==0`), take the IRQ — which sets `I`, so the handler runs to
-    /// its `RTI` before the still-high line is taken again. A `bool && I`
-    /// check, cheap enough for the per-step burst; the line itself is only
-    /// recomputed when a contributor changes, never scanned here. Dormant
-    /// (the line stays low) until the mouse card asserts it (Phase M4).
+    /// its `RTI` before the still-high line is taken again. The common case is
+    /// a cheap `bool && I` check; only when the cached line is high do we
+    /// re-derive it from the device — the handler's ServeMouse may have
+    /// de-asserted mid-burst, and we must not re-take a spent interrupt.
     pub fn service_irq(&mut self) {
-        if self.irq_line && self.cpu.i == 0 {
+        if !self.irq_line || self.cpu.i != 0 {
+            return;
+        }
+        self.refresh_irq_line();
+        if self.irq_line {
             let _ = self.cpu.irq();
         }
     }
 
-    /// Drive the IRQ line directly, for tests, until Phase M4 wires the mouse
-    /// device's asserted state into a real refresh.
-    #[cfg(test)]
-    fn set_irq_line(&mut self, asserted: bool) {
-        self.irq_line = asserted;
+    /// Recompute the cached IRQ line from the interrupt-capable devices — for
+    /// now just the mouse. Called on a contributor change (per frame, after a
+    /// feed) and to confirm a cached-high line, never scanned per instruction.
+    fn refresh_irq_line(&mut self) {
+        self.irq_line = match self.mouse {
+            Some((_, h)) => self.cpu.mem.device(h).irq_asserted(),
+            None => false,
+        };
+    }
+
+    /// The once-per-frame vertical-blank tick (M4): pulse the mouse's VBL, then
+    /// refresh the IRQ line. Both frontends call it once per frame before the
+    /// CPU burst — deterministic (60 Hz), matching the frame loop.
+    pub fn tick_vbl(&mut self) {
+        if let Some((_, h)) = self.mouse {
+            self.cpu.mem.device_mut(h).vbl_tick();
+        }
+        self.refresh_irq_line();
     }
 
     /// The slot 0 socket (slot 0 on the ][+; the //e reports `Language`,
@@ -1944,6 +1961,7 @@ impl Two {
             m.move_by(dx, dy);
             m.set_button(button);
         }
+        self.refresh_irq_line(); // movement/button may raise an interrupt
     }
 
     /// Feed an absolute host pointer in framebuffer pixels — the RFB path.
@@ -1963,6 +1981,7 @@ impl Two {
             let y = map(py, height, min_y, max_y);
             m.set_host(x, y, button);
         }
+        self.refresh_irq_line(); // movement/button may raise an interrupt
     }
 
     /// Port of `ewm_two_load_disk`: insert a disk into the boot controller.
@@ -3384,6 +3403,7 @@ fn serve(mut options: Options) -> i32 {
             // consumed the previous one — see the RemoteKeys doc comment.
             keys.pump(&mut two);
 
+            two.tick_vbl(); // once-per-frame mouse VBL + IRQ-line refresh (M4)
             let mut budget = (speed / fps) as i64;
             while budget > 0 {
                 two.service_irq();
@@ -4197,6 +4217,7 @@ pub fn main(args: &[String]) -> i32 {
                     (x, y)
                 }));
 
+                two.tick_vbl(); // once-per-frame mouse VBL + IRQ-line refresh (M4)
                 let mut budget = (speed / fps) as i64;
                 while budget > 0 {
                     two.service_irq();
@@ -5350,23 +5371,30 @@ mod tests {
 
     #[test]
     fn machine_irq_line_is_level_sensitive_and_gated_by_i() {
-        // M1 (plans/20260721-01): the cached IRQ line, polled by service_irq
-        // between CPU steps. A high line with interrupts enabled vectors
-        // through $FFFE; SEI holds it pending until CLI (level-sensitive); a
-        // low line is never taken. Dormant in production until Phase M4.
-        let mut two = Two::new(TwoType::Apple2Plus).unwrap();
+        // The IRQ line (M1) derives from the mouse's asserted state (M4):
+        // service_irq, polling it between CPU steps, takes the IRQ when I==0
+        // and vectors through $FFFE; SEI holds it pending; once ServeMouse
+        // de-asserts, a spent line is not re-taken. A machine with no
+        // interrupt-capable device keeps the line low.
+        let mut plain = Two::new(TwoType::Apple2Plus).unwrap();
+        plain.cpu.reset();
+        plain.cpu.i = 0;
+        let pc = plain.cpu.pc;
+        plain.service_irq();
+        assert_eq!(plain.cpu.pc, pc, "no device, no IRQ");
+
+        let mut two = mouse_machine();
         two.cpu.reset();
         let vector = two.cpu.mem.read(0xfffe) as u16 | ((two.cpu.mem.read(0xffff) as u16) << 8);
 
-        // Line low: a no-op even with interrupts enabled.
-        two.cpu.i = 0;
-        let pc = two.cpu.pc;
-        two.service_irq();
-        assert_eq!(two.cpu.pc, pc, "no IRQ taken when the line is low");
+        // Enable the mouse VBL interrupt (SetMouse mode $09 via port 2) and
+        // pulse VBL: the line goes high.
+        two.cpu.mem.write(0xc0c2, 0x09);
+        two.tick_vbl();
 
-        // Line high but masked (SEI): held pending.
-        two.set_irq_line(true);
+        // Masked (SEI): held pending.
         two.cpu.i = 1;
+        let pc = two.cpu.pc;
         two.service_irq();
         assert_eq!(two.cpu.pc, pc, "SEI holds the request pending");
 
@@ -5376,8 +5404,8 @@ mod tests {
         assert_eq!(two.cpu.pc, vector, "the IRQ vectors through $FFFE");
         assert_eq!(two.cpu.i, 1, "taking the IRQ masks further interrupts");
 
-        // De-assert: a low line is not re-taken, even with I clear.
-        two.set_irq_line(false);
+        // ServeMouse (read port 9) de-asserts; the spent line is not re-taken.
+        let _ = two.cpu.mem.read(0xc0c9);
         two.cpu.i = 0;
         let pc = two.cpu.pc;
         two.service_irq();
