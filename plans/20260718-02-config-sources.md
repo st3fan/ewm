@@ -245,9 +245,9 @@ first-class answer:
 
 ## Backlog (out of scope, recorded)
 
-- **Default machine as a built-in** — make bare `ewm two` boot
-  `builtin:<name>` so code and configs stop describing the default
-  machine twice.
+- ~~**Default machine as a built-in**~~ — **done**: bare `ewm two`
+  boots `builtin:apple2plus`, so code and configs describe the default
+  machine once.
 - **Built-in overlays** — e.g. `--config-overlay builtin:vnc` for a
   canned headless-serve layer.
 - **User config directory** — resolve bare names against
