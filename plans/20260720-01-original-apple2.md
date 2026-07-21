@@ -9,7 +9,7 @@
 - **Prerequisite (done):** model tokens spelled out —
   `2plus`→`apple2plus`, `2e`→`apple2e` — so this machine is `apple2`
   (the rename PR, #308).
-- **Status:** draft — iterate here before kickoff
+- **Status:** complete — A1–A3 landed (one PR per phase)
 - **Target:** `main`; PR granularity decided at kickoff
 
 ## Goal
@@ -71,7 +71,7 @@ So the main ROM window is `$D000-$FFFF` with a **hole at `$D800-$DFFF`**
 |---|---|---|---|
 | A1 | Embed the `roms/AppleII/` set (statics + provenance/hash test + char-ROM reuse); document the memory map | S | Done |
 | A2 | `config::Model::Two` (`"apple2"`) + `Two::new_apple2` from the Integer ROM set; `TwoType::Apple2` becomes buildable; family/validation plumbing; boot-to-Monitor / Integer-BASIC gate | M | Done |
-| A3 | `configs/minimal-apple2.json` builtin; `PR#6` boots DOS 3.3 gate; README + `notes/JSON_CONFIG.md` docs | S/M | Not started |
+| A3 | `builtin:apple2` config (48K, Disk ][) + PR#6-boots-DOS-3.3 gate + docs | S/M | Done |
 
 A1 → A2 → A3 in order. **A1 could fold into A2** (the ROM statics are
 only useful once `new_apple2` exists) — decide at kickoff. Every phase: the

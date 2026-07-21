@@ -517,6 +517,7 @@ pub enum RemoteProtocol {
 /// plans/20260718-02-config-sources.md (C1).
 const BUILTINS: &[(&str, &str)] = &[
     ("apple1", include_str!("../../configs/apple1.json")),
+    ("apple2", include_str!("../../configs/apple2.json")),
     ("apple2e", include_str!("../../configs/apple2e.json")),
     ("apple2plus", include_str!("../../configs/apple2plus.json")),
     ("replica1", include_str!("../../configs/replica1.json")),
@@ -1456,8 +1457,12 @@ mod tests {
         // The naming convention: builtin names are the schema's model
         // tokens (builtin:apple2plus, builtin:apple1, …), both families.
         let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
-        assert_eq!(models, vec!["apple1", "apple2e", "apple2plus", "replica1"]);
+        assert_eq!(
+            models,
+            vec!["apple1", "apple2", "apple2e", "apple2plus", "replica1"]
+        );
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
+        assert_eq!(model("apple2"), Some(Model::Two));
         assert_eq!(model("apple2plus"), Some(Model::TwoPlus));
         assert_eq!(model("apple2e"), Some(Model::TwoE));
         assert_eq!(model("apple1"), Some(Model::Apple1));
@@ -1469,7 +1474,7 @@ mod tests {
         let err = load_builtin("foo").unwrap_err();
         assert_eq!(
             err,
-            r#"no built-in config "foo" (available: apple1, apple2e, apple2plus, replica1)"#
+            r#"no built-in config "foo" (available: apple1, apple2, apple2e, apple2plus, replica1)"#
         );
     }
 
