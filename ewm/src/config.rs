@@ -281,10 +281,11 @@ pub struct MemoryRegion {
     pub kind: MemoryKind,
     /// Load address, hex (`"0xd000"`) or decimal (`"53248"`).
     pub address: String,
-    /// File whose contents fill the region, or `builtin:<name>` for one
-    /// of the embedded ROM images under `roms/` (e.g. `builtin:WozMon`,
-    /// `builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`). A region
-    /// takes exactly one of `path` or `size`.
+    /// File whose contents fill the region, or `builtin:<name>` for one of
+    /// the embedded ROM images — any ROM-catalog key: a SKU like
+    /// `builtin:342-0304-A`, or a product slug like `builtin:WozMon`,
+    /// `builtin:apple1-basic`, `builtin:Krusader-1.3-65C02`. A region takes
+    /// exactly one of `path` or `size`.
     pub path: Option<String>,
     /// Size of an *empty* RAM bank (`"4k"`, `"32k"`, or decimal bytes) —
     /// the Apple 1 family's RAM boards. Only valid with `"type": "ram"`;
@@ -541,38 +542,15 @@ const BUILTINS: &[(&str, &str)] = &[
     ("replica1", include_str!("../../configs/replica1.json")),
 ];
 
-/// The mountable one-family ROM images: the files under `roms/` a memory
-/// region can name as `"path": "builtin:<name>"` — embedded so built-in
-/// configs stay self-contained. Name = the file's stem, sorted, like
-/// `BUILTINS`. Provenance and layout: notes/APPLE1.md.
-const ROM_BUILTINS: &[(&str, &[u8])] = &[
-    (
-        "Krusader-1.3-6502",
-        include_bytes!("../../roms/Krusader-1.3-6502.bin"),
-    ),
-    (
-        "Krusader-1.3-65C02",
-        include_bytes!("../../roms/Krusader-1.3-65C02.bin"),
-    ),
-    ("WozMon", include_bytes!("../../roms/WozMon.bin")),
-    (
-        "apple1-basic",
-        include_bytes!("../../roms/apple1-basic.bin"),
-    ),
-];
-
-/// Look up an embedded ROM image by its `builtin:` name.
+/// Look up an embedded ROM image by its `builtin:` name — any key in the ROM
+/// catalog (`rom::ROM_CATALOG`): a SKU like `342-0304-A`, or a product slug
+/// like `WozMon` for the ROMs with no Apple part number. Provenance and the
+/// full inventory: notes/ROMS.md.
 pub fn rom_builtin(name: &str) -> Result<&'static [u8], String> {
-    match ROM_BUILTINS.iter().find(|(n, _)| *n == name) {
-        Some((_, data)) => Ok(data),
-        None => {
-            let names: Vec<&str> = ROM_BUILTINS.iter().map(|(n, _)| *n).collect();
-            Err(format!(
-                "no built-in ROM {name:?} (available: {})",
-                names.join(", ")
-            ))
-        }
-    }
+    crate::rom::catalog(name).ok_or_else(|| {
+        let keys: Vec<&str> = crate::rom::ROM_CATALOG.iter().map(|e| e.key).collect();
+        format!("no built-in ROM {name:?} (available: {})", keys.join(", "))
+    })
 }
 
 /// The bytes a memory region's `path` names: `builtin:<name>` resolves
@@ -1662,19 +1640,21 @@ mod tests {
 
     #[test]
     fn rom_builtins_resolve_and_list() {
+        // The SKU-less product slugs still resolve...
         assert_eq!(rom_builtin("WozMon").unwrap().len(), 256);
         assert_eq!(rom_builtin("apple1-basic").unwrap().len(), 4096);
         assert_eq!(rom_builtin("Krusader-1.3-6502").unwrap().len(), 4096);
         assert_eq!(rom_builtin("Krusader-1.3-65C02").unwrap().len(), 4096);
-        // Names are exact (= the file stems), and unknowns list them all.
+        // ...and now any catalog key (a machine/card SKU) resolves too — the R3
+        // payoff, `builtin:342-0304-A`.
+        assert_eq!(rom_builtin("342-0304-A").unwrap().len(), 8192);
+        // Names are exact; an unknown lists the available catalog keys.
         let err = rom_builtin("wozmon").unwrap_err();
-        assert_eq!(
-            err,
-            "no built-in ROM \"wozmon\" (available: Krusader-1.3-6502, \
-             Krusader-1.3-65C02, WozMon, apple1-basic)"
+        assert!(err.starts_with("no built-in ROM \"wozmon\""), "{err}");
+        assert!(
+            err.contains("WozMon") && err.contains("342-0304-A"),
+            "{err}"
         );
-        // The table stays sorted so the listing reads predictably.
-        assert!(ROM_BUILTINS.windows(2).all(|w| w[0].0 < w[1].0));
     }
 
     #[test]

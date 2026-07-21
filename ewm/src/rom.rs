@@ -123,6 +123,28 @@ pub static ROM_CATALOG: &[RomEntry] = &[
         desc: "AppleMouse II interface card ROM (banked into $Cn00)",
         data: include_bytes!("../../roms/342-0270-C — AppleMouse II Interface Card (2716).bin"),
     },
+    // --- ROMs with no Apple part number (keyed by product slug); these are
+    // the ones the built-in Apple 1 / Replica 1 configs mount by `builtin:`. ---
+    RomEntry {
+        key: "Krusader-1.3-6502",
+        desc: "Krusader 1.3 assembler/monitor (6502)",
+        data: include_bytes!("../../roms/Krusader-1.3-6502.bin"),
+    },
+    RomEntry {
+        key: "Krusader-1.3-65C02",
+        desc: "Krusader 1.3 assembler/monitor (65C02)",
+        data: include_bytes!("../../roms/Krusader-1.3-65C02.bin"),
+    },
+    RomEntry {
+        key: "WozMon",
+        desc: "Apple 1 Woz Monitor ($FF00-$FFFF)",
+        data: include_bytes!("../../roms/WozMon.bin"),
+    },
+    RomEntry {
+        key: "apple1-basic",
+        desc: "Apple 1 Integer BASIC ($E000-$EFFF)",
+        data: include_bytes!("../../roms/apple1-basic.bin"),
+    },
 ];
 
 /// The bytes of the ROM with catalog key `key`, or `None` if there is no such
