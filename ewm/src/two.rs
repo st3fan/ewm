@@ -1972,6 +1972,13 @@ impl Two {
         Some(self.cpu.mem.device(h).position())
     }
 
+    /// Whether the mouse is currently asserting its slot IRQ (some interrupt
+    /// source pending, until ServeMouse clears it). Introspection for tests.
+    pub fn mouse_irq_pending(&self) -> Option<bool> {
+        let (_, h) = self.mouse?;
+        Some(self.cpu.mem.device(h).irq_asserted())
+    }
+
     /// Feed relative host movement + button to the mouse — the SDL captured/
     /// relative path (plans/20260721-01 M3). The device integrates the delta
     /// within its clamp window, as the hardware does. A no-op without a card.

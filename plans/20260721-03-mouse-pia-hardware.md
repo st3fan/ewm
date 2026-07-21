@@ -76,7 +76,7 @@ surface (`{"card":"mouse"}`) is unchanged.
 | P1 | The card substrate: 6520 PIA + 6805 controller + handshake + all commands + banked 342-0270-C ROM at `$Cn00`; retire the synthetic `mouse_rom`; migrate the unit tests | L | **Landed** (#332) |
 | P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | **Landed** (#TBD) |
 | P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | **Landed** (#TBD) |
-| P4 | Interrupts through the real firmware handler (//e path): VBL/movement/button; SERVEMOUSE clears | M | Planned |
+| P4 | Interrupts through the real firmware (][+): VBL asserts the line, ServeMouse reports + clears | M | **Landed** (#TBD) |
 | P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | Planned |
 
 **As built (P1):** the PIA, the 6805 controller (handshake + every command
@@ -151,8 +151,22 @@ ignoring the keyboard) is resolved.
 
 - The 6805 asserts the M1 IRQ line on VBL (per-frame, if VBL-IRQ mode) /
   movement / button; SERVEMOUSE reports the source and de-asserts.
-- **Gate:** an interrupt end-to-end test through the real firmware; ideally
-  MousePaint interrupt-driven on the //e.
+- **Gate (met, ][+):** `tests/two_mouse.rs`'s
+  `vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source` — VBL
+  interrupts enabled through the real SetMouse, a handler installed at the ROM
+  user IRQ vector `$03FE` calls the real ServeMouse, and it fires exactly once
+  per frame with ServeMouse reporting the VBL source (`$08`) in the status
+  hole and de-asserting the line (`Two::mouse_irq_pending()` confirms no
+  re-fire).
+
+**As built (P4):** on the **][+** the interrupt path works end-to-end through
+the real firmware. On the **//e** the IRQ vectors differently — `$FFFE`
+(`$C3FA`) enables INTCXROM and jumps into the **card firmware's own interrupt
+entry** (`$C400`, V-set), not the `$03FE` user vector — and that firmware
+interrupt-service routine does not complete against our card (it reads a
+multi-byte handshake stream looking for a terminator our ServeMouse response
+does not match, and loops). MousePaint's //e path is **polling**, which works
+(P3), so this does not block the flagship. Recorded in the backlog.
 
 ### P5 — retire the synthetic card + docs
 
@@ -188,6 +202,13 @@ ignoring the keyboard) is resolved.
 
 ## Backlog (recorded, out of scope)
 
+- **//e interrupt-driven mouse via the //e ROM handler** (P4 as-built): the
+  //e's `$FFFE` handler (`$C3FA`) enables INTCXROM and enters the card
+  firmware's own interrupt entry (`$C400`, V-set) rather than the `$03FE` user
+  vector; that firmware routine loops against our card instead of completing.
+  The ][+ interrupt path and the //e polling path both work. Needs the card's
+  interrupt-service handshake response to match what the //e firmware entry
+  expects (likely a different reply format/terminator than ServeMouse).
 - Mockingboard on the shared IRQ line; the `//c` built-in mouse (the //c wires
   a similar controller to its IOU); the unknown commands `$8n`/`$An`/`$Bn`/
   `$Cn` (the 6805 leaves them unimplemented too).
