@@ -4,6 +4,14 @@
   "title": "Apple ][+",
   "machine": {
     "model": "apple2plus",
+    "rom": [
+      { "address": "0xd000", "path": "builtin:341-0011" },
+      { "address": "0xd800", "path": "builtin:341-0012" },
+      { "address": "0xe000", "path": "builtin:341-0013" },
+      { "address": "0xe800", "path": "builtin:341-0014" },
+      { "address": "0xf000", "path": "builtin:341-0015" },
+      { "address": "0xf800", "path": "builtin:341-0020" }
+    ],
     "slots": {
       "0": { "card": "language" },
       "6": { "card": "diskii" }

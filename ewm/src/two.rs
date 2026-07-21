@@ -390,8 +390,10 @@ struct IouE {
     /// firmware has a `$C800` image in EWM (no peripheral card here does), so a
     /// single flag suffices; per-slot expansion is out of scope.
     c800_internal: bool,
-    /// Internal `$C100-$CFFF` firmware (the CD ROM half, offset `$100`).
-    internal_rom: &'static [u8],
+    /// Internal `$C100-$CFFF` firmware (the CD ROM half, offset `$100`). Owned
+    /// (a copy) so the CD ROM can come from a config, not only a `'static`
+    /// catalog image.
+    internal_rom: Vec<u8>,
     /// Peripheral card ROM at `$Cn00-$CnFF`, indexed by slot `1..=7`
     /// (slot 0 unused); `None` when no card occupies the slot. Owned copies
     /// so per-slot generated firmware (clock, hard disk) can be installed.
@@ -487,14 +489,14 @@ impl IouE {
     /// internal firmware is the CD half's `[0x100..0x1000]`; the banked
     /// `$D000-$FFFF` language-card ROM is the CD half's upper 4K plus the
     /// whole EF half.
-    fn new(aux: Box<dyn AuxCard>, cd: &'static [u8], ef: &'static [u8]) -> IouE {
+    fn new(aux: Box<dyn AuxCard>, cd: &[u8], ef: &[u8]) -> IouE {
         IouE {
             key: 0,
             debug: false,
             intcxrom: false,
             slotc3rom: false,
             c800_internal: false,
-            internal_rom: &cd[0x100..0x1000],
+            internal_rom: cd[0x100..0x1000].to_vec(),
             slot_rom: [None; 8],
             store80: false,
             ramrd: false,
@@ -1336,6 +1338,60 @@ pub fn default_slots() -> BTreeMap<u8, SlotDevice> {
     BTreeMap::from([(1, SlotDevice::Thunderclock), (6, SlotDevice::DiskII)])
 }
 
+/// The model's standard socketed motherboard system ROMs — the `machine.rom`
+/// default, `(CPU address, bytes)` per chip, from the catalog. `Two::new` and
+/// the config path (when `machine.rom` is omitted) both use this, so a bare
+/// `ewm two` and `builtin:apple2plus` build the identical machine.
+pub(crate) fn default_rom_chips(two_type: TwoType) -> Vec<(u16, Vec<u8>)> {
+    let chip = |addr: u16, sku: &str| (addr, catalog_rom(sku).to_vec());
+    match two_type {
+        // Programmer's Aid at $D000, Integer BASIC at $E000-$F7FF, Original
+        // Monitor at $F800; $D800 socket empty.
+        TwoType::Apple2 => vec![
+            chip(0xd000, "341-0016"),
+            chip(0xe000, "341-0001"),
+            chip(0xe800, "341-0002"),
+            chip(0xf000, "341-0003"),
+            chip(0xf800, "341-0004"),
+        ],
+        // AppleSoft BASIC $D000-$F7FF + Autostart Monitor $F800.
+        TwoType::Apple2Plus => vec![
+            chip(0xd000, "341-0011"),
+            chip(0xd800, "341-0012"),
+            chip(0xe000, "341-0013"),
+            chip(0xe800, "341-0014"),
+            chip(0xf000, "341-0015"),
+            chip(0xf800, "341-0020"),
+        ],
+        // The two 8K //e halves: CD ($C000) + EF ($E000).
+        TwoType::Apple2E => vec![chip(0xc000, "342-0135-B"), chip(0xe000, "342-0134-A")],
+        TwoType::Apple2EEnhanced => vec![chip(0xc000, "342-0304-A"), chip(0xe000, "342-0303-A")],
+    }
+}
+
+/// Assemble the `$D000-$FFFF` motherboard image (`0x3000` bytes) from placed
+/// chips (][ / ][+); a byte no chip covers — an empty socket — reads `$00`.
+fn assemble_motherboard(chips: &[(u16, Vec<u8>)]) -> Vec<u8> {
+    let mut rom = vec![0u8; 0x3000];
+    for (addr, bytes) in chips {
+        let off = (*addr as usize).saturating_sub(0xd000);
+        let end = (off + bytes.len()).min(rom.len());
+        if off < rom.len() {
+            rom[off..end].copy_from_slice(&bytes[..end - off]);
+        }
+    }
+    rom
+}
+
+/// The bytes of the chip at CPU address `addr`, if the list places one there
+/// (the //e's CD/EF halves).
+fn take_chip(chips: &[(u16, Vec<u8>)], addr: u16) -> Option<Vec<u8>> {
+    chips
+        .iter()
+        .find(|(a, _)| *a == addr)
+        .map(|(_, b)| b.clone())
+}
+
 /// A slot's 16-byte DEVSEL I/O range starts here ($C080 + slot*16).
 fn slot_io_base(slot: u8) -> u16 {
     0xc080 + slot as u16 * 16
@@ -1404,6 +1460,20 @@ impl Two {
         slot0: Slot0,
         slots: &BTreeMap<u8, SlotDevice>,
     ) -> Result<Two, String> {
+        // The model's standard motherboard ROMs; the config path (below) can
+        // supply its own via `new_with_slots_and_rom`.
+        Two::new_with_slots_and_rom(two_type, aux, slot0, slots, default_rom_chips(two_type))
+    }
+
+    /// Like `new_with_slots`, but with an explicit socketed-ROM set — the
+    /// config's `machine.rom`, resolved to `(address, bytes)` chips.
+    pub fn new_with_slots_and_rom(
+        two_type: TwoType,
+        aux: Option<Box<dyn AuxCard>>,
+        slot0: Slot0,
+        slots: &BTreeMap<u8, SlotDevice>,
+        rom_chips: Vec<(u16, Vec<u8>)>,
+    ) -> Result<Two, String> {
         if let Some(slot) = slots.keys().find(|s| !(1..=7).contains(*s)) {
             return Err(format!("no such slot {slot} (slots are 1 through 7)"));
         }
@@ -1422,13 +1492,28 @@ impl Two {
                         card.label()
                     ));
                 }
-                Ok(Two::new_2plus(slot0, slots))
+                // The socketed motherboard ROMs fill $D000-$FFFF; the language
+                // card banks its RAM over them.
+                Ok(Two::new_2plus(
+                    slot0,
+                    slots,
+                    assemble_motherboard(&rom_chips),
+                ))
             }
-            TwoType::Apple2E | TwoType::Apple2EEnhanced => Ok(Two::new_2e(
-                two_type,
-                aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
-                slots,
-            )),
+            TwoType::Apple2E | TwoType::Apple2EEnhanced => {
+                // Two 8K //e halves: CD ($C000-$DFFF) and EF ($E000-$FFFF).
+                let cd = take_chip(&rom_chips, 0xc000)
+                    .ok_or("machine.rom: the //e needs a CD ROM at $C000")?;
+                let ef = take_chip(&rom_chips, 0xe000)
+                    .ok_or("machine.rom: the //e needs an EF ROM at $E000")?;
+                Ok(Two::new_2e(
+                    two_type,
+                    aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
+                    slots,
+                    cd,
+                    ef,
+                ))
+            }
             TwoType::Apple2 => {
                 if let Some(card) = aux {
                     return Err(format!(
@@ -1444,19 +1529,14 @@ impl Two {
                             .to_string(),
                     );
                 }
-                Ok(Two::new_apple2(slots))
+                Ok(Two::new_apple2(slots, &rom_chips))
             }
         }
     }
 
-    /// Port of `ewm_two_init`: the Apple ][+.
-    fn new_2plus(slot0: Slot0, slots: &BTreeMap<u8, SlotDevice>) -> Two {
-        let mut rom = Vec::with_capacity(0x3000);
-        for key in [
-            "341-0011", "341-0012", "341-0013", "341-0014", "341-0015", "341-0020",
-        ] {
-            rom.extend_from_slice(catalog_rom(key));
-        }
+    /// Port of `ewm_two_init`: the Apple ][+. `rom` is the assembled
+    /// $D000-$FFFF motherboard image (from the config's `machine.rom`).
+    fn new_2plus(slot0: Slot0, slots: &BTreeMap<u8, SlotDevice>, rom: Vec<u8>) -> Two {
         assert_eq!(rom.len(), 0x3000, "machine ROMs must cover $D000-$FFFF");
 
         let mut mem = Memory::new(0xc000); // $0000-$BFFF
@@ -1537,23 +1617,16 @@ impl Two {
     /// lands at the `*` prompt and a disk boots only via `PR#6` / `C600G`.
     /// No slot 0: config validation keeps this a 48K machine
     /// (plans/20260720-01-original-apple2.md A2).
-    fn new_apple2(slots: &BTreeMap<u8, SlotDevice>) -> Two {
+    fn new_apple2(slots: &BTreeMap<u8, SlotDevice>, rom_chips: &[(u16, Vec<u8>)]) -> Two {
         let mut mem = Memory::new(0xc000); // $0000-$BFFF (48K)
         let io = mem.add_device(0xc000, 0xc07f, TwoIo::new());
 
-        // The motherboard ROM, in two pieces with the $D800-$DFFF socket
-        // left empty (unmapped → reads $00, the bus's unmapped behavior).
-        mem.add_rom(0xd000, catalog_rom("341-0016").to_vec()); // Programmer's Aid #1
-        let mut high = Vec::with_capacity(0x2000);
-        for key in ["341-0001", "341-0002", "341-0003", "341-0004"] {
-            high.extend_from_slice(catalog_rom(key));
+        // The motherboard ROM chips sit directly on the bus (no language
+        // card). An empty socket — the $D800-$DFFF hole — is simply a chip the
+        // config doesn't list, so its range stays unmapped (reads $00).
+        for (addr, bytes) in rom_chips {
+            mem.add_rom(*addr, bytes.clone());
         }
-        assert_eq!(
-            high.len(),
-            0x2000,
-            "Integer BASIC + Monitor cover $E000-$FFFF"
-        );
-        mem.add_rom(0xe000, high);
 
         let mut dsks = BTreeMap::new();
         let mut lirons = BTreeMap::new();
@@ -1605,19 +1678,19 @@ impl Two {
     /// selects the CPU and system ROM: the original //e is a 6502 with the
     /// unenhanced 342-0134/0135 ROMs, the Enhanced //e a 65C02 with the
     /// 342-0303/0304 ROMs (plans/20260720-02-original-iie.md E3).
-    fn new_2e(two_type: TwoType, aux: Box<dyn AuxCard>, slots: &BTreeMap<u8, SlotDevice>) -> Two {
-        let (cd, ef, cpu_model) = match two_type {
-            TwoType::Apple2E => (
-                catalog_rom("342-0135-B"),
-                catalog_rom("342-0134-A"),
-                Model::M6502,
-            ),
-            // Apple2EEnhanced
-            _ => (
-                catalog_rom("342-0304-A"),
-                catalog_rom("342-0303-A"),
-                Model::M65C02,
-            ),
+    fn new_2e(
+        two_type: TwoType,
+        aux: Box<dyn AuxCard>,
+        slots: &BTreeMap<u8, SlotDevice>,
+        cd: Vec<u8>,
+        ef: Vec<u8>,
+    ) -> Two {
+        // The variant selects only the CPU now; the ROM halves come from the
+        // config (`machine.rom`): the original //e is a 6502, the Enhanced a
+        // 65C02.
+        let cpu_model = match two_type {
+            TwoType::Apple2E => Model::M6502,
+            _ => Model::M65C02, // Apple2EEnhanced
         };
         assert_eq!(cd.len(), 0x2000, "//e CD ROM half must be 8K");
         assert_eq!(ef.len(), 0x2000, "//e EF ROM half must be 8K");
@@ -1632,7 +1705,7 @@ impl Two {
         // (internal firmware vs the peripheral-slot ROMs it holds). The
         // peripheral I/O devices stay separate below; the //e does not use
         // `Alc`.
-        let mut iou = IouE::new(aux, cd, ef);
+        let mut iou = IouE::new(aux, &cd, &ef);
         for (&slot, &card) in slots {
             match card {
                 SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
@@ -2374,6 +2447,9 @@ struct Options {
     /// up and rendering) — for debugging and video recording.
     boot_delay: f64,
     fps: u32,
+    /// The socketed motherboard system ROMs (config `machine.rom`): `(address,
+    /// image path)` per chip. Empty means the model's standard set.
+    rom: Vec<(u16, String)>,
     memory: Vec<MemoryOption>,
     /// Emulated CPU cycles per second at startup (config-only; the command
     /// palette switches it at runtime).
@@ -2695,6 +2771,9 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
                 .expect("family validation guarantees an image path"),
         });
     }
+    for chip in machine.rom {
+        options.rom.push((chip.address_value()?, chip.path));
+    }
     if let Some(monitor) = config.display.monitor {
         options.monitor = monitor.style();
     }
@@ -2795,6 +2874,14 @@ fn options_to_config(options: &Options) -> config::Config {
                     .map(|(slot, card)| (slot.to_string(), card.clone()))
                     .collect(),
             ),
+            rom: options
+                .rom
+                .iter()
+                .map(|(address, path)| config::RomChip {
+                    address: format!("0x{address:04x}"),
+                    path: path.clone(),
+                })
+                .collect(),
             memory: options
                 .memory
                 .iter()
@@ -2911,7 +2998,19 @@ fn build_machine(options: &Options) -> Result<Two, String> {
         })
         .collect();
     let aux = options.aux.as_deref().map(crate::aux::parse).transpose()?;
-    let mut two = Two::new_with_slots(options.model, aux, slot0, &table)?;
+    // The socketed motherboard ROMs: from the config's `machine.rom` (each
+    // `builtin:<SKU>` or file resolved to bytes) when given, else the model's
+    // standard set — so a config omitting them matches `Two::new`.
+    let rom_chips = if options.rom.is_empty() {
+        default_rom_chips(options.model)
+    } else {
+        options
+            .rom
+            .iter()
+            .map(|(addr, path)| Ok((*addr, crate::config::read_memory_image(path)?)))
+            .collect::<Result<Vec<_>, String>>()?
+    };
+    let mut two = Two::new_with_slots_and_rom(options.model, aux, slot0, &table, rom_chips)?;
     for (&slot, card) in &options.slots {
         match card {
             config::SlotCard::Diskii { drive1, drive2 } => {
@@ -4367,6 +4466,38 @@ mod tests {
     fn opts(args: &[&str]) -> Options {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         parse_options(&args).expect("options must parse")
+    }
+
+    /// R4: each builtin Apple II config names its motherboard ROMs by SKU in
+    /// `machine.rom`, and those SKUs are exactly the model's default set — so
+    /// building with the config's explicit `machine.rom` produces the same
+    /// $D000-$FFFF system ROM as building with it cleared (the `default_rom_chips`
+    /// fallback). A mistyped/wrong SKU in a config would move these bytes.
+    #[test]
+    fn builtin_configs_build_the_default_system_rom() {
+        for config in [
+            "builtin:apple2",
+            "builtin:apple2plus",
+            "builtin:apple2e",
+            "builtin:apple2enhanced",
+        ] {
+            let mut with_rom =
+                build_machine(&opts(&["--config", config])).expect("config machine builds");
+            let mut default_opts = opts(&["--config", config]);
+            default_opts.rom.clear(); // fall back to the model's default_rom_chips
+            let mut without_rom = build_machine(&default_opts).expect("default machine builds");
+            with_rom.cpu.reset();
+            without_rom.cpu.reset();
+            // $D000-$FFFF is the language-card-banked / motherboard ROM (not
+            // slot-dependent), so it isolates the system ROM the config supplies.
+            for addr in 0xd000u32..=0xffff {
+                assert_eq!(
+                    with_rom.cpu.mem.read(addr as u16),
+                    without_rom.cpu.mem.read(addr as u16),
+                    "{config}: machine.rom differs from the default at ${addr:04X}"
+                );
+            }
+        }
     }
 
     /// Provenance for the original Apple ][ ROM set (A1 of

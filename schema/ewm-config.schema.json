@@ -338,6 +338,14 @@
             }
           ]
         },
+        "rom": {
+          "description": "The Apple II family's socketed motherboard system ROMs — the chips at\n`$D000-$FFFF` (][ / ][+) or the two 8 KB //e halves (`$C000` CD,\n`$E000` EF), each a `builtin:<SKU>` catalog key at its CPU address.\nWhen absent the `model` selects the standard set. (The language card's\nRAM is not a ROM and is not listed here; the character/video ROM has\nits own `character_rom` key.)",
+          "type": "array",
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RomChip"
+          }
+        },
         "slots": {
           "description": "The card in each peripheral slot, keyed `\"0\"` through `\"7\"` (slot 0\nis the ][+ language-card socket). When the whole `slots` object is\nabsent the machine gets the classic default layout (a Language Card\nin slot 0, a Thunderclock in slot 1, a Disk II in slot 6); when\npresent it is taken literally — an absent slot key means that slot\nis empty, and `\"empty\"` exists to say it explicitly. A ][+ table\nwithout `\"0\"` is therefore a 48K machine.",
           "type": [
@@ -541,6 +549,24 @@
           "type": "string",
           "const": "rdp"
         }
+      ]
+    },
+    "RomChip": {
+      "description": "One socketed motherboard system-ROM chip: the ROM image and the CPU\naddress it sits at.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "The CPU address the chip sits at, hex (`\"0xd000\"`) or decimal.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The ROM image: `builtin:<SKU>` (a catalog key like `builtin:341-0011`)\nor a file path.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "path"
       ]
     },
     "ScanlinesSetting": {
