@@ -12,8 +12,8 @@
   contract.
 - **Backlog origin:** `notes/IDEAS.md` → "AppleMouse card (M) — unlocks
   MousePaint, Dazzle Draw menus, GEOS."
-- **Status:** in progress — M1 (the maskable-interrupt path) landed;
-  M2–M5 remain.
+- **Status:** in progress — M1 (interrupt path) and M2 (the mouse card
+  substrate, polled) landed; M3–M5 remain.
 - **Target:** `main`; **one PR per phase** (owner directed).
 - **Kickoff decisions (this build):** (1) coordinates — **relative/captured**;
   (2) clamp — **firmware default `0..=1023`, no `mouse` config fields**;
@@ -156,7 +156,7 @@ feed the mouse device instead.
 | Phase | Description | Size | Status |
 |---|---|---|---|
 | M1 | Maskable-interrupt path: a cached machine IRQ line the burst loops poll; corrected `cpu.irq()` (real-IRQ vs BRK semantics) | M | Done |
-| M2 | The mouse card substrate: `config::SlotCard::Mouse` + `SlotDevice::Mouse`, the `Mou` device, `mouse_rom(slot)`; polled semantics, headless firmware gate | M | Planned |
+| M2 | The mouse card substrate: `config::SlotCard::Mouse` + `SlotDevice::Mouse`, the `Mou` device, `mouse_rom(slot)`; polled semantics, headless firmware gate | M | Done |
 | M3 | Host input: SDL mouse events + RFB pointer x/y feed the device each frame; capture/grab; the cursor tracks in polled software | S/M | Planned |
 | M4 | Interrupt mode: VBL / movement / button assert the M1 line; ServeMouse clears; MousePaint flagship gate | M | Planned |
 | M5 | Docs + as-built `notes/MOUSE.md`; README example; schema inventory; tick `IDEAS.md` | S | Planned |

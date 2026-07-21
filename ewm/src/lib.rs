@@ -21,6 +21,7 @@ pub mod hdd;
 pub mod led;
 pub mod liron;
 pub mod media;
+pub mod mouse;
 pub mod one;
 pub mod overlay;
 pub mod palette;

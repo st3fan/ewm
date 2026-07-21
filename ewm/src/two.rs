@@ -14,6 +14,7 @@ use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{Hdd, hdd_rom};
 use crate::liron::{Liron, liron_rom};
+use crate::mouse::{Mou, mouse_rom};
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::saturn::Saturn;
 use crate::scr::{
@@ -1336,6 +1337,9 @@ enum MachineIo {
 pub enum SlotDevice {
     DiskII,
     Thunderclock,
+    /// An AppleMouse II card (`mouse.rs`): synthetic firmware + a `Mou`
+    /// device in the slot's DEVSEL range.
+    Mouse,
     /// The UniDisk 3.5 Controller ("Liron"): two SmartPort 3.5" drives
     /// taking .2mg images, mounted after construction with `load_2mg_at`.
     Liron,
@@ -1382,6 +1386,11 @@ pub struct Two {
     /// UniDisk 3.5 controllers by slot.
     lirons: BTreeMap<u8, DeviceHandle<Liron>>,
     clk: Option<(u8, DeviceHandle<Clk>)>,
+    /// The AppleMouse II card, when present (at most one). Held for runtime
+    /// access: Phase M3 feeds it host input, M4 wires its interrupt into
+    /// `irq_line`. (Its device *state* round-trips via the CPU/Memory chain.)
+    #[allow(dead_code)]
+    mouse: Option<(u8, DeviceHandle<Mou>)>,
     /// The ][+ slot 0 socket (`Slot0::Empty` = a 48K machine). The //e
     /// records `Language` — its card is soldered onto the board.
     slot0: Slot0,
@@ -1511,6 +1520,7 @@ impl Two {
         let mut dsks = BTreeMap::new();
         let mut lirons = BTreeMap::new();
         let mut clk = None;
+        let mut mouse = None;
         for (&slot, &card) in slots {
             let base = slot_io_base(slot);
             match card {
@@ -1523,6 +1533,10 @@ impl Two {
                     // host's date and time.
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
                     mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
+                }
+                SlotDevice::Mouse => {
+                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
+                    mem.add_rom(slot_rom_base(slot), mouse_rom(slot).to_vec());
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1539,6 +1553,7 @@ impl Two {
             hdds: BTreeMap::new(),
             lirons,
             clk,
+            mouse,
             slot0,
             saturn,
             irq_line: false,
@@ -1574,6 +1589,7 @@ impl Two {
         let mut dsks = BTreeMap::new();
         let mut lirons = BTreeMap::new();
         let mut clk = None;
+        let mut mouse = None;
         for (&slot, &card) in slots {
             let base = slot_io_base(slot);
             match card {
@@ -1584,6 +1600,10 @@ impl Two {
                 SlotDevice::Thunderclock => {
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
                     mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
+                }
+                SlotDevice::Mouse => {
+                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
+                    mem.add_rom(slot_rom_base(slot), mouse_rom(slot).to_vec());
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1600,6 +1620,7 @@ impl Two {
             hdds: BTreeMap::new(),
             lirons,
             clk,
+            mouse,
             slot0: Slot0::Empty,
             saturn: None,
             irq_line: false,
@@ -1635,6 +1656,7 @@ impl Two {
             match card {
                 SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
                 SlotDevice::Thunderclock => iou.set_slot_rom(slot as usize, &clk_rom(slot)),
+                SlotDevice::Mouse => iou.set_slot_rom(slot as usize, &mouse_rom(slot)),
                 SlotDevice::Liron => iou.set_slot_rom(slot as usize, &liron_rom(slot)),
             }
         }
@@ -1645,6 +1667,7 @@ impl Two {
         let mut dsks = BTreeMap::new();
         let mut lirons = BTreeMap::new();
         let mut clk = None;
+        let mut mouse = None;
         for (&slot, &card) in slots {
             let base = slot_io_base(slot);
             match card {
@@ -1653,6 +1676,9 @@ impl Two {
                 }
                 SlotDevice::Thunderclock => {
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
+                }
+                SlotDevice::Mouse => {
+                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1674,6 +1700,7 @@ impl Two {
             hdds: BTreeMap::new(),
             lirons,
             clk,
+            mouse,
             slot0: Slot0::Language,
             saturn: None,
             irq_line: false,
@@ -2812,6 +2839,7 @@ fn build_machine(options: &Options) -> Result<Two, String> {
         .filter_map(|(&slot, card)| match card {
             config::SlotCard::Diskii { .. } => Some((slot, SlotDevice::DiskII)),
             config::SlotCard::Thunderclock => Some((slot, SlotDevice::Thunderclock)),
+            config::SlotCard::Mouse => Some((slot, SlotDevice::Mouse)),
             config::SlotCard::Liron { .. } => Some((slot, SlotDevice::Liron)),
             // Hard drives attach below (their card needs the image up front).
             config::SlotCard::Harddrive { .. }
@@ -2862,6 +2890,7 @@ fn build_machine(options: &Options) -> Result<Two, String> {
                 }
             }
             config::SlotCard::Thunderclock
+            | config::SlotCard::Mouse
             | config::SlotCard::Language
             | config::SlotCard::Saturn128
             | config::SlotCard::Empty => {}

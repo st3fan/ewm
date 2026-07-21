@@ -650,6 +650,20 @@
           ]
         },
         {
+          "description": "An AppleMouse II card. Any slot 1–7 (slot 4 is the canonical home);\nboth ][+ and //e. The host pointer drives the emulated one.",
+          "type": "object",
+          "properties": {
+            "card": {
+              "type": "string",
+              "const": "mouse"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "card"
+          ]
+        },
+        {
           "description": "The 16K Apple Language Card. Slot 0 only, ][+ only — it turns the\n48K machine into the classic 64K build. Omitting slot 0 from an\nexplicit `slots` table leaves the socket empty (a 48K machine).",
           "type": "object",
           "properties": {
