@@ -139,8 +139,11 @@ GEOS, Dazzle Draw. Diagnosed 2026-07-21:
   path was never covered — the gap the "no committed MousePaint image"
   kickoff decision left open.
 
-The fix is real AppleMouse **6821 PIA hardware** emulation so the //e internal
-firmware can drive it: `plans/20260721-03-mouse-pia-hardware.md`.
+The fix is emulating the card's **real hardware** — a 6520 PIA + a 6805
+controller + the real `342-0270-C` ROM — so any mouse firmware drives it:
+`plans/20260721-03-mouse-pia-hardware.md`, ported from the MIT
+`oliverschmidt/mouse-interface` reference (`PIA6520.c` /
+`MouseInterfaceCard.c`) with the ROM from `freitz85/AppleIIMouse`.
 
 ## Not done (backlog, per the plan)
 
