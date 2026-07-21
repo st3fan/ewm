@@ -101,6 +101,12 @@ pub struct Machine {
     /// its own `character_rom` key.)
     #[serde(default)]
     pub rom: Vec<RomChip>,
+    /// The socketed character (][) / video (//e) ROM the display is decoded
+    /// from — a `builtin:<SKU>` catalog key (e.g. `builtin:341-0036`, or
+    /// `builtin:342-0265-A` for the Enhanced //e's MouseText). When absent the
+    /// `model` selects the standard one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character_rom: Option<String>,
     /// Extra RAM or ROM regions loaded from files at startup.
     #[serde(default)]
     pub memory: Vec<MemoryRegion>,
@@ -1173,6 +1179,11 @@ fn validate(config: &Config) -> Result<(), String> {
         if let Some(name) = chip.path.strip_prefix("builtin:") {
             rom_builtin(name).map_err(|e| format!("machine.rom[{i}].path: {e}"))?;
         }
+    }
+    if let Some(path) = machine.and_then(|m| m.character_rom.as_deref())
+        && let Some(name) = path.strip_prefix("builtin:")
+    {
+        rom_builtin(name).map_err(|e| format!("machine.character_rom: {e}"))?;
     }
     if config.display.fps == Some(0) {
         return Err("display.fps: must be at least 1".into());

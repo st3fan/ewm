@@ -308,6 +308,13 @@
             }
           ]
         },
+        "character_rom": {
+          "description": "The socketed character (][) / video (//e) ROM the display is decoded\nfrom — a `builtin:<SKU>` catalog key (e.g. `builtin:341-0036`, or\n`builtin:342-0265-A` for the Enhanced //e's MouseText). When absent the\n`model` selects the standard one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "cpu": {
           "description": "The CPU, for the Apple 1 family (`\"6502\"` or `\"65C02\"`); when\nabsent the model decides (Apple 1: 6502, Replica 1: 65C02). The\napple2 family's CPU is a model property and rejects this key.",
           "anyOf": [

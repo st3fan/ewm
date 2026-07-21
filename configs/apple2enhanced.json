@@ -8,6 +8,7 @@
       { "address": "0xc000", "path": "builtin:342-0304-A" },
       { "address": "0xe000", "path": "builtin:342-0303-A" }
     ],
+    "character_rom": "builtin:342-0265-A",
     "aux": { "card": "ext80col" },
     "slots": {
       "5": { "card": "liron" },

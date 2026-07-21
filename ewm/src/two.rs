@@ -2450,6 +2450,9 @@ struct Options {
     /// The socketed motherboard system ROMs (config `machine.rom`): `(address,
     /// image path)` per chip. Empty means the model's standard set.
     rom: Vec<(u16, String)>,
+    /// The character/video ROM image path (config `machine.character_rom`);
+    /// `None` means the model's standard one.
+    character_rom: Option<String>,
     memory: Vec<MemoryOption>,
     /// Emulated CPU cycles per second at startup (config-only; the command
     /// palette switches it at runtime).
@@ -2774,6 +2777,9 @@ fn apply_config(options: &mut Options, config: config::Config) -> Result<(), Str
     for chip in machine.rom {
         options.rom.push((chip.address_value()?, chip.path));
     }
+    if let Some(path) = machine.character_rom {
+        options.character_rom = Some(path);
+    }
     if let Some(monitor) = config.display.monitor {
         options.monitor = monitor.style();
     }
@@ -2882,6 +2888,7 @@ fn options_to_config(options: &Options) -> config::Config {
                     path: path.clone(),
                 })
                 .collect(),
+            character_rom: options.character_rom.clone(),
             memory: options
                 .memory
                 .iter()
@@ -2966,6 +2973,17 @@ fn aux_token_to_config(token: &str) -> config::Aux {
 /// Build the machine `main()` runs from the parsed options: construct from
 /// the slot table, then mount the media the table names. Also the machine
 /// half of the headless boot-gate test.
+/// Apply the config's `machine.character_rom` to the renderer: decode the
+/// machine model's glyph set from that ROM instead of the catalog default. A
+/// no-op when the config names no character ROM.
+fn apply_character_rom(scr: &mut Scr, options: &Options, two: &Two) -> Result<(), String> {
+    if let Some(path) = &options.character_rom {
+        let rom = crate::config::read_memory_image(path)?;
+        scr.set_character_rom(&rom, two.model());
+    }
+    Ok(())
+}
+
 fn build_machine(options: &Options) -> Result<Two, String> {
     // Slot 0 never becomes a SlotDevice: it is the ][+ memory-expansion
     // socket, consumed here as a machine-level Slot0. On the //e the
@@ -3392,6 +3410,10 @@ fn serve(mut options: Options) -> i32 {
     // format (big-endian RGBA) with no per-pixel conversion (see rfb.rs).
     let mut scr = Scr::new(PixelLayout::Rgba8888);
     scr.set_monitor_style(options.monitor);
+    if let Err(e) = apply_character_rom(&mut scr, &options, &two) {
+        eprintln!("{e}");
+        return 1;
+    }
     let mut compositor = crate::overlay::Compositor::new(PixelLayout::Rgba8888);
 
     let width = frame_width(two.model()) as u16;
@@ -3697,6 +3719,10 @@ pub fn main(args: &[String]) -> i32 {
     };
     let mut scr = Scr::new(layout);
     scr.set_monitor_style(options.monitor);
+    if let Err(e) = apply_character_rom(&mut scr, &options, &two) {
+        eprintln!("{e}");
+        return 1;
+    }
     let mut compositor = crate::overlay::Compositor::new(layout);
 
     let mut snd = audio.as_ref().and_then(|audio| match Snd::new(audio) {

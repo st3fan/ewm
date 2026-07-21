@@ -39,15 +39,21 @@ fn generate_bitmap(rom: &[u8], c: usize, inverse: bool) -> Glyph {
 }
 
 impl Chr {
-    /// Port of `ewm_chr_init`'s bitmap tables: normal text at `$A0-$DF`,
-    /// inverse at `$00-$3F`, flashing (currently rendered as inverse, as in
-    /// C) at `$40-$7F`. Slots `$80-$9F` and `$E0-$FF` stay empty and render
-    /// blank — the Apple 1 character set has no lower case.
-    // The index loops deliberately mirror ewm_chr_init's six table-fill
-    // loops rather than being rewritten in iterator style.
-    #[allow(clippy::needless_range_loop)]
+    /// The ][ glyph tables from the standard character ROM (`341-0036`).
     pub fn new() -> Chr {
-        let rom = crate::rom::rom("341-0036");
+        Chr::from_rom(crate::rom::rom("341-0036"))
+    }
+
+    /// The ][ glyph tables decoded from an explicit character ROM (config
+    /// `machine.character_rom`), so a swapped character chip renders. Port of
+    /// `ewm_chr_init`'s bitmap tables: normal text at `$A0-$DF`, inverse at
+    /// `$00-$3F`, flashing (currently rendered as inverse, as in C) at
+    /// `$40-$7F`. Slots `$80-$9F` and `$E0-$FF` stay empty and render blank —
+    /// the Apple 1 character set has no lower case.
+    // The index loops deliberately mirror ewm_chr_init's six table-fill loops
+    // rather than being rewritten in iterator style.
+    #[allow(clippy::needless_range_loop)]
+    pub fn from_rom(rom: &[u8]) -> Chr {
         let mut bitmaps: [Option<Glyph>; 256] = [None; 256];
 
         // Normal Text
@@ -178,7 +184,10 @@ impl ChrE {
         ChrE::from_rom(crate::rom::rom("342-0133-A"), false)
     }
 
-    fn from_rom(rom: &[u8], mousetext: bool) -> ChrE {
+    /// The //e glyph tables decoded from an explicit video ROM (config
+    /// `machine.character_rom`); `mousetext` picks the Enhanced ($40-$5F
+    /// MouseText) vs. original (inverse upper case) alternate set.
+    pub fn from_rom(rom: &[u8], mousetext: bool) -> ChrE {
         let mut sets = [[[false; CHR_WIDTH * CHR_HEIGHT]; 256]; 2];
         for (code, glyph) in sets[CharSet::Primary as usize].iter_mut().enumerate() {
             let (idx, inverse) = primary_index(code as u8);

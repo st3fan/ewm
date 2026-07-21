@@ -317,8 +317,9 @@ fn options_to_config(options: &Options) -> crate::config::Config {
             aux: None,
             slots: None,
             // The Apple 1 family names its ROMs as `memory` regions, not the
-            // apple2 motherboard-ROM sockets.
+            // apple2 motherboard-ROM sockets, and has no character-ROM key.
             rom: Vec::new(),
+            character_rom: None,
             memory: options.memory.clone(),
         }),
         display: crate::config::Display::default(),
