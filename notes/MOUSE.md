@@ -121,8 +121,28 @@ addition. The SDL frontend feeds the device on `MouseMotion` / `MouseButton`
 events; the RFB serve path routes a `PointerEvent` to the mouse when a card is
 present (`mask` bit 0 = button), else the pre-existing paddle-0 fallback.
 
+## Known limitation — //e-firmware-driven software (MousePaint) does not work
+
+The synthetic firmware works for software that calls **the card's own eight
+entry points** (the scripted M2–M4 gates, the ][+). It does **not** work for
+software that goes through the **//e's internal mouse firmware** — MousePaint,
+GEOS, Dazzle Draw. Diagnosed 2026-07-21:
+
+- On the //e, MousePaint sets `INTCXROM=1` and runs the mouse handling in the
+  //e's **internal `$Cx` ROM**, which drives the card as its **real 6821 PIA
+  hardware** (`$C0n0-$C0n3`) — *not* the `$Cn00` entry points.
+- Our `Mou` presents a synthetic DEVSEL protocol, not that PIA. So the //e
+  firmware's mouse init fails (it read the card twice, got answers it didn't
+  expect, and gave up), and MousePaint's menu — which gates on the mouse
+  before it even polls the keyboard — hangs (RETURN does nothing).
+- The scripted M2–M4 gates only exercised the card's own entry points, so this
+  path was never covered — the gap the "no committed MousePaint image"
+  kickoff decision left open.
+
+The fix is real AppleMouse **6821 PIA hardware** emulation so the //e internal
+firmware can drive it: `plans/20260721-03-mouse-pia-hardware.md`.
+
 ## Not done (backlog, per the plan)
 
-Real AppleMouse ROM + per-slot `$C800` expansion (for software that bypasses
-the entry points); Mockingboard on the shared IRQ line; the `//c` built-in
-mouse (this `Mou`/`mouse_rom` is the substrate); mouse-as-paddles / KoalaPad.
+Mockingboard on the shared IRQ line; the `//c` built-in mouse (this
+`Mou`/`mouse_rom` is the substrate); mouse-as-paddles / KoalaPad.
