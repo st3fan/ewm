@@ -336,7 +336,7 @@ below is **apple2-family only**.
 
 | Source | Setting | Values |
 |---|---|---|
-| config + `--set` | `machine.model` | `apple2`, `apple2plus`, `apple2enhanced`, `apple1`, `replica1` |
+| config + `--set` | `machine.model` | `apple2`, `apple2e`, `apple2plus`, `apple2enhanced`, `apple1`, `replica1` |
 | config + `--set` | `title` | window bar reads `EWM - <title>`, else plain `EWM`; the built-ins set the machine name |
 | config + `--set` | `machine.cpu` | `6502`, `65C02` (apple1 family; absent = the model's CPU) |
 | config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
@@ -458,8 +458,8 @@ Schema rules:
   `"harddrive"` cards (Phase B).
 - `machine.aux`: `{ "card": "80col" | "ext80col" | "ramworksiii", "size":
   "64k".."8m" }` — `size` only valid with `ramworksiii`; whole `aux` object
-  only valid with `"model": "apple2enhanced"` (enforced in code; the schema documents
-  it).
+  only valid with a //e model (`"apple2e"` / `"apple2enhanced"`) (enforced in
+  code; the schema documents it).
 - `cpu.speed`: `"normal" | "3.58mhz" | "7.16mhz"` — exactly the palette's
   accelerator steps (`SPEED_NORMAL/FAST/FASTER`).
 - `input.controller`: a preferred game-controller name; hot-plug still

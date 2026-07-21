@@ -1,0 +1,14 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "description": "Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
+  "title": "Apple //e",
+  "machine": {
+    "model": "apple2e",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "5": { "card": "liron" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}

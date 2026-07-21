@@ -1,7 +1,7 @@
 # Emulated Woz Machine
 
 EWM is an emulator for the machines Steve Wozniak built: the *Apple 1*, the
-*Replica 1* and the *Apple ][+* — plus the Enhanced *Apple //e*. It started
+*Replica 1* and the *Apple ][+* — plus the original and Enhanced *Apple //e*. It started
 life many years ago as a tiny 6502 emulator written between christmas and new
 year, and has since grown into a full emulator with Disk II support, graphics,
 and sound.
@@ -42,15 +42,16 @@ and sound.
   weak bits — see `notes/WOZ1.md` for the compatibility table), and
   `.2mg` images of 400K/800K 3.5" disks in the UniDisk 3.5 Controller
   ("Liron", `{"card": "liron"}`), a SmartPort card ProDOS boots from
-* **Apple //e (Enhanced)** — 65C02, 128KB main + auxiliary RAM, the built-in
-  language card and MMU/IOU soft switches, a swappable auxiliary slot
-  (`machine.aux`): the Extended 80-Column Text Card (64K, default), the plain
-  80-Column Text Card (1K), or an Applied Engineering RamWorks III with up
-  to 8MB (`--set 'machine:aux={"card":"ramworksiii","size":"1m"}'`), 40- and
-  80-column text with lower
-  case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
-  graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
-  hard drive, clock and sound. Start it with `two --config builtin:apple2enhanced`.
+* **Apple //e** — the original (6502, `builtin:apple2e`) and the Enhanced
+  (65C02 + MouseText, `builtin:apple2enhanced`); 128KB main + auxiliary RAM,
+  the built-in language card and MMU/IOU soft switches, a swappable auxiliary
+  slot (`machine.aux`): the Extended 80-Column Text Card (64K, default), the
+  plain 80-Column Text Card (1K), or an Applied Engineering RamWorks III with
+  up to 8MB (`--set 'machine:aux={"card":"ramworksiii","size":"1m"}'`), 40- and
+  80-column text with lower case (and MouseText on the Enhanced; the original
+  shows inverse upper case there), lo-res / hi-res / double-lo-res /
+  double-hi-res graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses
+  the Disk II, hard drive, clock and sound.
 
 ## Requirements
 
@@ -137,6 +138,31 @@ minus the clock card:
 
 ```
 cargo run --release -- two --config builtin:apple2plus
+```
+
+**`builtin:apple2e`** — the original (unenhanced, 1983) Apple //e: a **6502**
+with the same layout as `builtin:apple2enhanced` below (Extended 80-Column
+Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor), but without the
+65C02 and MouseText — the alternate character set shows inverse upper case
+where the Enhanced //e shows MouseText:
+
+```json
+{
+  "description": "Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
+  "machine": {
+    "model": "apple2e",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "5": { "card": "liron" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:apple2e
 ```
 
 **`builtin:apple2enhanced`** — an Enhanced Apple //e with the Extended 80-Column

@@ -6,9 +6,8 @@
   CPU and ROMs differ), and `plans/20260720-01-original-apple2.md` (the
   original-][ work this mirrors). IDEAS.md already lists this as
   "NMOS //e (unenhanced)".
-- **Status:** in progress — E1 (the `apple2e`→`apple2enhanced` rename),
-  E2 (unenhanced ROM assets), and E3 (the original //e machine) landed; E4
-  (the `builtin:apple2e` config) remains
+- **Status:** complete — E1–E4 landed (one PR per phase). `builtin:apple2e`
+  is the original (6502) //e; today's Enhanced //e is `builtin:apple2enhanced`.
 - **Target:** `main`; one PR per phase unless decided otherwise
 
 ## Goal
@@ -59,7 +58,7 @@ the //e Enhanced and Apple ][ ROMs):
 | E1 | Rename `apple2e` → `apple2enhanced` (token, config file, BUILTINS, tests, schema, docs) — no ROMs | S/M | Done |
 | E2 | Embed the `roms/AppleIIe/` set (3 statics + provenance test); the unenhanced video ROM into `chr.rs` | S | Done |
 | E3 | The original //e machine: `Model`/`TwoType` variant, `new_2e` selects 6502 + unenhanced ROMs + unenhanced video ROM (renderer picks the //e char ROM by variant); boot gate + ROM golden + the no-MouseText char difference | M/L | Done |
-| E4 | `builtin:apple2e` config (6502, ext80col, Liron@5, Disk ][ @6, RGB) + boot gate + docs | S | Not started |
+| E4 | `builtin:apple2e` config (6502, ext80col, Liron@5, Disk ][ @6, RGB) + boot gate + docs | S | Done |
 
 E1 is independent and lands first (like the `2plus`→`apple2plus`
 rename, #308). E2 → E3 → E4 in order. E2 may fold into E3. Every phase:
