@@ -53,6 +53,14 @@ use ewm_core::mem::Device;
 const CLAMP_MIN: i32 = 0;
 const CLAMP_MAX: i32 = 1023;
 
+/// Mode byte bits (SetMouse): mouse enabled, and interrupt-on-movement /
+/// button / VBL. The interrupt-source byte ServeMouse reports reuses the
+/// movement / button / VBL bits.
+const MODE_ON: u8 = 0x01;
+const INT_MOVE: u8 = 0x02;
+const INT_BUTTON: u8 = 0x04;
+const INT_VBL: u8 = 0x08;
+
 /// Build the per-slot 256-byte firmware. The routines are assembled
 /// sequentially from `$Cn1A`; the offset table at `$Cn12` records where each
 /// landed. Slot-dependent operands — the DEVSEL port low byte and the
@@ -368,14 +376,35 @@ impl Mou {
         let ny = y.clamp(self.clamp_y.0, self.clamp_y.1);
         if nx != self.x || ny != self.y {
             self.moved = true;
+            if self.mode & (MODE_ON | INT_MOVE) == MODE_ON | INT_MOVE {
+                self.irq_source |= INT_MOVE;
+            }
         }
         self.x = nx;
         self.y = ny;
     }
 
-    /// Press or release the host button.
+    /// Press or release the host button. A press edge raises the button
+    /// interrupt when the mode enables it.
     pub fn set_button(&mut self, down: bool) {
+        if down && !self.button && self.mode & (MODE_ON | INT_BUTTON) == MODE_ON | INT_BUTTON {
+            self.irq_source |= INT_BUTTON;
+        }
         self.button = down;
+    }
+
+    /// A once-per-frame vertical-blank tick (plans/20260721-01 M4): raises the
+    /// VBL interrupt source when the mode enables it (mouse on + VBL bit).
+    pub fn vbl_tick(&mut self) {
+        if self.mode & (MODE_ON | INT_VBL) == MODE_ON | INT_VBL {
+            self.irq_source |= INT_VBL;
+        }
+    }
+
+    /// Whether the card is asserting its maskable IRQ — some enabled source is
+    /// pending, until ServeMouse (a read of port 9) clears it.
+    pub fn irq_asserted(&self) -> bool {
+        self.irq_source != 0
     }
 
     /// The clamp window `(min_x, max_x, min_y, max_y)`, for mapping an
@@ -603,5 +632,27 @@ mod tests {
         write(&mut m, 8, 3); // HomeMouse
         let (x, y, _, _) = read_snapshot(&mut m);
         assert_eq!((x, y), (100, 300), "home is the clamp minimum");
+    }
+
+    #[test]
+    fn vbl_interrupt_is_mode_gated_and_serve_clears_it() {
+        // M4: a VBL tick raises the IRQ only when the mode enables it (mouse
+        // on + VBL bit); ServeMouse (a read of port 9) reports the source and
+        // de-asserts.
+        let mut m = Mou::new();
+        m.vbl_tick();
+        assert!(!m.irq_asserted(), "no interrupt without the enable bits");
+
+        write(&mut m, 2, 0x09); // SetMouse: mouse on + VBL interrupt
+        m.vbl_tick();
+        assert!(m.irq_asserted(), "VBL raises the line when enabled");
+        assert_eq!(read(&mut m, 9), 0x08, "ServeMouse source is VBL");
+        assert!(!m.irq_asserted(), "ServeMouse cleared it");
+
+        // A movement raises the line when movement interrupts are on.
+        write(&mut m, 2, 0x03); // mouse on + movement interrupt
+        m.set_host(400, 400, false);
+        assert!(m.irq_asserted(), "movement raises the line");
+        assert_eq!(read(&mut m, 9) & 0x02, 0x02, "source is movement");
     }
 }
