@@ -73,11 +73,22 @@ surface (`{"card":"mouse"}`) is unchanged.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| P1 | The 6520 PIA device + the banked 342-0270-C ROM at `$Cn00` (port-B page select); reuse `pia.rs` | M | Planned |
-| P2 | The 6805 controller + the port A/B handshake + all commands; the real firmware drives it (polled) | M/L | Planned |
-| P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer) | M | Planned |
-| P4 | Interrupts: the 6805 asserts the M1 line on VBL/movement/button; SERVEMOUSE clears | M | Planned |
-| P5 | Retire the synthetic `mouse_rom`/`Mou`; migrate config + the M2–M4 tests; docs (`notes/MOUSE.md` as-built) | M | Planned |
+| P1 | The card substrate: 6520 PIA + 6805 controller + handshake + all commands + banked 342-0270-C ROM at `$Cn00`; retire the synthetic `mouse_rom`; migrate the unit tests | L | **Landed** (#TBD) |
+| P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | Planned |
+| P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | Planned |
+| P4 | Interrupts through the real firmware handler (//e path): VBL/movement/button; SERVEMOUSE clears | M | Planned |
+| P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | Planned |
+
+**As built (P1):** the PIA, the 6805 controller (handshake + every command
+body), the banked ROM, host input, and the interrupt model are too tightly
+coupled to split, so P1 landed them together — a self-contained `mouse.rs`
+ported near-verbatim from the reference, unit-tested (PIA registers, port-B
+banking, a simulated-6502 handshake driving Init→Clamp→Pos→Read, movement/
+clamp, interrupt gating, state round-trip) plus ROM provenance and the
+identification bytes read through the real machine bus. The synthetic
+`mouse_rom`/`Mou` protocol and its M2–M4 unit tests are retired/migrated. What
+remains for P2 is proving the **real 6502 ROM code** runs the flow end-to-end
+(the two `tests/two_mouse.rs` firmware tests are `#[ignore]`d until then).
 
 Order **P1 → P5**. Every phase: standard gates (`cargo fmt --all --check`,
 `cargo clippy --all-targets -- -D warnings`, full `cargo test` **including the

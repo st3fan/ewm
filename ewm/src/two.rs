@@ -14,7 +14,7 @@ use crate::config;
 use crate::dsk::{DSK_ROM, Dsk};
 use crate::hdd::{Hdd, hdd_rom};
 use crate::liron::{Liron, liron_rom};
-use crate::mouse::{Mou, mouse_rom};
+use crate::mouse::Mou;
 use crate::palette::{self, Palette, PaletteAction, PaletteKey};
 use crate::saturn::Saturn;
 use crate::scr::{
@@ -1338,8 +1338,8 @@ enum MachineIo {
 pub enum SlotDevice {
     DiskII,
     Thunderclock,
-    /// An AppleMouse II card (`mouse.rs`): synthetic firmware + a `Mou`
-    /// device in the slot's DEVSEL range.
+    /// An AppleMouse II card (`mouse.rs`): the real 6520 PIA + 6805 controller
+    /// + the banked `342-0270-C` ROM, in the slot's DEVSEL and `$Cn00` ranges.
     Mouse,
     /// The UniDisk 3.5 Controller ("Liron"): two SmartPort 3.5" drives
     /// taking .2mg images, mounted after construction with `load_2mg_at`.
@@ -1535,8 +1535,11 @@ impl Two {
                     mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
                 }
                 SlotDevice::Mouse => {
-                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
-                    mem.add_rom(slot_rom_base(slot), mouse_rom(slot).to_vec());
+                    // One device serves both the PIA (DEVSEL) and the banked
+                    // $Cn00 ROM; the ROM page is chosen live by PIA port B.
+                    let h = mem.add_device(base, base + 0xf, Mou::new(slot));
+                    mem.map_device(h, slot_rom_base(slot), slot_rom_base(slot) + 0xff);
+                    mouse = Some((slot, h));
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1602,8 +1605,11 @@ impl Two {
                     mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
                 }
                 SlotDevice::Mouse => {
-                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
-                    mem.add_rom(slot_rom_base(slot), mouse_rom(slot).to_vec());
+                    // One device serves both the PIA (DEVSEL) and the banked
+                    // $Cn00 ROM; the ROM page is chosen live by PIA port B.
+                    let h = mem.add_device(base, base + 0xf, Mou::new(slot));
+                    mem.map_device(h, slot_rom_base(slot), slot_rom_base(slot) + 0xff);
+                    mouse = Some((slot, h));
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1656,7 +1662,9 @@ impl Two {
             match card {
                 SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
                 SlotDevice::Thunderclock => iou.set_slot_rom(slot as usize, &clk_rom(slot)),
-                SlotDevice::Mouse => iou.set_slot_rom(slot as usize, &mouse_rom(slot)),
+                // The mouse serves its own banked $Cn00 ROM (mapped below, so
+                // it shadows the IOU's fixed slot page), not a fixed page.
+                SlotDevice::Mouse => {}
                 SlotDevice::Liron => iou.set_slot_rom(slot as usize, &liron_rom(slot)),
             }
         }
@@ -1678,7 +1686,11 @@ impl Two {
                     clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
                 }
                 SlotDevice::Mouse => {
-                    mouse = Some((slot, mem.add_device(base, base + 0xf, Mou::new())));
+                    // The PIA at the DEVSEL, plus the banked $Cn00 ROM mapped
+                    // over the IOU's $CX ROM (added later → shadows it).
+                    let h = mem.add_device(base, base + 0xf, Mou::new(slot));
+                    mem.map_device(h, slot_rom_base(slot), slot_rom_base(slot) + 0xff);
+                    mouse = Some((slot, h));
                 }
                 SlotDevice::Liron => {
                     lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
@@ -1979,7 +1991,8 @@ impl Two {
             };
             let x = map(px, width, min_x, max_x);
             let y = map(py, height, min_y, max_y);
-            m.set_host(x, y, button);
+            m.set_position(x, y);
+            m.set_button(button);
         }
         self.refresh_irq_line(); // movement/button may raise an interrupt
     }
@@ -5387,9 +5400,10 @@ mod tests {
         two.cpu.reset();
         let vector = two.cpu.mem.read(0xfffe) as u16 | ((two.cpu.mem.read(0xffff) as u16) << 8);
 
-        // Enable the mouse VBL interrupt (SetMouse mode $09 via port 2) and
-        // pulse VBL: the line goes high.
-        two.cpu.mem.write(0xc0c2, 0x09);
+        // Enable the mouse VBL interrupt (mouse on + VBL) and pulse VBL: the
+        // line goes high. (Setting the mode directly; the SetMouse handshake
+        // is exercised by the firmware-driven tests in mouse.rs.)
+        two.mouse_mut().unwrap().set_operating_mode(0x09);
         two.tick_vbl();
 
         // Masked (SEI): held pending.
@@ -5404,16 +5418,15 @@ mod tests {
         assert_eq!(two.cpu.pc, vector, "the IRQ vectors through $FFFE");
         assert_eq!(two.cpu.i, 1, "taking the IRQ masks further interrupts");
 
-        // ServeMouse (read port 9) de-asserts; the spent line is not re-taken.
-        let _ = two.cpu.mem.read(0xc0c9);
+        // ServeMouse de-asserts; the spent line is not re-taken.
+        two.mouse_mut().unwrap().run_command(0x20);
         two.cpu.i = 0;
         let pc = two.cpu.pc;
         two.service_irq();
         assert_eq!(two.cpu.pc, pc, "a de-asserted line is not re-taken");
     }
 
-    /// A ][+ whose only card is a mouse in slot 4, and its latched position
-    /// read back through the DEVSEL ports ($C0C0 = latch, $C0C1 = stream).
+    /// A ][+ whose only card is a mouse in slot 4.
     fn mouse_machine() -> Two {
         Two::new_with_slots(
             TwoType::Apple2Plus,
@@ -5423,13 +5436,9 @@ mod tests {
         )
         .unwrap()
     }
-    fn latched_pos(two: &mut Two) -> (u16, u16) {
-        two.cpu.mem.write(0xc0c0, 0); // latch
-        let xl = two.cpu.mem.read(0xc0c1);
-        let xh = two.cpu.mem.read(0xc0c1);
-        let yl = two.cpu.mem.read(0xc0c1);
-        let yh = two.cpu.mem.read(0xc0c1);
-        (u16::from_le_bytes([xl, xh]), u16::from_le_bytes([yl, yh]))
+    /// The mouse's current position, read from the device (the 6805 state).
+    fn mouse_pos(two: &mut Two) -> (i16, i16) {
+        two.mouse_mut().unwrap().position()
     }
 
     #[test]
@@ -5438,12 +5447,12 @@ mod tests {
         // mouse within its clamp window (default 0..=1023).
         let mut two = mouse_machine();
         two.feed_mouse_delta(300, 200, false);
-        assert_eq!(latched_pos(&mut two), (300, 200), "delta integrated");
+        assert_eq!(mouse_pos(&mut two), (300, 200), "delta integrated");
         two.feed_mouse_delta(100, -50, false);
-        assert_eq!(latched_pos(&mut two), (400, 150), "deltas accumulate");
+        assert_eq!(mouse_pos(&mut two), (400, 150), "deltas accumulate");
         // Past the window: clamped at the bounds, not wrapped.
         two.feed_mouse_delta(5000, -5000, false);
-        assert_eq!(latched_pos(&mut two), (1023, 0), "clamped at the window");
+        assert_eq!(mouse_pos(&mut two), (1023, 0), "clamped at the window");
         // A machine with no mouse just ignores the feed.
         let mut plain = Two::new(TwoType::Apple2Plus).unwrap();
         plain.feed_mouse_delta(10, 10, true); // no panic, no-op
@@ -5455,12 +5464,12 @@ mod tests {
         // window: the centre of a 100x100 surface lands mid-window.
         let mut two = mouse_machine();
         two.feed_mouse_pixel(50, 50, false, 100, 100);
-        let (x, y) = latched_pos(&mut two);
+        let (x, y) = mouse_pos(&mut two);
         assert!((500..=520).contains(&x), "x≈mid-window, got {x}");
         assert!((500..=520).contains(&y), "y≈mid-window, got {y}");
         // The far corner maps to the window maximum.
         two.feed_mouse_pixel(999, 999, false, 100, 100);
-        assert_eq!(latched_pos(&mut two), (1023, 1023), "corner -> max");
+        assert_eq!(mouse_pos(&mut two), (1023, 1023), "corner -> max");
     }
 
     #[test]
@@ -5478,11 +5487,14 @@ mod tests {
                 y: 0,
             },
         );
-        let (x, _) = latched_pos(&mut two);
+        let (x, _) = mouse_pos(&mut two);
         assert_eq!(x, 1023, "the far-right pixel maps to the window maximum");
         // The button reached the mouse: status bit7 set.
-        two.cpu.mem.write(0xc0c0, 0);
-        assert_eq!(two.cpu.mem.read(0xc0c0) & 0x80, 0x80, "button down");
+        assert_eq!(
+            two.mouse_mut().unwrap().status_byte() & 0x80,
+            0x80,
+            "button down"
+        );
     }
 
     #[test]

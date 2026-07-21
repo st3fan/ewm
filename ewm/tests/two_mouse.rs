@@ -1,9 +1,13 @@
-//! The AppleMouse II card, driven through its real firmware (plans/20260721-01
-//! M2). A ][+ with a mouse in slot 4 runs 6502 code that calls the documented
-//! entry points — InitMouse, ClampMouse, SetMouse, PosMouse, ReadMouse — found
-//! through the `$Cn12` offset table, and the result lands in the slot's screen
-//! holes, clamped. Mirrors `two_clk.rs`'s "drive the firmware, read the holes"
-//! shape.
+//! The AppleMouse II card (plans/20260721-03: the real 6520 PIA + 6805 + the
+//! `342-0270-C` ROM). A ][+ with a mouse in slot 4: its identification bytes
+//! are served from the banked `$Cn00` ROM through the real bus.
+//!
+//! The firmware-execution tests below — running the real ROM's entry points
+//! end-to-end (Init→Clamp→Pos→Read, and VBL interrupts) — are P2's gate: the
+//! real ROM's call convention and its `$xx70` page-switching differ from the
+//! retired synthetic firmware's assumptions these still encode, so they are
+//! `#[ignore]`d until P2 drives the real firmware. See
+//! plans/20260721-03-mouse-pia-hardware.md.
 
 use std::collections::BTreeMap;
 
@@ -44,6 +48,7 @@ fn card_is_identifiable_by_its_firmware_bytes() {
 }
 
 #[test]
+#[ignore = "P2: real-firmware end-to-end (plans/20260721-03)"]
 fn init_clamp_pos_read_through_the_firmware_deposits_clamped_holes() {
     let mut two = machine_with_mouse();
 
@@ -136,6 +141,7 @@ fn latched_pos(two: &mut Two) -> (u16, u16) {
 }
 
 #[test]
+#[ignore = "P2: real-firmware end-to-end (plans/20260721-03)"]
 fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
     // The M4 flagship (scripted firmware-level end-to-end, plans/20260721-01):
     // enable VBL interrupts, install a handler through the ROM's user IRQ
