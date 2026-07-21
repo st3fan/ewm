@@ -528,6 +528,7 @@ pub enum RemoteProtocol {
 const BUILTINS: &[(&str, &str)] = &[
     ("apple1", include_str!("../../configs/apple1.json")),
     ("apple2", include_str!("../../configs/apple2.json")),
+    ("apple2e", include_str!("../../configs/apple2e.json")),
     (
         "apple2enhanced",
         include_str!("../../configs/apple2enhanced.json"),
@@ -1486,6 +1487,7 @@ mod tests {
         for (name, expected) in [
             ("apple1", "Apple 1"),
             ("apple2", "Apple ]["),
+            ("apple2e", "Apple //e"),
             ("apple2plus", "Apple ][+"),
             ("apple2enhanced", "Enhanced Apple //e"),
             ("replica1", "Replica 1"),
@@ -1505,6 +1507,7 @@ mod tests {
             vec![
                 "apple1",
                 "apple2",
+                "apple2e",
                 "apple2enhanced",
                 "apple2plus",
                 "replica1"
@@ -1513,6 +1516,7 @@ mod tests {
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
         assert_eq!(model("apple2"), Some(Model::Two));
         assert_eq!(model("apple2plus"), Some(Model::TwoPlus));
+        assert_eq!(model("apple2e"), Some(Model::TwoE));
         assert_eq!(model("apple2enhanced"), Some(Model::TwoEEnhanced));
         assert_eq!(model("apple1"), Some(Model::Apple1));
         assert_eq!(model("replica1"), Some(Model::Replica1));
@@ -1523,7 +1527,7 @@ mod tests {
         let err = load_builtin("foo").unwrap_err();
         assert_eq!(
             err,
-            r#"no built-in config "foo" (available: apple1, apple2, apple2enhanced, apple2plus, replica1)"#
+            r#"no built-in config "foo" (available: apple1, apple2, apple2e, apple2enhanced, apple2plus, replica1)"#
         );
     }
 

@@ -5127,6 +5127,48 @@ mod tests {
     }
 
     #[test]
+    fn builtin_apple2e_boots_dos33() {
+        // The E4 gate (plans/20260720-02): builtin:apple2e wires the original
+        // (6502) //e — Extended 80-Column Card, a UniDisk 3.5 (Liron) in slot
+        // 5, a Disk ][ in slot 6, RGB. Unlike the original ][, the //e has
+        // Autostart, so it boots the slot 6 disk to the Applesoft `]` prompt
+        // with no C600G — DOS 3.3 runs on the 6502.
+        let disk = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../disks/DOS33-SystemMaster.dsk"
+        );
+        let mut two = build_machine(&opts(&[
+            "--config",
+            "builtin:apple2e",
+            "--set",
+            &format!("machine:slots:6:drive1={disk}"),
+        ]))
+        .expect("builtin:apple2e must construct");
+        assert_eq!(two.model(), TwoType::Apple2E);
+        two.cpu.reset();
+
+        let step = |two: &mut Two, cycles: u64| {
+            let mut n = 0u64;
+            while n < cycles {
+                n += two.cpu.step() as u64;
+            }
+        };
+        let mut spent = 0u64;
+        loop {
+            let text = two.text_screen();
+            if text.contains("DOS VERSION 3.3") && text.contains(']') {
+                break;
+            }
+            assert!(
+                spent < 400_000_000,
+                "builtin:apple2e did not boot DOS 3.3 to ] after {spent} cycles; screen:\n{text}"
+            );
+            step(&mut two, 100_000);
+            spent += 100_000;
+        }
+    }
+
+    #[test]
     fn apple2_rejects_the_slot0_memory_card() {
         // Slot 0 (a Language Card / Saturn) is deferred on the original ][:
         // a machine is 48K for now. An explicit slot-0 card in the document

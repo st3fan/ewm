@@ -55,9 +55,10 @@ deterministic golden-BMP test culture.
 
 ## Machine models
 
-- **NMOS //e (unenhanced)** (M) — 6502 + the original //e ROMs; some early
-  software behaves differently. Explicitly out of scope during the //e
-  project; the machinery (ROM sets, `TwoType`) is all in place.
+- ~~**NMOS //e (unenhanced)**~~ — **landed** (`plans/20260720-02-original-iie.md`):
+  `builtin:apple2e` is a 6502 //e with the 342-0134/0135 system ROMs and the
+  342-0133 video ROM (inverse upper case where the Enhanced //e shows
+  MouseText); today's Enhanced //e became `apple2enhanced`.
 - **Original Apple ][ (Integer BASIC)** (M) — needs the Integer ROM set and
   the 13-sector boot ROM (see Storage below); completes the Woz lineage
   story the README tells.
