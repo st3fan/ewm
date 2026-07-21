@@ -57,19 +57,14 @@ static ROM_341_0020: &[u8] = include_bytes!("../../roms/341-0020.bin"); // Autos
 // not embedded twice — pinned by `apple2_roms_match_the_committed_images`.
 // Wired into a machine by `Two::new_apple2` in a later phase
 // (plans/20260720-01-original-apple2.md A2).
-#[allow(dead_code)] // used by new_apple2 (A2); the provenance test uses them now
 static ROM_341_0016: &[u8] =
     include_bytes!("../../roms/AppleII/Apple Programmer's Aid #1 ROM (D000) - 341-0016 - 2716.bin"); // $D000-$D7FF
-#[allow(dead_code)]
 static ROM_341_0001: &[u8] =
     include_bytes!("../../roms/AppleII/Apple II ROM Pages E0-E7 - 341-0001 - Integer BASIC.bin"); // $E000-$E7FF
-#[allow(dead_code)]
 static ROM_341_0002: &[u8] =
     include_bytes!("../../roms/AppleII/Apple II ROM Pages E8-EF - 341-0002 - Integer BASIC.bin"); // $E800-$EFFF
-#[allow(dead_code)]
 static ROM_341_0003: &[u8] =
     include_bytes!("../../roms/AppleII/Apple II ROM Pages F0-F7 - 341-0003 - Integer BASIC.bin"); // $F000-$F7FF
-#[allow(dead_code)]
 static ROM_341_0004: &[u8] =
     include_bytes!("../../roms/AppleII/Apple II ROM Pages F8-FF - 341-0004 - Original Monitor.bin"); // $F800-$FFFF
 
@@ -1264,7 +1259,7 @@ impl ewm_core::state::Persist for Two {
     fn save(&self, w: &mut ewm_core::state::Writer) {
         w.chunk(*b"INFO", |w| {
             w.put_str(match self.model {
-                TwoType::Apple2 => "2",
+                TwoType::Apple2 => "apple2",
                 TwoType::Apple2Plus => "apple2plus",
                 TwoType::Apple2E => "apple2e",
             });
@@ -1277,7 +1272,7 @@ impl ewm_core::state::Persist for Two {
         let model = info.get_str()?;
         info.done()?;
         let ours = match self.model {
-            TwoType::Apple2 => "2",
+            TwoType::Apple2 => "apple2",
             TwoType::Apple2Plus => "apple2plus",
             TwoType::Apple2E => "apple2e",
         };
@@ -1416,7 +1411,23 @@ impl Two {
                 aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
                 slots,
             )),
-            TwoType::Apple2 => Err(format!("unsupported machine type {two_type:?}")),
+            TwoType::Apple2 => {
+                if let Some(card) = aux {
+                    return Err(format!(
+                        "the original Apple ][ has no auxiliary slot (machine.aux: {})",
+                        card.label()
+                    ));
+                }
+                // Config validation rejects a slot-0 card on `apple2`, so
+                // it is always a 48K machine here; guard anyway.
+                if slot0 != Slot0::Empty {
+                    return Err(
+                        "the original Apple ][ slot-0 memory-expansion card is not supported yet"
+                            .to_string(),
+                    );
+                }
+                Ok(Two::new_apple2(slots))
+            }
         }
     }
 
@@ -1492,6 +1503,66 @@ impl Two {
             clk,
             slot0,
             saturn,
+        }
+    }
+
+    /// The original Apple ][ (1978): a 48K machine with Integer BASIC and
+    /// the non-autostart Monitor. Same TwoIo motherboard as the ][+; the
+    /// difference is the ROM (Programmer's Aid at `$D000-$D7FF`, a hole at
+    /// `$D800-$DFFF`, Integer BASIC at `$E000-$F7FF`, Original Monitor at
+    /// `$F800-$FFFF`) and, inherent in that Monitor, no Autostart — reset
+    /// lands at the `*` prompt and a disk boots only via `PR#6` / `C600G`.
+    /// No slot 0: config validation keeps this a 48K machine
+    /// (plans/20260720-01-original-apple2.md A2).
+    fn new_apple2(slots: &BTreeMap<u8, SlotDevice>) -> Two {
+        let mut mem = Memory::new(0xc000); // $0000-$BFFF (48K)
+        let io = mem.add_device(0xc000, 0xc07f, TwoIo::new());
+
+        // The motherboard ROM, in two pieces with the $D800-$DFFF socket
+        // left empty (unmapped → reads $00, the bus's unmapped behavior).
+        mem.add_rom(0xd000, ROM_341_0016.to_vec()); // Programmer's Aid #1
+        let mut high = Vec::with_capacity(0x2000);
+        for part in [ROM_341_0001, ROM_341_0002, ROM_341_0003, ROM_341_0004] {
+            high.extend_from_slice(part);
+        }
+        assert_eq!(
+            high.len(),
+            0x2000,
+            "Integer BASIC + Monitor cover $E000-$FFFF"
+        );
+        mem.add_rom(0xe000, high);
+
+        let mut dsks = BTreeMap::new();
+        let mut lirons = BTreeMap::new();
+        let mut clk = None;
+        for (&slot, &card) in slots {
+            let base = slot_io_base(slot);
+            match card {
+                SlotDevice::DiskII => {
+                    dsks.insert(slot, mem.add_device(base, base + 0xf, Dsk::new()));
+                    mem.add_rom(slot_rom_base(slot), DSK_ROM.to_vec());
+                }
+                SlotDevice::Thunderclock => {
+                    clk = Some((slot, mem.add_device(base, base + 0xf, Clk::new())));
+                    mem.add_rom(slot_rom_base(slot), clk_rom(slot).to_vec());
+                }
+                SlotDevice::Liron => {
+                    lirons.insert(slot, mem.add_device(base, base + 0xf, Liron::new()));
+                    mem.add_rom(slot_rom_base(slot), liron_rom(slot).to_vec());
+                }
+            }
+        }
+
+        Two {
+            cpu: Cpu::new(Model::M6502, mem),
+            model: TwoType::Apple2,
+            io: MachineIo::Plus(io),
+            dsks,
+            hdds: BTreeMap::new(),
+            lirons,
+            clk,
+            slot0: Slot0::Empty,
+            saturn: None,
         }
     }
 
@@ -2541,8 +2612,8 @@ fn options_to_config(options: &Options) -> config::Config {
         description: None,
         machine: Some(config::Machine {
             model: Some(match options.model {
-                // `ewm two` never sets Apple2 (that is `ewm one`'s machine).
-                TwoType::Apple2 | TwoType::Apple2Plus => config::Model::TwoPlus,
+                TwoType::Apple2 => config::Model::Two,
+                TwoType::Apple2Plus => config::Model::TwoPlus,
                 TwoType::Apple2E => config::Model::TwoE,
             }),
             // machine.cpu is an Apple 1 family key; two's CPU is the model's.
@@ -4808,6 +4879,101 @@ mod tests {
             let _ = std::fs::remove_dir_all(dir);
         }
         machine.expect("the machine should build from a downloaded disk");
+    }
+
+    #[test]
+    fn apple2_resets_to_the_monitor_and_runs_integer_basic() {
+        // The A2 gate (plans/20260720-01): the original Apple ][ has no
+        // Autostart, so reset lands at the Monitor `*` prompt — it does
+        // NOT boot the Disk ][ in slot 6 (a ][+ would). Ctrl-B enters
+        // Integer BASIC, where PRINT 2+2 answers 4.
+        let mut two = build_machine(&opts(&[
+            "--set",
+            "machine:model=apple2",
+            "--set",
+            "machine:slots:0:card=empty",
+        ]))
+        .expect("apple2 must construct");
+        two.cpu.reset();
+
+        let step = |two: &mut Two, cycles: u64| {
+            let mut n = 0u64;
+            while n < cycles {
+                n += two.cpu.step() as u64;
+            }
+        };
+        // A key, waiting for the ROM to consume the strobe.
+        let key = |two: &mut Two, b: u8| {
+            two.key(b);
+            let mut n = 0u64;
+            while n < 500_000 {
+                n += two.cpu.step() as u64;
+                if two.key_register() & 0x80 == 0 {
+                    break;
+                }
+            }
+        };
+
+        step(&mut two, 2_000_000);
+        let screen = two.text_screen();
+        // The last non-blank line is the Monitor prompt.
+        let prompt = screen
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        assert!(
+            prompt.trim_start().starts_with('*'),
+            "expected the Monitor `*` prompt (no autostart), got:\n{screen}"
+        );
+
+        key(&mut two, 0x02); // Ctrl-B → Integer BASIC
+        key(&mut two, 0x0d);
+        for &b in b"PRINT 2+2" {
+            key(&mut two, b);
+        }
+        key(&mut two, 0x0d);
+        step(&mut two, 1_000_000);
+        let screen = two.text_screen();
+        assert!(
+            screen.contains(">PRINT 2+2") && screen.contains('4'),
+            "Integer BASIC did not evaluate PRINT 2+2:\n{screen}"
+        );
+    }
+
+    #[test]
+    fn apple2_rejects_the_slot0_memory_card() {
+        // Slot 0 (a Language Card / Saturn) is deferred on the original ][:
+        // a machine is 48K for now. An explicit slot-0 card in the document
+        // fails validation up front...
+        let doc = serde_json::json!(
+            {"machine": {"model": "apple2", "slots": {"0": {"card": "saturn128"}}}}
+        );
+        let err = crate::config::from_document(doc).unwrap_err();
+        assert!(err.contains("slot \"0\" on the original Apple ]["), "{err}");
+
+        // ...and the default ][+ layout's Language Card (which a bare model
+        // switch inherits) is refused at machine-build time, with a message
+        // that says why.
+        let err = match build_machine(&opts(&["--set", "machine:model=apple2"])) {
+            Err(e) => e,
+            Ok(_) => panic!("a defaulted slot-0 Language Card should not build on apple2"),
+        };
+        assert!(
+            err.contains("memory-expansion card is not supported"),
+            "{err}"
+        );
+
+        // An explicit empty slot 0 is the 48K machine, and builds.
+        assert!(
+            build_machine(&opts(&[
+                "--set",
+                "machine:model=apple2",
+                "--set",
+                "machine:slots:0:card=empty",
+            ]))
+            .is_ok()
+        );
     }
 
     #[test]
