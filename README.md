@@ -107,25 +107,13 @@ cargo run --release -- one --config builtin:apple1
 
 ### The `two` machine profiles
 
-Bare `ewm two` boots the **default machine**: an Apple ][+ with the 16K
-Language Card in slot 0 (the classic 64K build), a Thunderclock in
-slot 1, and a Disk II controller in slot 6, on a green monochrome
-monitor. In config terms (`--print-config` prints the full document):
+Bare `ewm two` boots **`builtin:apple2plus`** — the default machine *is*
+a built-in config, not a separate in-code layout, so `ewm two` and
+`ewm two --config builtin:apple2plus` build the identical machine: an
+Apple ][+ with the 64K Language Card and a Disk II in slot 6, on a
+green monochrome monitor.
 
-```json
-{
-  "machine": {
-    "model": "apple2plus",
-    "slots": {
-      "0": { "card": "language" },
-      "1": { "card": "thunderclock" },
-      "6": { "card": "diskii" }
-    }
-  }
-}
-```
-
-Two more profiles ship *inside the binary* as built-in configs —
+The built-in machine configs ship *inside the binary* —
 `--config builtin:list` lists them, and the same files live in
 `configs/`:
 
