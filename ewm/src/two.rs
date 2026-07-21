@@ -29,6 +29,7 @@ use ewm_core::mem::{Device, DeviceHandle, Memory};
 use sdl3::event::Event;
 use sdl3::gamepad::{Axis, Button};
 use sdl3::keyboard::{Keycode, Mod};
+use sdl3::mouse::MouseButton;
 use sdl3::pixels::{Color, PixelFormat};
 use sdl3::rect::Rect;
 use sdl3::render::{BlendMode, ScaleMode};
@@ -1387,9 +1388,8 @@ pub struct Two {
     lirons: BTreeMap<u8, DeviceHandle<Liron>>,
     clk: Option<(u8, DeviceHandle<Clk>)>,
     /// The AppleMouse II card, when present (at most one). Held for runtime
-    /// access: Phase M3 feeds it host input, M4 wires its interrupt into
-    /// `irq_line`. (Its device *state* round-trips via the CPU/Memory chain.)
-    #[allow(dead_code)]
+    /// access: M3 feeds it host input, M4 wires its interrupt into `irq_line`.
+    /// (Its device *state* round-trips via the CPU/Memory chain.)
     mouse: Option<(u8, DeviceHandle<Mou>)>,
     /// The ][+ slot 0 socket (`Slot0::Empty` = a 48K machine). The //e
     /// records `Language` — its card is soldered onto the board.
@@ -1922,6 +1922,47 @@ impl Two {
     pub fn clk_mut(&mut self) -> &mut Clk {
         let (_, h) = self.clk.expect("no Thunderclock in this machine");
         self.cpu.mem.device_mut(h)
+    }
+
+    /// Whether this machine has an AppleMouse card (the frontends check before
+    /// routing host pointer input to it).
+    pub fn has_mouse(&self) -> bool {
+        self.mouse.is_some()
+    }
+
+    /// The mouse device, when present.
+    fn mouse_mut(&mut self) -> Option<&mut Mou> {
+        let (_, h) = self.mouse?;
+        Some(self.cpu.mem.device_mut(h))
+    }
+
+    /// Feed relative host movement + button to the mouse — the SDL captured/
+    /// relative path (plans/20260721-01 M3). The device integrates the delta
+    /// within its clamp window, as the hardware does. A no-op without a card.
+    pub fn feed_mouse_delta(&mut self, dx: i32, dy: i32, button: bool) {
+        if let Some(m) = self.mouse_mut() {
+            m.move_by(dx, dy);
+            m.set_button(button);
+        }
+    }
+
+    /// Feed an absolute host pointer in framebuffer pixels — the RFB path.
+    /// The pixel is mapped into the mouse's clamp window. A no-op without a
+    /// card.
+    pub fn feed_mouse_pixel(&mut self, px: i32, py: i32, button: bool, width: i32, height: i32) {
+        if let Some(m) = self.mouse_mut() {
+            let (min_x, max_x, min_y, max_y) = m.clamp();
+            let map = |v: i32, size: i32, lo: i32, hi: i32| {
+                if size > 1 {
+                    lo + v.clamp(0, size - 1) * (hi - lo) / (size - 1)
+                } else {
+                    lo
+                }
+            };
+            let x = map(px, width, min_x, max_x);
+            let y = map(py, height, min_y, max_y);
+            m.set_host(x, y, button);
+        }
     }
 
     /// Port of `ewm_two_load_disk`: insert a disk into the boot controller.
@@ -3030,8 +3071,22 @@ impl RemoteKeys {
         use crate::rfb::InputEvent;
         match event {
             InputEvent::Key { down, keysym } => self.key(two, down, keysym),
-            InputEvent::Pointer { mask, .. } => {
-                two.set_button(0, if mask & 1 != 0 { 0x80 } else { 0x00 });
+            InputEvent::Pointer { mask, x, y } => {
+                // With a mouse card, the RFB pointer drives it (absolute,
+                // mapped into the clamp window). Otherwise the left button
+                // stands in for the Open-Apple / paddle-0 button, as before.
+                if two.has_mouse() {
+                    let width = crate::scr::frame_width(two.model()) as i32;
+                    two.feed_mouse_pixel(
+                        x as i32,
+                        y as i32,
+                        mask & 1 != 0,
+                        width,
+                        SCR_HEIGHT as i32,
+                    );
+                } else {
+                    two.set_button(0, if mask & 1 != 0 { 0x80 } else { 0x00 });
+                }
             }
             // Control events are handled by the serve loop, not here (they
             // touch the machine's lifecycle, not its keyboard).
@@ -4021,6 +4076,50 @@ pub fn main(args: &[String]) -> i32 {
                     } else if text.len() == 1 {
                         two.key(typed_key_byte(two.model(), text.as_bytes()[0]));
                     }
+                }
+
+                // The host pointer drives an AppleMouse card, if present
+                // (plans/20260721-01 M3). Absolute/mapped: the window content
+                // area ($SCR_WIDTH*3 at offset `pad`) maps into the mouse's
+                // clamp window; the left button is the mouse button.
+                Event::MouseMotion {
+                    x, y, mousestate, ..
+                } if two.has_mouse() => {
+                    two.feed_mouse_pixel(
+                        x as i32 - pad as i32,
+                        y as i32 - pad as i32,
+                        mousestate.left(),
+                        SCR_WIDTH as i32 * 3,
+                        SCR_HEIGHT as i32 * 3,
+                    );
+                }
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Left,
+                    x,
+                    y,
+                    ..
+                } if two.has_mouse() => {
+                    two.feed_mouse_pixel(
+                        x as i32 - pad as i32,
+                        y as i32 - pad as i32,
+                        true,
+                        SCR_WIDTH as i32 * 3,
+                        SCR_HEIGHT as i32 * 3,
+                    );
+                }
+                Event::MouseButtonUp {
+                    mouse_btn: MouseButton::Left,
+                    x,
+                    y,
+                    ..
+                } if two.has_mouse() => {
+                    two.feed_mouse_pixel(
+                        x as i32 - pad as i32,
+                        y as i32 - pad as i32,
+                        false,
+                        SCR_WIDTH as i32 * 3,
+                        SCR_HEIGHT as i32 * 3,
+                    );
                 }
 
                 _ => {}
@@ -5283,6 +5382,79 @@ mod tests {
         let pc = two.cpu.pc;
         two.service_irq();
         assert_eq!(two.cpu.pc, pc, "a de-asserted line is not re-taken");
+    }
+
+    /// A ][+ whose only card is a mouse in slot 4, and its latched position
+    /// read back through the DEVSEL ports ($C0C0 = latch, $C0C1 = stream).
+    fn mouse_machine() -> Two {
+        Two::new_with_slots(
+            TwoType::Apple2Plus,
+            None,
+            Slot0::Empty,
+            &BTreeMap::from([(4, SlotDevice::Mouse)]),
+        )
+        .unwrap()
+    }
+    fn latched_pos(two: &mut Two) -> (u16, u16) {
+        two.cpu.mem.write(0xc0c0, 0); // latch
+        let xl = two.cpu.mem.read(0xc0c1);
+        let xh = two.cpu.mem.read(0xc0c1);
+        let yl = two.cpu.mem.read(0xc0c1);
+        let yh = two.cpu.mem.read(0xc0c1);
+        (u16::from_le_bytes([xl, xh]), u16::from_le_bytes([yl, yh]))
+    }
+
+    #[test]
+    fn feed_mouse_delta_integrates_and_clamps() {
+        // M3 (plans/20260721-01): relative host movement moves the emulated
+        // mouse within its clamp window (default 0..=1023).
+        let mut two = mouse_machine();
+        two.feed_mouse_delta(300, 200, false);
+        assert_eq!(latched_pos(&mut two), (300, 200), "delta integrated");
+        two.feed_mouse_delta(100, -50, false);
+        assert_eq!(latched_pos(&mut two), (400, 150), "deltas accumulate");
+        // Past the window: clamped at the bounds, not wrapped.
+        two.feed_mouse_delta(5000, -5000, false);
+        assert_eq!(latched_pos(&mut two), (1023, 0), "clamped at the window");
+        // A machine with no mouse just ignores the feed.
+        let mut plain = Two::new(TwoType::Apple2Plus).unwrap();
+        plain.feed_mouse_delta(10, 10, true); // no panic, no-op
+    }
+
+    #[test]
+    fn feed_mouse_pixel_maps_into_the_clamp_window() {
+        // An absolute framebuffer pixel maps proportionally into the clamp
+        // window: the centre of a 100x100 surface lands mid-window.
+        let mut two = mouse_machine();
+        two.feed_mouse_pixel(50, 50, false, 100, 100);
+        let (x, y) = latched_pos(&mut two);
+        assert!((500..=520).contains(&x), "x≈mid-window, got {x}");
+        assert!((500..=520).contains(&y), "y≈mid-window, got {y}");
+        // The far corner maps to the window maximum.
+        two.feed_mouse_pixel(999, 999, false, 100, 100);
+        assert_eq!(latched_pos(&mut two), (1023, 1023), "corner -> max");
+    }
+
+    #[test]
+    fn rfb_pointer_drives_the_mouse_when_a_card_is_present() {
+        // M3: over RFB, a PointerEvent moves the emulated mouse (and its
+        // button) instead of the paddle-0 fallback.
+        let mut two = mouse_machine();
+        let mut keys = RemoteKeys::default();
+        let width = crate::scr::frame_width(two.model()) as u16;
+        keys.apply(
+            &mut two,
+            crate::rfb::InputEvent::Pointer {
+                mask: 1,
+                x: width - 1,
+                y: 0,
+            },
+        );
+        let (x, _) = latched_pos(&mut two);
+        assert_eq!(x, 1023, "the far-right pixel maps to the window maximum");
+        // The button reached the mouse: status bit7 set.
+        two.cpu.mem.write(0xc0c0, 0);
+        assert_eq!(two.cpu.mem.read(0xc0c0) & 0x80, 0x80, "button down");
     }
 
     #[test]
