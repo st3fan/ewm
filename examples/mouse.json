@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "title": "Apple //e with a mouse",
+  "machine": {
+    "model": "apple2enhanced",
+    "aux": { "card": "ext80col" },
+    "slots": {
+      "4": { "card": "mouse" },
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "rgb" }
+}

@@ -52,6 +52,11 @@ and sound.
   shows inverse upper case there), lo-res / hi-res / double-lo-res /
   double-hi-res graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses
   the Disk II, hard drive, clock and sound.
+* **AppleMouse II** — an Apple II mouse in any slot (slot 4 by default,
+  `{"card": "mouse"}`), both ][+ and //e; the host pointer (the SDL window or
+  a VNC client) drives it through the firmware's eight entry points, with
+  VBL / movement / button interrupts, so MousePaint and GEOS see a mouse.
+  See `notes/MOUSE.md`.
 
 ## Requirements
 
@@ -98,6 +103,9 @@ cargo run --release -- two --config builtin:apple2enhanced \
 cargo run --release -- two --config builtin:apple2enhanced \
     --set machine:aux:card=ramworksiii \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
+
+# An AppleMouse II in slot 4 (the host pointer drives it): MousePaint, GEOS
+cargo run --release -- two --config examples/mouse.json
 
 # Replica 1 (Woz Monitor + KRUSADER)
 cargo run --release -- one --config builtin:replica1

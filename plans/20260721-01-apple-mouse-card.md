@@ -12,8 +12,8 @@
   contract.
 - **Backlog origin:** `notes/IDEAS.md` → "AppleMouse card (M) — unlocks
   MousePaint, Dazzle Draw menus, GEOS."
-- **Status:** in progress — M1 (interrupt path), M2 (substrate, polled),
-  M3 (host input), and M4 (interrupt mode) landed; M5 (docs) remains.
+- **Status:** complete — M1–M5 landed (one PR per phase). `{"card": "mouse"}`
+  is a working AppleMouse II; as-built in `notes/MOUSE.md`.
 - **Target:** `main`; **one PR per phase** (owner directed).
 - **Kickoff decisions (this build):** (1) coordinates — **absolute/mapped**
   (revised from relative/captured during M3: both the SDL window pointer and
@@ -163,7 +163,7 @@ feed the mouse device instead.
 | M2 | The mouse card substrate: `config::SlotCard::Mouse` + `SlotDevice::Mouse`, the `Mou` device, `mouse_rom(slot)`; polled semantics, headless firmware gate | M | Done |
 | M3 | Host input: SDL mouse events + RFB pointer x/y feed the device (absolute/mapped); the cursor tracks in polled software | S/M | Done |
 | M4 | Interrupt mode: VBL / movement / button assert the M1 line; ServeMouse clears; scripted firmware-level end-to-end gate | M | Done |
-| M5 | Docs + as-built `notes/MOUSE.md`; README example; schema inventory; tick `IDEAS.md` | S | Planned |
+| M5 | Docs + as-built `notes/MOUSE.md`; README example; schema inventory; tick `IDEAS.md` | S | Done |
 
 Order: **M1 → M2 → M3 → M4 → M5**. M1 and M2 are independent (M2's polled
 mouse has no interrupts); M1 is a hard prerequisite only for M4. Sequence
