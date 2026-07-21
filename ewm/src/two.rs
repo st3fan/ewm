@@ -2773,10 +2773,7 @@ fn build_machine(options: &Options) -> Result<Two, String> {
         Some(config::SlotCard::Saturn128) => Slot0::Saturn128,
         _ => Slot0::Empty,
     };
-    if options.model == TwoType::Apple2EEnhanced
-        && slot0 != Slot0::Language
-        && options.slots.contains_key(&0)
-    {
+    if options.model.is_iie() && slot0 != Slot0::Language && options.slots.contains_key(&0) {
         return Err("the //e has no slot 0 (its language card is built in)".to_string());
     }
     let table: BTreeMap<u8, SlotDevice> = options
@@ -2935,6 +2932,18 @@ const REMOTE_KEY_QUEUE_MAX: usize = 1024;
 /// only after the ROM has consumed the previous (strobe cleared via `$C010`).
 /// Free side effect: type-ahead while the machine is busy, like real hardware
 /// buffered in the user's fingers.
+/// The byte a printable keypress delivers to the machine. A //e — original
+/// or Enhanced — has lower case, so it passes through; the ][ / ][+ ROM
+/// expects upper case, so letters are folded. Shared by the SDL and remote
+/// (RFB) input paths so both families behave the same on both.
+fn typed_key_byte(model: TwoType, b: u8) -> u8 {
+    if model.is_iie() {
+        b
+    } else {
+        b.to_ascii_uppercase()
+    }
+}
+
 #[derive(Default)]
 struct RemoteKeys {
     ctrl: bool,
@@ -3000,15 +3009,7 @@ impl RemoteKeys {
                 self.push(0x09);
                 0x7f
             }
-            0x20..=0x7e => {
-                let b = keysym as u8;
-                // The ][+ ROM expects upper case; the //e passes it through.
-                if two.model() == TwoType::Apple2EEnhanced {
-                    b
-                } else {
-                    b.to_ascii_uppercase()
-                }
-            }
+            0x20..=0x7e => typed_key_byte(two.model(), keysym as u8),
             _ => return,
         };
         self.push(byte);
@@ -3947,15 +3948,7 @@ pub fn main(args: &[String]) -> i32 {
                     if palette_visible {
                         let _ = palette.handle_text(text);
                     } else if text.len() == 1 {
-                        // The ][+ has no lower case, so its ROM expects
-                        // upper-cased input; the //e passes lower case through.
-                        let b = text.as_bytes()[0];
-                        let b = if two.model() == TwoType::Apple2EEnhanced {
-                            b
-                        } else {
-                            b.to_ascii_uppercase()
-                        };
-                        two.key(b);
+                        two.key(typed_key_byte(two.model(), text.as_bytes()[0]));
                     }
                 }
 
@@ -5165,6 +5158,22 @@ mod tests {
             );
             step(&mut two, 100_000);
             spent += 100_000;
+        }
+    }
+
+    #[test]
+    fn typed_lower_case_reaches_every_iie_but_folds_on_the_original_ii() {
+        // The keyboard-input regression: the original //e (not only the
+        // Enhanced) has lower case, so a typed 'a' must reach the machine as
+        // 'a'. The ][ / ][+ ROMs expect upper case and fold it.
+        assert_eq!(typed_key_byte(TwoType::Apple2E, b'a'), b'a');
+        assert_eq!(typed_key_byte(TwoType::Apple2EEnhanced, b'a'), b'a');
+        assert_eq!(typed_key_byte(TwoType::Apple2Plus, b'a'), b'A');
+        assert_eq!(typed_key_byte(TwoType::Apple2, b'a'), b'A');
+        // Digits and symbols are untouched on every machine.
+        for m in [TwoType::Apple2, TwoType::Apple2Plus, TwoType::Apple2E] {
+            assert_eq!(typed_key_byte(m, b'5'), b'5');
+            assert_eq!(typed_key_byte(m, b']'), b']');
         }
     }
 
