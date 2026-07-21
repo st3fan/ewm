@@ -76,6 +76,18 @@ static ROM_IIE_CD: &[u8] =
 static ROM_IIE_EF: &[u8] =
     include_bytes!("../../roms/Apple IIe EF Enhanced - 342-0303-A - 2764.bin");
 
+// The unenhanced (original 1983 //e) system ROM halves — same $C000-$DFFF
+// (CD) / $E000-$FFFF (EF) split as the Enhanced pair above, but without the
+// 65C02/MouseText firmware. Wired into the 6502 //e by `Two::new_2e` in a
+// later phase (plans/20260720-02-original-iie.md E3); pinned by
+// `iie_unenhanced_system_roms_match_the_committed_images` until then.
+#[allow(dead_code)]
+static ROM_IIE_CD_UNENHANCED: &[u8] =
+    include_bytes!("../../roms/AppleIIe/Apple IIe CD Unenhanced - 342-0135-B - 2764.bin");
+#[allow(dead_code)]
+static ROM_IIE_EF_UNENHANCED: &[u8] =
+    include_bytes!("../../roms/AppleIIe/Apple IIe EF Unenhanced - 342-0134-A - 2764.bin");
+
 // Soft switches, from two.c.
 const SS_KBD: u16 = 0xc000;
 const SS_KBDSTRB: u16 = 0xc010;
@@ -4199,6 +4211,35 @@ mod tests {
             std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../roms/3410036.bin"))
                 .expect("committed char ROM present");
         assert_eq!(apple2_chr, committed_chr, "char ROMs must be identical");
+    }
+
+    /// Provenance for the unenhanced //e system ROM halves (E2 of
+    /// plans/20260720-02): each embedded image is pinned by SHA-1, so the
+    /// 6502 //e that E3 builds from them cannot silently drift. The
+    /// unenhanced video ROM is pinned alongside its static in `chr.rs`.
+    #[test]
+    fn iie_unenhanced_system_roms_match_the_committed_images() {
+        fn sha1(data: &[u8]) -> String {
+            crate::ws::sha1(data)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        }
+        for (rom, size, hash) in [
+            (
+                ROM_IIE_CD_UNENHANCED,
+                8192,
+                "523838c19c79f481fa02df56856da1ec3816d16e",
+            ),
+            (
+                ROM_IIE_EF_UNENHANCED,
+                8192,
+                "8895a4b703f2184b673078f411f4089889b61c54",
+            ),
+        ] {
+            assert_eq!(rom.len(), size, "{hash}");
+            assert_eq!(sha1(rom), hash);
+        }
     }
 
     /// The drives of the slot 6 Disk II entry in an options table.
