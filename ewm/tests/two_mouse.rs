@@ -6,8 +6,10 @@
 //! page-switching banks its own `$Cn00` ROM mid-routine, drives the PIA
 //! handshake, and the result lands in the slot's screen holes.
 //!
-//! The VBL-interrupt test is P4 (interrupts through the real firmware
-//! handler) and stays `#[ignore]`d until then.
+//! The VBL-interrupt test (P4) drives the real firmware's interrupt path: the
+//! 6805 asserts the slot IRQ line on VBL, the ROM's user IRQ vector routes to
+//! a handler that calls the real ServeMouse, and ServeMouse reports the source
+//! and de-asserts the line.
 
 use std::collections::BTreeMap;
 
@@ -143,48 +145,44 @@ fn device_pos(two: &mut Two) -> (i16, i16) {
 }
 
 #[test]
-#[ignore = "P4: interrupts through the real firmware handler (plans/20260721-03)"]
 fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
-    // The M4 flagship (scripted firmware-level end-to-end, plans/20260721-01):
+    // The interrupt flagship through the REAL firmware (plans/20260721-03 P4):
     // enable VBL interrupts, install a handler through the ROM's user IRQ
     // vector ($03FE), tick N frames, and confirm the handler fired exactly
-    // once per frame with ServeMouse reporting the VBL source — and that a
-    // fed movement reaches the position ReadMouse returns.
+    // once per frame with the real ServeMouse reporting the VBL source (and
+    // de-asserting the line so it is not re-taken) — and that a fed movement
+    // reaches the position the firmware reads.
     let mut two = machine_with_mouse();
     let serve_mouse = entry(&mut two, 1);
     let set_mouse = entry(&mut two, 0);
     let init_mouse = entry(&mut two, 7);
 
-    // Handler at $0300: JSR ServeMouse; store the source; bump the counter;
-    // restore A (the ROM IRQ handler saved it in $45); RTI.
-    let handler: [u8; 12] = [
-        0x20,
-        serve_mouse as u8,
-        (serve_mouse >> 8) as u8, // JSR ServeMouse
-        0x8d,
-        0x81,
-        0x02, // STA $0281 (source byte)
-        0xee,
-        0x80,
-        0x02, // INC $0280 (fire count)
-        0xa5,
-        0x45, // LDA $45
-        0x40, // RTI
-    ];
+    // Handler at $0300: JSR ServeMouse (X=$Cn, Y=$n0); read the source it
+    // deposits in the status hole $077C; bump the counter; restore A (the ROM
+    // IRQ handler saved it in $45); RTI.
+    let mut handler: Vec<u8> = Vec::new();
+    handler.extend([0xa2, 0xc4, 0xa0, 0x40]); // LDX #$C4; LDY #$40
+    handler.extend([0x20, serve_mouse as u8, (serve_mouse >> 8) as u8]); // JSR ServeMouse
+    handler.extend([0xad, 0x7c, 0x07]); // LDA $077C (status hole)
+    handler.extend([0x8d, 0x81, 0x02]); // STA $0281 (source byte)
+    handler.extend([0xee, 0x80, 0x02]); // INC $0280 (fire count)
+    handler.extend([0xa5, 0x45]); // LDA $45 (the ROM handler saved A here)
+    handler.push(0x40); // RTI
     for (i, &b) in handler.iter().enumerate() {
         two.cpu.mem.write(0x0300 + i as u16, b);
     }
 
     // Setup at $0320: point the user IRQ vector at $0300, InitMouse, SetMouse
-    // mode $09 (mouse on + VBL interrupt), zero the counters, CLI, spin.
+    // mode $09 (mouse on + VBL interrupt), zero the counters, CLI, spin. Each
+    // firmware call takes X=$Cn, Y=$n0.
     let mut s: Vec<u8> = Vec::new();
     let lda_sta = |s: &mut Vec<u8>, imm: u8, addr: u16| {
         s.extend([0xa9, imm, 0x8d, addr as u8, (addr >> 8) as u8]);
     };
     lda_sta(&mut s, 0x00, 0x03fe);
     lda_sta(&mut s, 0x03, 0x03ff);
-    s.extend([0x20, init_mouse as u8, (init_mouse >> 8) as u8]); // JSR InitMouse
-    s.extend([0xa9, 0x09, 0x20, set_mouse as u8, (set_mouse >> 8) as u8]); // LDA #9; JSR SetMouse
+    ldxy_jsr(&mut s, init_mouse); // InitMouse
+    lda_ldxy_jsr(&mut s, 0x09, set_mouse); // SetMouse mode $09
     lda_sta(&mut s, 0x00, 0x0280);
     lda_sta(&mut s, 0x00, 0x0281);
     s.push(0x58); // CLI
@@ -194,10 +192,11 @@ fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
         two.cpu.mem.write(0x0320 + i as u16, b);
     }
 
-    // Run the setup to the spin loop.
+    // Run the setup to the spin loop (the real firmware's Init + SetMouse run
+    // thousands of instructions through the handshake).
     two.cpu.reset();
     two.cpu.pc = 0x0320;
-    for _ in 0..100_000 {
+    for _ in 0..500_000 {
         two.cpu.step();
         if two.cpu.pc == spin {
             break;
@@ -223,6 +222,11 @@ fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
 
     assert_eq!(read(&mut two, 0x0280), frames, "one IRQ per frame");
     assert_eq!(read(&mut two, 0x0281), 0x08, "ServeMouse reported VBL");
+    assert_eq!(
+        two.mouse_irq_pending(),
+        Some(false),
+        "the last ServeMouse de-asserted the line (no spurious re-fire)"
+    );
     assert_eq!(
         device_pos(&mut two),
         (250, 100),
