@@ -147,8 +147,8 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
 - **`--config builtin:<name>`** loads one of the embedded copies of the
   `configs/` files (`include_str!`, a static table in `config.rs` — no
   build script). Names are the schema's model tokens, matching the file
-  stems 1:1: `builtin:apple2plus` (`configs/apple2plus.json`) and `builtin:apple2e`
-  (`configs/apple2e.json`; the files were renamed from `plus.json` /
+  stems 1:1: `builtin:apple2plus` (`configs/apple2plus.json`) and `builtin:apple2enhanced`
+  (`configs/apple2enhanced.json`; the files were renamed from `plus.json` /
   `enhanced.json`). `builtin:list` prints the names with descriptions
   and exits 0, like `--help`; an unknown name errors listing the
   available names. A literal file named `builtin:x` is reachable as
@@ -223,10 +223,10 @@ Phase C3 of `plans/20260718-02-config-sources.md`:
   `config.rs` tests; `--set`'s materialization is untouched (the boo
   launcher's drag-drop paths behave identically).
 - **Known edge, accepted**: overlaying a complete *//e* config onto the
-  slotless ][+ default (`ewm two --config-overlay builtin:apple2e`) fails
+  slotless ][+ default (`ewm two --config-overlay builtin:apple2enhanced`) fails
   completeness — materialization brings in the ][+ default table, whose
   slot 0 the //e rejects. Consistent with the rules (an overlay means
-  "default machine plus this"); start from `--config builtin:apple2e`
+  "default machine plus this"); start from `--config builtin:apple2enhanced`
   instead.
 
 ## Config sources — `--print-config` (C4, recorded as built)
@@ -336,7 +336,7 @@ below is **apple2-family only**.
 
 | Source | Setting | Values |
 |---|---|---|
-| config + `--set` | `machine.model` | `apple2`, `apple2plus`, `apple2e`, `apple1`, `replica1` |
+| config + `--set` | `machine.model` | `apple2`, `apple2plus`, `apple2enhanced`, `apple1`, `replica1` |
 | config + `--set` | `title` | window bar reads `EWM - <title>`, else plain `EWM`; the built-ins set the machine name |
 | config + `--set` | `machine.cpu` | `6502`, `65C02` (apple1 family; absent = the model's CPU) |
 | config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
@@ -398,7 +398,7 @@ below is **apple2-family only**.
   (`drive1`/`drive2`), **.2mg only**, ProDOS-order, exactly 800 (400K)
   or 1600 (800K) blocks; the 2IMG locked flag mounts read-only;
   write-back lands at `data_offset + block*512`, header preserved. Any
-  slot 1–7, no multiplicity limit; `configs/apple2e.json` carries one
+  slot 1–7, no multiplicity limit; `configs/apple2enhanced.json` carries one
   in slot 5.
 - **SmartPort identity is real**: signature `$Cn07=$00`, ID type at
   `$CnFB`, ProDOS entry via `$CnFF` with the SmartPort dispatch at
@@ -425,7 +425,7 @@ throughout so editors show help):
 ```json
 {
   "machine": {
-    "model": "apple2e",
+    "model": "apple2enhanced",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },
@@ -458,7 +458,7 @@ Schema rules:
   `"harddrive"` cards (Phase B).
 - `machine.aux`: `{ "card": "80col" | "ext80col" | "ramworksiii", "size":
   "64k".."8m" }` — `size` only valid with `ramworksiii`; whole `aux` object
-  only valid with `"model": "apple2e"` (enforced in code; the schema documents
+  only valid with `"model": "apple2enhanced"` (enforced in code; the schema documents
   it).
 - `cpu.speed`: `"normal" | "3.58mhz" | "7.16mhz"` — exactly the palette's
   accelerator steps (`SPEED_NORMAL/FAST/FASTER`).

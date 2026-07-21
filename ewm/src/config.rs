@@ -82,7 +82,7 @@ pub struct Machine {
     /// absent the model decides (Apple 1: 6502, Replica 1: 65C02). The
     /// apple2 family's CPU is a model property and rejects this key.
     pub cpu: Option<CpuModel>,
-    /// The //e auxiliary-slot card. Only valid with `"model": "apple2e"`; when
+    /// The //e auxiliary-slot card. Only valid with `"model": "apple2enhanced"`; when
     /// absent the //e gets the standard Extended 80-Column Text Card.
     pub aux: Option<Aux>,
     /// The card in each peripheral slot, keyed `"0"` through `"7"` (slot 0
@@ -112,7 +112,7 @@ pub enum Model {
     #[serde(rename = "apple2plus")]
     TwoPlus,
     /// The Apple //e.
-    #[serde(rename = "apple2e")]
+    #[serde(rename = "apple2enhanced")]
     TwoE,
     /// The classic Apple 1 (6502, 8KB RAM, Woz Monitor).
     #[serde(rename = "apple1")]
@@ -145,7 +145,7 @@ impl Model {
         match self {
             Model::Two => "apple2",
             Model::TwoPlus => "apple2plus",
-            Model::TwoE => "apple2e",
+            Model::TwoE => "apple2enhanced",
             Model::Apple1 => "apple1",
             Model::Replica1 => "replica1",
         }
@@ -523,7 +523,10 @@ pub enum RemoteProtocol {
 const BUILTINS: &[(&str, &str)] = &[
     ("apple1", include_str!("../../configs/apple1.json")),
     ("apple2", include_str!("../../configs/apple2.json")),
-    ("apple2e", include_str!("../../configs/apple2e.json")),
+    (
+        "apple2enhanced",
+        include_str!("../../configs/apple2enhanced.json"),
+    ),
     ("apple2plus", include_str!("../../configs/apple2plus.json")),
     ("replica1", include_str!("../../configs/replica1.json")),
 ];
@@ -693,7 +696,7 @@ pub fn collect_document(args: &[String], seed_model: &str, materialize_slots: bo
                 if source == "builtin:list" {
                     for (name, description) in builtin_list() {
                         match description {
-                            Some(description) => println!("{name:<12}{description}"),
+                            Some(description) => println!("{name:<16}{description}"),
                             None => println!("{name}"),
                         }
                     }
@@ -1477,7 +1480,7 @@ mod tests {
             ("apple1", "Apple 1"),
             ("apple2", "Apple ]["),
             ("apple2plus", "Apple ][+"),
-            ("apple2e", "Apple //e"),
+            ("apple2enhanced", "Enhanced Apple //e"),
             ("replica1", "Replica 1"),
         ] {
             let title = load_builtin(name).unwrap().title;
@@ -1492,12 +1495,18 @@ mod tests {
         let models: Vec<&str> = builtin_list().iter().map(|(n, _)| *n).collect();
         assert_eq!(
             models,
-            vec!["apple1", "apple2", "apple2e", "apple2plus", "replica1"]
+            vec![
+                "apple1",
+                "apple2",
+                "apple2enhanced",
+                "apple2plus",
+                "replica1"
+            ]
         );
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
         assert_eq!(model("apple2"), Some(Model::Two));
         assert_eq!(model("apple2plus"), Some(Model::TwoPlus));
-        assert_eq!(model("apple2e"), Some(Model::TwoE));
+        assert_eq!(model("apple2enhanced"), Some(Model::TwoE));
         assert_eq!(model("apple1"), Some(Model::Apple1));
         assert_eq!(model("replica1"), Some(Model::Replica1));
     }
@@ -1507,7 +1516,7 @@ mod tests {
         let err = load_builtin("foo").unwrap_err();
         assert_eq!(
             err,
-            r#"no built-in config "foo" (available: apple1, apple2, apple2e, apple2plus, replica1)"#
+            r#"no built-in config "foo" (available: apple1, apple2, apple2enhanced, apple2plus, replica1)"#
         );
     }
 
@@ -1563,9 +1572,9 @@ mod tests {
         let config = parse(r#"{"machine": {"model": "apple1", "cpu": "65C02"}}"#).expect("cpu");
         assert_eq!(config.machine.unwrap().cpu, Some(CpuModel::M65C02));
         // ...and is rejected for the apple2 family, whose model decides.
-        let err = parse(r#"{"machine": {"model": "apple2e", "cpu": "6502"}}"#).unwrap_err();
+        let err = parse(r#"{"machine": {"model": "apple2enhanced", "cpu": "6502"}}"#).unwrap_err();
         assert!(
-            err.contains("machine.cpu") && err.contains("apple2e"),
+            err.contains("machine.cpu") && err.contains("apple2enhanced"),
             "{err}"
         );
         // Size banks are Apple 1 family boards.
@@ -1777,7 +1786,7 @@ mod tests {
     fn bad_values_are_rejected_with_expected_lists() {
         let err = parse(r#"{"machine": {"model": "2gs"}}"#).unwrap_err();
         assert!(
-            err.contains("apple2plus") && err.contains("apple2e"),
+            err.contains("apple2plus") && err.contains("apple2enhanced"),
             "{err}"
         );
 
@@ -1850,9 +1859,10 @@ mod tests {
             err.contains(r#"the saturn128 card only fits slot "0""#),
             "{err}"
         );
-        let err =
-            parse(r#"{"machine": {"model": "apple2e", "slots": {"0": {"card": "language"}}}}"#)
-                .unwrap_err();
+        let err = parse(
+            r#"{"machine": {"model": "apple2enhanced", "slots": {"0": {"card": "language"}}}}"#,
+        )
+        .unwrap_err();
         assert!(
             err.contains("the //e has no slot 0 (its language card is built in)"),
             "{err}"
@@ -1988,14 +1998,15 @@ mod tests {
             ))
         };
 
-        let err = aux("apple2e", r#"{"card": "80col", "size": "1m"}"#).unwrap_err();
+        let err = aux("apple2enhanced", r#"{"card": "80col", "size": "1m"}"#).unwrap_err();
         assert!(err.contains("only valid with"), "{err}");
         let err = aux("apple2plus", r#"{"card": "80col"}"#).unwrap_err();
         assert!(err.contains("//e feature"), "{err}");
-        let err = aux("apple2e", r#"{"card": "ramworksiii", "size": "3k"}"#).unwrap_err();
+        let err = aux("apple2enhanced", r#"{"card": "ramworksiii", "size": "3k"}"#).unwrap_err();
         assert!(err.contains("multiple of 64k"), "{err}");
 
-        let config = aux("apple2e", r#"{"card": "ramworksiii", "size": "1m"}"#).expect("valid aux");
+        let config =
+            aux("apple2enhanced", r#"{"card": "ramworksiii", "size": "1m"}"#).expect("valid aux");
         let aux = config
             .machine
             .expect("machine present")
@@ -2080,14 +2091,14 @@ mod tests {
         merge_documents(
             &mut doc,
             serde_json::json!({
-                "machine": {"model": "apple2e", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
+                "machine": {"model": "apple2enhanced", "slots": {"6": {"drive2": "b.dsk"}}, "aux": null, "memory": []},
                 "display": {"monitor": null, "fps": 30},
             }),
         );
         assert_eq!(
             doc,
             serde_json::json!({
-                "machine": {"model": "apple2e", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
+                "machine": {"model": "apple2enhanced", "slots": {"6": {"card": "diskii", "drive1": "a.dsk", "drive2": "b.dsk"}}},
                 "display": {"monitor": "green", "fps": 30},
             })
         );
@@ -2151,9 +2162,12 @@ mod tests {
         let mut doc = serde_json::json!({"machine": {"model": "apple2plus"}});
         merge_overlay_document(
             &mut doc,
-            serde_json::json!({"machine": {"model": "apple2e", "slots": null}}),
+            serde_json::json!({"machine": {"model": "apple2enhanced", "slots": null}}),
         );
-        assert_eq!(doc["machine"], serde_json::json!({"model": "apple2e"}));
+        assert_eq!(
+            doc["machine"],
+            serde_json::json!({"model": "apple2enhanced"})
+        );
     }
 
     #[test]
@@ -2393,13 +2407,13 @@ mod tests {
         merge_documents(&mut doc, fragment.clone());
         let err = from_document(doc).unwrap_err();
         assert!(err.contains("//e feature"), "{err}");
-        let mut doc = serde_json::json!({"machine": {"model": "apple2e"}});
+        let mut doc = serde_json::json!({"machine": {"model": "apple2enhanced"}});
         merge_documents(&mut doc, fragment);
         assert!(from_document(doc).is_ok());
 
         // Same for the //e's missing slot 0.
         let err = from_document(serde_json::json!(
-            {"machine": {"model": "apple2e", "slots": {"0": {"card": "language"}}}}
+            {"machine": {"model": "apple2enhanced", "slots": {"0": {"card": "language"}}}}
         ))
         .unwrap_err();
         assert!(err.contains("the //e has no slot 0"), "{err}");

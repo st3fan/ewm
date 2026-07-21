@@ -1216,7 +1216,7 @@ mod tests {
     fn two_family_models_are_rejected_by_one() {
         // The mirror of two's boundary: a two-family document is a valid
         // config, but one can't run it.
-        for model in ["apple2plus", "apple2e"] {
+        for model in ["apple2plus", "apple2enhanced"] {
             let doc = serde_json::json!({"machine": {"model": model}});
             let config = config::from_document(doc).expect("a valid document");
             let mut options = Options::default();

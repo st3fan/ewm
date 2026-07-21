@@ -77,7 +77,13 @@ fn two_controller_config_loads() {
 fn builtin_configs_load_and_match_the_committed_files() {
     // The `builtin:` source scheme resolves against the embedded copies of
     // the configs/ files; both spellings must describe the same machine.
-    for name in ["apple1", "apple2", "apple2e", "apple2plus", "replica1"] {
+    for name in [
+        "apple1",
+        "apple2",
+        "apple2enhanced",
+        "apple2plus",
+        "replica1",
+    ] {
         let config = config::load_builtin(name).expect("builtin loads");
         assert!(config.description.is_some(), "builtin:{name}");
 
@@ -91,7 +97,7 @@ fn builtin_configs_load_and_match_the_committed_files() {
     let err = config::load_builtin("apple2gs").unwrap_err();
     assert_eq!(
         err,
-        r#"no built-in config "apple2gs" (available: apple1, apple2, apple2e, apple2plus, replica1)"#
+        r#"no built-in config "apple2gs" (available: apple1, apple2, apple2enhanced, apple2plus, replica1)"#
     );
 }
 
