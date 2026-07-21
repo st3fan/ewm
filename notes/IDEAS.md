@@ -68,6 +68,40 @@ deterministic golden-BMP test culture.
   loop's cycle budget and vertical timing; matters for European software
   timing loops.
 
+## Emulation accuracy
+
+- **//e Ctrl-Reset should clear the MMU soft switches like the RESET line**
+  (S) — on a real //e the hardware RESET line resets the memory soft
+  switches (80STORE, RAMRD, RAMWRT, ALTZP, INTCXROM, SLOTC3ROM, and the
+  INTC8ROM latch) to their default main-memory / slot-ROM state *before* the
+  reset handler runs; the ROM handler relies on that and only re-clears what
+  it needs for the display. EWM's Ctrl-Reset (`Cmd-R`, and the Cmd-Shift-R
+  power-cycle) is just `cpu.reset()` — it reloads the CPU registers but
+  touches no soft switch — so whatever a program left on stays on. Measured
+  during the original-//e work: after Ctrl-Reset from an all-switches-on
+  state, RAMRD / RAMWRT / ALTZP / INTCXROM all persist on **both** //e (only
+  80STORE is cleared, in software by the ROM; SLOTC3ROM only on the
+  Enhanced). Consequence: a program that leaves **aux memory** active and
+  then Ctrl-Resets comes back *still running in aux memory* — reset does not
+  cleanly recover the machine, which never happens on hardware.
+  - **Fix shape:** a hardware-reset hook (e.g. `Two::reset` / `IouE::reset`)
+    on the Cmd-R / power-cycle path — distinct from a *program's* own soft
+    reset through the `$FFFC` vector, which must **not** reset the switches —
+    that resets the documented switches, then does the CPU reset.
+  - **Pin before implementing:** the exact switch set against the //e
+    Technical Reference / AppleWin / MAME. The **video** switches
+    (TEXT / MIXED / PAGE2 / HIRES / 80COL / ALTCHARSET) stay ROM-controlled —
+    80COL and ALTCHARSET are confirmed *not* hardware-reset (it's why the two
+    //e differ on whether Ctrl-Reset drops out of 80-column); PAGE2 / HIRES
+    membership needs checking.
+  - **Scope:** //e only. The ][+ has no MMU and its RESET resets nothing
+    notable (its language-card bank state persists across reset, as on real
+    hardware).
+  - *(infra: the switches live in `IouE` in `two.rs`; the golden-BMP
+    screenshots don't exercise reset, so they stay the tripwire that the
+    rest of the render path is untouched. Add a test that Ctrl-Reset from an
+    aux-active state returns to main memory.)*
+
 ## Storage & disk images
 
 - **Disk II write support + write-back** (M) — currently writes only touch
