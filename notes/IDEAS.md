@@ -30,10 +30,13 @@ deterministic golden-BMP test culture.
 - **Super Serial Card** (M) — slot 2 serial. The killer feature is the
   **virtual modem**: bridge the SSC to a TCP socket so period terminal
   software can "dial" modern telnet BBSes. AppleWin and Virtual ][ do this.
-- ~~**AppleMouse card**~~ — **landed** (`plans/20260721-01-apple-mouse-card.md`,
-  as-built `notes/MOUSE.md`): `{"card": "mouse"}` in any slot 1–7, synthetic
-  firmware + a `Mou` device, host pointer input, and VBL/movement/button
+- ~~**AppleMouse card**~~ — **landed** (`plans/20260721-03-mouse-pia-hardware.md`,
+  as-built `notes/MOUSE.md`): `{"card": "mouse"}` in any slot 1–7, the card's
+  **real hardware** (a 6520 PIA + a 6805 controller + the `342-0270-C` ROM, so
+  MousePaint et al. drive it), host pointer input, and VBL/movement/button
   interrupts on a new reusable maskable-IRQ line (which Mockingboard inherits).
+  A first synthetic-firmware version (`plans/20260721-01`) was replaced when it
+  could not drive MousePaint on the //e.
 - ~~**RamWorks III aux-slot memory**~~ — **landed**: `--aux
   ramworksiii[:SIZE]` (64K..8MB, bank register `$C073`), built on a new
   `AuxCard` trait (`ewm/src/aux/`) that also brought the plain 1K

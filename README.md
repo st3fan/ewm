@@ -53,10 +53,11 @@ and sound.
   double-hi-res graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses
   the Disk II, hard drive, clock and sound.
 * **AppleMouse II** — an Apple II mouse in any slot (slot 4 by default,
-  `{"card": "mouse"}`), both ][+ and //e; the host pointer (the SDL window or
-  a VNC client) drives it through the firmware's eight entry points, with
-  VBL / movement / button interrupts, so MousePaint and GEOS see a mouse.
-  See `notes/MOUSE.md`.
+  `{"card": "mouse"}`), both ][+ and //e. Emulated as the card's real hardware
+  (a 6520 PIA + a 6805 controller + the `342-0270-C` ROM), so any mouse
+  software drives it — including MousePaint on the //e. The host pointer (the
+  SDL window or a VNC client) maps into the mouse, with VBL / movement /
+  button interrupts. See `notes/MOUSE.md`.
 
 ## Requirements
 
