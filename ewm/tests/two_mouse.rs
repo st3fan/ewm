@@ -1,13 +1,13 @@
 //! The AppleMouse II card (plans/20260721-03: the real 6520 PIA + 6805 + the
-//! `342-0270-C` ROM). A ][+ with a mouse in slot 4: its identification bytes
-//! are served from the banked `$Cn00` ROM through the real bus.
+//! `342-0270-C` ROM), driven through its **real ROM firmware**. A ][+ with a
+//! mouse in slot 4 runs 6502 code that calls the documented entry points
+//! (found through the `$Cn12` offset table) with the Apple II slot-firmware
+//! register convention (X = `$Cn`, Y = slot×16); the ROM's `$xx70`
+//! page-switching banks its own `$Cn00` ROM mid-routine, drives the PIA
+//! handshake, and the result lands in the slot's screen holes.
 //!
-//! The firmware-execution tests below — running the real ROM's entry points
-//! end-to-end (Init→Clamp→Pos→Read, and VBL interrupts) — are P2's gate: the
-//! real ROM's call convention and its `$xx70` page-switching differ from the
-//! retired synthetic firmware's assumptions these still encode, so they are
-//! `#[ignore]`d until P2 drives the real firmware. See
-//! plans/20260721-03-mouse-pia-hardware.md.
+//! The VBL-interrupt test is P4 (interrupts through the real firmware
+//! handler) and stays `#[ignore]`d until then.
 
 use std::collections::BTreeMap;
 
@@ -47,8 +47,22 @@ fn card_is_identifiable_by_its_firmware_bytes() {
     assert_eq!(read(&mut two, 0xc4fb), 0xd6, "AppleMouse ID");
 }
 
+/// Set X=$Cn / Y=$n0 before a JSR — the Apple II slot-firmware register
+/// convention the real ROM's routines require (X = the `$Cn` ROM page for the
+/// screen-hole index, Y = slot×16 for the `$C0nX` DEVSEL). Slot 4.
+fn ldxy_jsr(p: &mut Vec<u8>, addr: u16) {
+    p.extend([0xa2, 0xc4, 0xa0, 0x40]); // LDX #$C4; LDY #$40
+    p.extend([0x20, addr as u8, (addr >> 8) as u8]);
+}
+fn lda_ldxy_jsr(p: &mut Vec<u8>, imm: u8, addr: u16) {
+    p.extend([0xa9, imm]); // LDA #imm
+    ldxy_jsr(p, addr);
+}
+fn lda_sta(p: &mut Vec<u8>, imm: u8, addr: u16) {
+    p.extend([0xa9, imm, 0x8d, addr as u8, (addr >> 8) as u8]);
+}
+
 #[test]
-#[ignore = "P2: real-firmware end-to-end (plans/20260721-03)"]
 fn init_clamp_pos_read_through_the_firmware_deposits_clamped_holes() {
     let mut two = machine_with_mouse();
 
@@ -58,42 +72,35 @@ fn init_clamp_pos_read_through_the_firmware_deposits_clamped_holes() {
     let clamp_mouse = entry(&mut two, 5);
     let init_mouse = entry(&mut two, 7);
 
-    // Assemble a program at $0300 that exercises the flow. The slot-4 screen
-    // holes: Xlo/Xhi $047C/$04FC, Ylo/Yhi $057C/$05FC, status $077C, mode
-    // $07FC. ClampMouse takes min in the X holes, max in the Y holes.
+    // Screen holes. Pos/Read use the slot-4 holes — X = ($047C lo, $057C hi),
+    // Y = ($04FC lo, $05FC hi), status $077C, mode $07FC. ClampMouse instead
+    // reads the FIXED slot-0 holes (the documented clamp quirk, Apple II
+    // Technical Note Mouse #7): min = ($0478 lo, $0578 hi), max = ($04F8 lo,
+    // $05F8 hi).
     let mut p: Vec<u8> = Vec::new();
-    let lda_sta = |p: &mut Vec<u8>, imm: u8, addr: u16| {
-        p.extend([0xa9, imm, 0x8d, addr as u8, (addr >> 8) as u8]);
-    };
-    let jsr = |p: &mut Vec<u8>, addr: u16| p.extend([0x20, addr as u8, (addr >> 8) as u8]);
-    let lda_jsr = |p: &mut Vec<u8>, imm: u8, addr: u16| {
-        p.extend([0xa9, imm]);
-        p.extend([0x20, addr as u8, (addr >> 8) as u8]);
-    };
-
-    jsr(&mut p, init_mouse); // clamp 0..=1023, mouse off
+    ldxy_jsr(&mut p, init_mouse); // clamp 0..=1023, mouse off
     // ClampX: min = 100 ($0064), max = 700 ($02BC), A = 0.
-    lda_sta(&mut p, 0x64, 0x047c);
-    lda_sta(&mut p, 0x00, 0x04fc);
-    lda_sta(&mut p, 0xbc, 0x057c);
-    lda_sta(&mut p, 0x02, 0x05fc);
-    lda_jsr(&mut p, 0x00, clamp_mouse);
+    lda_sta(&mut p, 0x64, 0x0478);
+    lda_sta(&mut p, 0x00, 0x0578);
+    lda_sta(&mut p, 0xbc, 0x04f8);
+    lda_sta(&mut p, 0x02, 0x05f8);
+    lda_ldxy_jsr(&mut p, 0x00, clamp_mouse);
     // ClampY: min = 200 ($00C8), max = 500 ($01F4), A = 1.
-    lda_sta(&mut p, 0xc8, 0x047c);
-    lda_sta(&mut p, 0x00, 0x04fc);
-    lda_sta(&mut p, 0xf4, 0x057c);
-    lda_sta(&mut p, 0x01, 0x05fc);
-    lda_jsr(&mut p, 0x01, clamp_mouse);
+    lda_sta(&mut p, 0xc8, 0x0478);
+    lda_sta(&mut p, 0x00, 0x0578);
+    lda_sta(&mut p, 0xf4, 0x04f8);
+    lda_sta(&mut p, 0x01, 0x05f8);
+    lda_ldxy_jsr(&mut p, 0x01, clamp_mouse);
     // SetMouse: mode = 1 (mouse on).
-    lda_jsr(&mut p, 0x01, set_mouse);
+    lda_ldxy_jsr(&mut p, 0x01, set_mouse);
     // PosMouse to (9999, 50): X far past maxX, Y below minY.
-    lda_sta(&mut p, 0x0f, 0x047c); // 9999 = $270F
-    lda_sta(&mut p, 0x27, 0x04fc);
-    lda_sta(&mut p, 0x32, 0x057c); // 50 = $0032
-    lda_sta(&mut p, 0x00, 0x05fc);
-    jsr(&mut p, pos_mouse);
-    // ReadMouse: deposit clamped X/Y/status/mode into the holes.
-    jsr(&mut p, read_mouse);
+    lda_sta(&mut p, 0x0f, 0x047c); // Xlo (9999 = $270F)
+    lda_sta(&mut p, 0x27, 0x057c); // Xhi
+    lda_sta(&mut p, 0x32, 0x04fc); // Ylo (50 = $0032)
+    lda_sta(&mut p, 0x00, 0x05fc); // Yhi
+    ldxy_jsr(&mut p, pos_mouse);
+    // ReadMouse: deposit clamped X/Y/status/mode into the slot-4 holes.
+    ldxy_jsr(&mut p, read_mouse);
     // Park.
     let park = 0x0300 + p.len() as u16;
     p.extend([0x4c, park as u8, (park >> 8) as u8]); // JMP self
@@ -117,8 +124,8 @@ fn init_clamp_pos_read_through_the_firmware_deposits_clamped_holes() {
 
     // X clamped to maxX = 700 ($02BC), Y clamped to minY = 200 ($00C8).
     assert_eq!(read(&mut two, 0x047c), 0xbc, "X low (700)");
-    assert_eq!(read(&mut two, 0x04fc), 0x02, "X high (700)");
-    assert_eq!(read(&mut two, 0x057c), 0xc8, "Y low (200)");
+    assert_eq!(read(&mut two, 0x057c), 0x02, "X high (700)");
+    assert_eq!(read(&mut two, 0x04fc), 0xc8, "Y low (200)");
     assert_eq!(read(&mut two, 0x05fc), 0x00, "Y high (200)");
     // No host button/movement yet.
     assert_eq!(
@@ -130,18 +137,13 @@ fn init_clamp_pos_read_through_the_firmware_deposits_clamped_holes() {
     assert_eq!(read(&mut two, 0x07fc), 0x01, "mode");
 }
 
-/// The latched X/Y read straight off the DEVSEL ports (slot 4 = $C0C0).
-fn latched_pos(two: &mut Two) -> (u16, u16) {
-    two.cpu.mem.write(0xc0c0, 0);
-    let xl = read(two, 0xc0c1);
-    let xh = read(two, 0xc0c1);
-    let yl = read(two, 0xc0c1);
-    let yh = read(two, 0xc0c1);
-    (u16::from_le_bytes([xl, xh]), u16::from_le_bytes([yl, yh]))
+/// The mouse's current position, read from the device (the 6805 state).
+fn device_pos(two: &mut Two) -> (i16, i16) {
+    two.mouse_position().unwrap()
 }
 
 #[test]
-#[ignore = "P2: real-firmware end-to-end (plans/20260721-03)"]
+#[ignore = "P4: interrupts through the real firmware handler (plans/20260721-03)"]
 fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
     // The M4 flagship (scripted firmware-level end-to-end, plans/20260721-01):
     // enable VBL interrupts, install a handler through the ROM's user IRQ
@@ -222,7 +224,7 @@ fn vbl_interrupts_fire_once_per_frame_and_serve_reports_the_source() {
     assert_eq!(read(&mut two, 0x0280), frames, "one IRQ per frame");
     assert_eq!(read(&mut two, 0x0281), 0x08, "ServeMouse reported VBL");
     assert_eq!(
-        latched_pos(&mut two),
+        device_pos(&mut two),
         (250, 100),
         "fed movement reached the mouse"
     );

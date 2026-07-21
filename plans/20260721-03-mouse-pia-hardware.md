@@ -73,8 +73,8 @@ surface (`{"card":"mouse"}`) is unchanged.
 
 | Phase | Description | Size | Status |
 |---|---|---|---|
-| P1 | The card substrate: 6520 PIA + 6805 controller + handshake + all commands + banked 342-0270-C ROM at `$Cn00`; retire the synthetic `mouse_rom`; migrate the unit tests | L | **Landed** (#TBD) |
-| P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | Planned |
+| P1 | The card substrate: 6520 PIA + 6805 controller + handshake + all commands + banked 342-0270-C ROM at `$Cn00`; retire the synthetic `mouse_rom`; migrate the unit tests | L | **Landed** (#332) |
+| P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | **Landed** (#TBD) |
 | P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | Planned |
 | P4 | Interrupts through the real firmware handler (//e path): VBL/movement/button; SERVEMOUSE clears | M | Planned |
 | P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | Planned |
@@ -105,14 +105,30 @@ golden-BMP screenshots** — no mouse in those configs) plus the phase gate.
   `$CnFB=$D6`) read from the default bank; a test that writing port B bits 1-3
   changes which ROM page is visible at `$Cn00`.
 
-### P2 — the 6805 controller + handshake
+### P2 — the real ROM firmware drives it end-to-end
 
-- Port `MouseInterfaceCard.c`: the write/read handshake over port A/B, the
-  command dispatch, and every command body (Set/Read/Serve/Clear/Pos/Init/
-  Clamp/Home/Time/RdMem). The real firmware, running, drives it.
-- **Gate:** headless — the **real ROM's** entry points do
-  Init→Clamp→Pos→Read and the clamped X/Y/status land in the screen holes
-  (the `two_mouse.rs` shape, but through the real card, proving the handshake).
+- The controller/handshake landed in P1; P2 proves the **real 6502 ROM** runs
+  the flow. `tests/two_mouse.rs`'s
+  `init_clamp_pos_read_through_the_firmware_deposits_clamped_holes` runs the
+  ROM's entry points (found via the `$Cn12` table) and asserts the clamped
+  X/Y/status land in the screen holes.
+- **Gate (met):** the real firmware does Init→Clamp→Pos→Read; the position
+  clamps to (700, 200) and reads back through the screen holes.
+
+**As built (P2):** the real ROM needed two conventions the retired synthetic
+firmware didn't:
+1. **Register calling convention** — the ROM's routines require `X = $Cn`
+   (the ROM-page high byte, for indexing the screen holes) and `Y = slot×16`
+   (the `$C0nX` DEVSEL offset), set by the caller before each JSR. The card's
+   banking + PIA handshake then run correctly, including the ROM's `$xx70`
+   mid-routine page-switching (verified: `$C400`/`$C470` execute different
+   per-bank code as port B flips banks 2→6→…).
+2. **Screen-hole layout** — Pos/Read use the slot-4 holes (X = `$047C`/`$057C`,
+   Y = `$04FC`/`$05FC`); **ClampMouse reads the *fixed* slot-0 holes**
+   (`$0478`/`$0578` min, `$04F8`/`$05F8` max) regardless of slot — the
+   documented clamp quirk (Apple II Technical Note Mouse #7, the reason the
+   RDMEMMOUSE/GETCLAMP workaround exists). No card change was needed; the P1
+   controller was already correct.
 
 ### P3 — host input + the flagship
 

@@ -1965,6 +1965,13 @@ impl Two {
         Some(self.cpu.mem.device_mut(h))
     }
 
+    /// The mouse's current position `(x, y)` in its clamp window — the 6805's
+    /// `Current` X/Y. Introspection for the frontends and tests.
+    pub fn mouse_position(&self) -> Option<(i16, i16)> {
+        let (_, h) = self.mouse?;
+        Some(self.cpu.mem.device(h).position())
+    }
+
     /// Feed relative host movement + button to the mouse — the SDL captured/
     /// relative path (plans/20260721-01 M3). The device integrates the delta
     /// within its clamp window, as the hardware does. A no-op without a card.
