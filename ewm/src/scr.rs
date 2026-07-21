@@ -290,6 +290,18 @@ impl Scr {
         &self.chr
     }
 
+    /// Replace the glyph set the machine's `model` renders from with one
+    /// decoded from an explicit character/video ROM (config
+    /// `machine.character_rom`); the ][/​][+ use the ][ character ROM, the //e
+    /// its video ROM (Enhanced with MouseText, original without).
+    pub fn set_character_rom(&mut self, rom: &[u8], model: TwoType) {
+        match model {
+            TwoType::Apple2 | TwoType::Apple2Plus => self.chr = Chr::from_rom(rom),
+            TwoType::Apple2E => self.chre_unenhanced = ChrE::from_rom(rom, false),
+            TwoType::Apple2EEnhanced => self.chre = ChrE::from_rom(rom, true),
+        }
+    }
+
     /// Select the monitor style: a monochrome phosphor tints everything the
     /// monochrome pipeline draws (text, HGR mono, DHGR mono); RGB is the
     /// color pipeline with white text — exactly the old `--color` behavior.
@@ -761,6 +773,31 @@ pub fn encode_bmp(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
 mod tests {
     use super::*;
     use crate::two::TwoType;
+
+    /// R4b: `set_character_rom` (the config `machine.character_rom` path)
+    /// actually decodes the glyphs from the given ROM — re-applying the
+    /// model's default video ROM is byte-identical, and a different ROM moves
+    /// the glyphs.
+    #[test]
+    fn set_character_rom_decodes_from_the_given_rom() {
+        let mut scr = Scr::new(PixelLayout::Argb8888);
+        // Enhanced //e MouseText: alternate $56 is the checkerboard dither.
+        let default = *scr.chre(TwoType::Apple2EEnhanced).glyph(true, 0x56);
+        // Re-applying the Enhanced video ROM (the config's default) is a no-op.
+        scr.set_character_rom(crate::rom::rom("342-0265-A"), TwoType::Apple2EEnhanced);
+        assert_eq!(
+            *scr.chre(TwoType::Apple2EEnhanced).glyph(true, 0x56),
+            default,
+            "the default video ROM keeps the glyphs"
+        );
+        // The unenhanced video ROM (no MouseText) moves that glyph.
+        scr.set_character_rom(crate::rom::rom("342-0133-A"), TwoType::Apple2EEnhanced);
+        assert_ne!(
+            *scr.chre(TwoType::Apple2EEnhanced).glyph(true, 0x56),
+            default,
+            "a swapped video ROM re-decodes the glyphs"
+        );
+    }
 
     #[test]
     fn monitor_style_defaults_and_labels() {

@@ -11,6 +11,7 @@
       { "address": "0xf000", "path": "builtin:341-0003" },
       { "address": "0xf800", "path": "builtin:341-0004" }
     ],
+    "character_rom": "builtin:341-0036",
     "slots": {
       "6": { "card": "diskii" }
     }
