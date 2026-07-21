@@ -85,7 +85,7 @@ fn apple2plus_boots_and_evaluates_basic() {
 
 #[test]
 fn apple2_is_unsupported() {
-    // The original NMOS Apple ][ is out of scope; the Enhanced //e (Apple2E)
+    // The original NMOS Apple ][ is out of scope; the Enhanced //e (Apple2EEnhanced)
     // now constructs — see two_e_skeleton.rs.
     assert!(Two::new(TwoType::Apple2).is_err());
 }

@@ -17,7 +17,7 @@ const PAGE2: u16 = 0xc055;
 const BANK: u16 = 0xc073;
 
 fn machine(card: &str) -> Two {
-    Two::new_with_aux(TwoType::Apple2E, Some(aux::parse(card).unwrap())).unwrap()
+    Two::new_with_aux(TwoType::Apple2EEnhanced, Some(aux::parse(card).unwrap())).unwrap()
 }
 
 fn set(two: &mut Two, addr: u16) {
@@ -172,7 +172,7 @@ fn text80_card_supports_80_column_text_only() {
 
 #[test]
 fn extended_card_ignores_the_bank_register() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap(); // default card
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap(); // default card
     set(&mut two, RAMWRT_ON);
     set(&mut two, RAMRD_ON);
     two.cpu.mem.write(0x0300, 0x42);

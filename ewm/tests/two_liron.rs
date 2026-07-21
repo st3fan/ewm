@@ -194,7 +194,7 @@ fn prodos_boots_from_an_800k_liron_image_on_the_iie() {
 
     let slots: BTreeMap<u8, SlotDevice> =
         [(1, SlotDevice::Thunderclock), (5, SlotDevice::Liron)].into();
-    let mut two = Two::new_with_slots(TwoType::Apple2E, None, Slot0::Language, &slots)
+    let mut two = Two::new_with_slots(TwoType::Apple2EEnhanced, None, Slot0::Language, &slots)
         .expect("must construct");
     two.load_2mg_at(5, 0, &path).expect("mount the boot image");
     two.cpu.reset();

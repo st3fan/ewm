@@ -17,7 +17,7 @@ fn set(two: &mut Two, addr: u16) {
 #[test]
 fn writes_and_reads_route_to_the_selected_bank() {
     let addr = 0x0300u16;
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
 
     // Write distinct sentinels to each bank via RAMWRT.
     set(&mut two, RAMWRT_OFF);
@@ -47,7 +47,7 @@ fn ramrd_ramwrt_truth_table() {
         (true, false, false), // aux  -> main (stale)
         (false, true, false), // main -> aux  (stale)
     ] {
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         set(&mut two, if wrt { RAMWRT_ON } else { RAMWRT_OFF });
         two.cpu.mem.write(addr, 0x5a);
         set(&mut two, if rd { RAMRD_ON } else { RAMRD_OFF });
@@ -60,7 +60,7 @@ fn ramrd_ramwrt_truth_table() {
 #[test]
 fn zero_page_and_stack_stay_in_main() {
     // $0000-$01FF ignore RAMRD/RAMWRT in Phase 4a (ALTZP is 4b).
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, RAMWRT_ON);
     two.cpu.mem.write(0x0050, 0x99); // zero page
     two.cpu.mem.write(0x01ff, 0x88); // stack
@@ -75,7 +75,7 @@ fn zero_page_and_stack_stay_in_main() {
 
 #[test]
 fn rdramrd_rdramwrt_report_state() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     assert_eq!(two.cpu.mem.read(0xc013) & 0x80, 0x00); // RDRAMRD
     assert_eq!(two.cpu.mem.read(0xc014) & 0x80, 0x00); // RDRAMWRT
     set(&mut two, RAMRD_ON);

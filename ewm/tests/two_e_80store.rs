@@ -46,14 +46,14 @@ fn assert_routes_to(two: &mut Two, addr: u16, aux_expected: bool, what: &str) {
 #[test]
 fn text_page1_follows_page2_under_80store() {
     for &addr in &[0x0400u16, 0x07ff] {
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         set(&mut two, STORE80_ON);
 
         set(&mut two, PAGE1);
         assert_routes_to(&mut two, addr, false, "80STORE+PAGE1");
 
         // Fresh machine so the previous sentinel does not confuse the check.
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         set(&mut two, STORE80_ON);
         set(&mut two, PAGE2);
         assert_routes_to(&mut two, addr, true, "80STORE+PAGE2");
@@ -63,7 +63,7 @@ fn text_page1_follows_page2_under_80store() {
 #[test]
 fn hires_page1_follows_page2_only_when_hires_on() {
     // HIRES off: $2000 ignores 80STORE/PAGE2 and follows RAMRD/RAMWRT.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, STORE80_ON);
     set(&mut two, PAGE2);
     set(&mut two, LORES); // HIRES off
@@ -73,7 +73,7 @@ fn hires_page1_follows_page2_only_when_hires_on() {
     assert_eq!(two.aux_ram()[0x2000], 0x00);
 
     // HIRES on: $2000/$3FFF now follow PAGE2 under 80STORE.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, STORE80_ON);
     set(&mut two, PAGE2);
     set(&mut two, HIRES);
@@ -85,7 +85,7 @@ fn hires_page1_follows_page2_only_when_hires_on() {
 fn store80_only_claims_page1() {
     // Page 2 text ($0800), hi-res page 2 ($4000) and ordinary RAM ($0300)
     // keep following RAMRD/RAMWRT even with 80STORE + HIRES + PAGE2 on.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, STORE80_ON);
     set(&mut two, PAGE2);
     set(&mut two, HIRES);
@@ -101,7 +101,7 @@ fn store80_only_claims_page1() {
 fn page2_does_not_route_memory_when_80store_off() {
     // Regression guard: with 80STORE off, PAGE2 is just the display selector
     // and text page 1 follows RAMRD/RAMWRT.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, STORE80_OFF);
     set(&mut two, PAGE2);
     set(&mut two, RAMWRT_OFF); // main
@@ -112,7 +112,7 @@ fn page2_does_not_route_memory_when_80store_off() {
 
 #[test]
 fn rd80store_reports_state() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     assert_eq!(two.cpu.mem.read(0xc018) & 0x80, 0x00, "RD80STORE off");
     set(&mut two, STORE80_ON);
     assert_eq!(two.cpu.mem.read(0xc018) & 0x80, 0x80, "RD80STORE on");

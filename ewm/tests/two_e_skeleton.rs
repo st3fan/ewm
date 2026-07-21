@@ -7,8 +7,8 @@ use ewm::two::{Two, TwoType};
 
 #[test]
 fn apple2e_constructs_and_enters_cold_start() {
-    let mut two = Two::new(TwoType::Apple2E).expect("apple2e must construct");
-    assert_eq!(two.model(), TwoType::Apple2E);
+    let mut two = Two::new(TwoType::Apple2EEnhanced).expect("apple2e must construct");
+    assert_eq!(two.model(), TwoType::Apple2EEnhanced);
 
     two.cpu.reset();
 

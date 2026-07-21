@@ -333,7 +333,7 @@ impl Scr {
     /// buffer untouched, as in C).
     fn render_character(&mut self, two: &Two, row: usize, column: usize, flash: bool) {
         let c = two.ram()[TXT_LINE_OFFSETS[row] + Self::text_base(two) + column];
-        let glyph: &[bool] = if two.model() == TwoType::Apple2E {
+        let glyph: &[bool] = if two.model() == TwoType::Apple2EEnhanced {
             self.chre.glyph(two.alt_charset(), c)
         } else {
             match self.chr.bitmap(c) {
@@ -503,7 +503,7 @@ impl Scr {
 
         // Some //e modes render natively into the 560-wide buffer; every other
         // mode renders 280-wide and (on the //e) is pixel-doubled.
-        if two.model() == TwoType::Apple2E {
+        if two.model() == TwoType::Apple2EEnhanced {
             if two.col80() && two.screen_mode() == ScreenMode::Text {
                 self.render_txt_screen_80(two, flash);
                 return;
@@ -529,7 +529,7 @@ impl Scr {
 
         // The //e presents a 560-wide frame; at 40 columns it is the 280-wide
         // render pixel-doubled horizontally.
-        if two.model() == TwoType::Apple2E {
+        if two.model() == TwoType::Apple2EEnhanced {
             self.fill_wide();
         }
     }
@@ -683,7 +683,7 @@ impl Scr {
     /// The frame buffer to display or capture for `model`: the 560-wide //e
     /// buffer, or the 280-wide ][+ buffer.
     pub fn frame(&self, model: TwoType) -> &[u32] {
-        if model == TwoType::Apple2E {
+        if model == TwoType::Apple2EEnhanced {
             &self.wide
         } else {
             &self.pixels
@@ -693,7 +693,7 @@ impl Scr {
 
 /// The frame width for `model`: 560 for the //e, 280 for the ][+.
 pub fn frame_width(model: TwoType) -> usize {
-    if model == TwoType::Apple2E {
+    if model == TwoType::Apple2EEnhanced {
         SCR_WIDTH_E
     } else {
         SCR_WIDTH
@@ -816,7 +816,7 @@ mod tests {
     #[test]
     fn mousetext_does_not_flash() {
         let layout = PixelLayout::Argb8888;
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         let mut scr = Scr::new(layout);
 
         // $53 is the MouseText horizontal bar; put it in the top-left cell.
@@ -912,7 +912,7 @@ mod tests {
     /// 80-column and double-res are Phase 5/6; this covers the 40-column path.
     #[test]
     fn iie_boot_screen_matches_golden_bmp() {
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         two.load_disk(
             0,
             concat!(
@@ -937,7 +937,7 @@ mod tests {
         // pixel-doubled horizontally.
         let mut scr = Scr::new(PixelLayout::Argb8888);
         scr.update(&two, 0, 40);
-        let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
+        let bmp = encode_bmp(scr.frame(TwoType::Apple2EEnhanced), SCR_WIDTH_E, SCR_HEIGHT);
 
         let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-40col.bmp");
         if std::env::var("EWM_WRITE_GOLDEN").is_ok() {

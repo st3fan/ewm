@@ -15,7 +15,7 @@ fn step(two: &mut Two, cycles: u64) {
 
 #[test]
 fn self_test_reports_system_ok() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     two.set_button(1, 0x80); // Solid-Apple held during reset
     two.cpu.reset();
 

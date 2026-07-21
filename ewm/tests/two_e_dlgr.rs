@@ -23,7 +23,7 @@ fn set(two: &mut Two, addr: u16) {
 
 #[test]
 fn an3_drives_dhires() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     assert!(!two.dhires(), "DHIRES off at reset (AN3 on)");
     set(&mut two, DHIRES_ON);
     assert!(two.dhires(), "$C05E (AN3 off) turns DHIRES on");
@@ -40,7 +40,7 @@ fn an3_drives_dhires() {
 fn ioudis_addresses_are_inert() {
     // $C07E/$C07F (IOUDIS) do not exist on the //e — they must not affect
     // DHIRES, and $C05E/$C05F control it unconditionally.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, DHIRES_ON);
     set(&mut two, 0xc07f); // phantom CLRIOUDIS
     set(&mut two, 0xc07e); // phantom SETIOUDIS
@@ -79,7 +79,7 @@ fn enable_dlgr(two: &mut Two) {
 
 #[test]
 fn dlgr_screen_matches_golden_bmp() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_dlgr(&mut two);
     // 80 vertical colour bars: display column c is a solid block of colour
     // c % 16 (both nibbles), laid down through the aux/main interleave.
@@ -93,7 +93,7 @@ fn dlgr_screen_matches_golden_bmp() {
     let mut scr = Scr::new(PixelLayout::Argb8888);
     scr.set_color_scheme(ewm::scr::ColorScheme::Color);
     scr.update(&two, 0, 40);
-    let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
+    let bmp = encode_bmp(scr.frame(TwoType::Apple2EEnhanced), SCR_WIDTH_E, SCR_HEIGHT);
 
     let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-dlgr.bmp");
     if std::env::var("EWM_WRITE_GOLDEN").is_ok() {

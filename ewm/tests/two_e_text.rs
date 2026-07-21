@@ -13,7 +13,7 @@ fn poke(two: &mut Two, addr: u16, byte: u8) {
 #[test]
 fn altcharset_selects_the_mousetext_glyph() {
     let chre = ChrE::new();
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
 
     // ALTCHARSET on: $56 in the text page is the MouseText checkerboard.
     two.cpu.mem.write(0xc00f, 0); // SETALTCHARSET
@@ -42,7 +42,7 @@ fn altcharset_selects_the_mousetext_glyph() {
 
 #[test]
 fn text_screen_preserves_lower_case() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     two.cpu.mem.write(0xc00f, 0); // ALTCHARSET on
     // Normal lower-case screen codes for "abc" ($E1 $E2 $E3).
     poke(&mut two, 0x0400, 0xe1);
@@ -60,7 +60,7 @@ fn altcharset_changes_the_inverse_lower_case_range() {
     // $61 is inverse lower-case 'a' in the alternate set, but flashing '!'
     // ($61 & $3F = $21) in the primary set — so the scrape depends on
     // ALTCHARSET for the $60-$7F range.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     poke(&mut two, 0x0400, 0x61);
 
     two.cpu.mem.write(0xc00f, 0); // ALTCHARSET on

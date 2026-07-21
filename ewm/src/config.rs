@@ -113,7 +113,7 @@ pub enum Model {
     TwoPlus,
     /// The Apple //e.
     #[serde(rename = "apple2enhanced")]
-    TwoE,
+    TwoEEnhanced,
     /// The classic Apple 1 (6502, 8KB RAM, Woz Monitor).
     #[serde(rename = "apple1")]
     Apple1,
@@ -135,7 +135,7 @@ pub enum Family {
 impl Model {
     pub fn family(self) -> Family {
         match self {
-            Model::Two | Model::TwoPlus | Model::TwoE => Family::Apple2,
+            Model::Two | Model::TwoPlus | Model::TwoEEnhanced => Family::Apple2,
             Model::Apple1 | Model::Replica1 => Family::Apple1,
         }
     }
@@ -145,7 +145,7 @@ impl Model {
         match self {
             Model::Two => "apple2",
             Model::TwoPlus => "apple2plus",
-            Model::TwoE => "apple2enhanced",
+            Model::TwoEEnhanced => "apple2enhanced",
             Model::Apple1 => "apple1",
             Model::Replica1 => "replica1",
         }
@@ -157,7 +157,7 @@ impl Model {
         match self {
             Model::Two => Some(TwoType::Apple2),
             Model::TwoPlus => Some(TwoType::Apple2Plus),
-            Model::TwoE => Some(TwoType::Apple2E),
+            Model::TwoEEnhanced => Some(TwoType::Apple2EEnhanced),
             Model::Apple1 | Model::Replica1 => None,
         }
     }
@@ -1189,12 +1189,14 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
                         .into(),
                 );
             }
-            if machine.aux.is_some() && model != Model::TwoE {
+            if machine.aux.is_some() && model != Model::TwoEEnhanced {
                 return Err(
                     "machine.aux: aux cards are a //e feature (model is \"apple2plus\")".into(),
                 );
             }
-            if model == Model::TwoE && machine.slots.as_ref().is_some_and(|s| s.contains_key("0")) {
+            if model == Model::TwoEEnhanced
+                && machine.slots.as_ref().is_some_and(|s| s.contains_key("0"))
+            {
                 return Err(
                     "machine.slots: the //e has no slot 0 (its language card is built in)".into(),
                 );
@@ -1506,7 +1508,7 @@ mod tests {
         let model = |name| load_builtin(name).unwrap().machine.unwrap().model;
         assert_eq!(model("apple2"), Some(Model::Two));
         assert_eq!(model("apple2plus"), Some(Model::TwoPlus));
-        assert_eq!(model("apple2enhanced"), Some(Model::TwoE));
+        assert_eq!(model("apple2enhanced"), Some(Model::TwoEEnhanced));
         assert_eq!(model("apple1"), Some(Model::Apple1));
         assert_eq!(model("replica1"), Some(Model::Replica1));
     }
@@ -1906,11 +1908,14 @@ mod tests {
     #[test]
     fn model_families_and_tokens() {
         assert_eq!(Model::TwoPlus.family(), Family::Apple2);
-        assert_eq!(Model::TwoE.family(), Family::Apple2);
+        assert_eq!(Model::TwoEEnhanced.family(), Family::Apple2);
         assert_eq!(Model::Apple1.family(), Family::Apple1);
         assert_eq!(Model::Replica1.family(), Family::Apple1);
         assert_eq!(Model::TwoPlus.two_type(), Some(TwoType::Apple2Plus));
-        assert_eq!(Model::TwoE.two_type(), Some(TwoType::Apple2E));
+        assert_eq!(
+            Model::TwoEEnhanced.two_type(),
+            Some(TwoType::Apple2EEnhanced)
+        );
         assert_eq!(Model::Apple1.two_type(), None);
         assert_eq!(Model::Replica1.two_type(), None);
         assert_eq!(Model::Apple1.token(), "apple1");

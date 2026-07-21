@@ -16,7 +16,7 @@ fn set(two: &mut Two, addr: u16) {
 
 #[test]
 fn zero_page_and_stack_follow_altzp() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
 
     // ALTZP off: zero page and the stack live in main.
     set(&mut two, ALTZP_OFF);
@@ -47,7 +47,7 @@ fn zero_page_and_stack_follow_altzp() {
 #[test]
 fn altzp_does_not_affect_the_main_body() {
     // $0200-$BFFF still follows RAMRD/RAMWRT, not ALTZP.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, ALTZP_ON); // ALTZP on
     set(&mut two, RAMWRT_OFF); // but RAMWRT off
     two.cpu.mem.write(0x0300, 0x77);
@@ -64,7 +64,7 @@ fn enable_lc_bank1_rw(two: &mut Two) {
 
 #[test]
 fn language_card_ram_has_main_and_aux_banks() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_lc_bank1_rw(&mut two);
 
     // ALTZP off -> the write lands in the main LC bank.
@@ -84,14 +84,14 @@ fn language_card_ram_has_main_and_aux_banks() {
 fn language_card_falls_through_to_rom_when_not_read_enabled() {
     // A fresh card is inactive: $D000-$FFFF reads the banked ROM, and $FFFC
     // is the //e reset vector ($FA62).
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     let reset = (two.cpu.mem.read(0xfffc) as u16) | ((two.cpu.mem.read(0xfffd) as u16) << 8);
     assert_eq!(reset, 0xfa62, "reset vector reads from the LC ROM");
 }
 
 #[test]
 fn rdlcbnk2_rdlcram_report_state() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     // Fresh: reading ROM, RDLCRAM ($C012) low.
     assert_eq!(two.cpu.mem.read(0xc012) & 0x80, 0x00, "RDLCRAM: ROM");
 

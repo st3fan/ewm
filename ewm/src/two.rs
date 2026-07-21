@@ -145,7 +145,7 @@ pub enum TwoType {
     Apple2,
     #[default]
     Apple2Plus,
-    Apple2E,
+    Apple2EEnhanced,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1273,7 +1273,7 @@ impl ewm_core::state::Persist for Two {
             w.put_str(match self.model {
                 TwoType::Apple2 => "apple2",
                 TwoType::Apple2Plus => "apple2plus",
-                TwoType::Apple2E => "apple2enhanced",
+                TwoType::Apple2EEnhanced => "apple2enhanced",
             });
         });
         w.chunk(*b"CPU ", |w| self.cpu.save(w));
@@ -1286,7 +1286,7 @@ impl ewm_core::state::Persist for Two {
         let ours = match self.model {
             TwoType::Apple2 => "apple2",
             TwoType::Apple2Plus => "apple2plus",
-            TwoType::Apple2E => "apple2enhanced",
+            TwoType::Apple2EEnhanced => "apple2enhanced",
         };
         if model != ours {
             return Err(ewm_core::state::Error(format!(
@@ -1419,7 +1419,7 @@ impl Two {
                 }
                 Ok(Two::new_2plus(slot0, slots))
             }
-            TwoType::Apple2E => Ok(Two::new_2e(
+            TwoType::Apple2EEnhanced => Ok(Two::new_2e(
                 aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
                 slots,
             )),
@@ -1634,7 +1634,7 @@ impl Two {
 
         Two {
             cpu: Cpu::new(Model::M65C02, mem),
-            model: TwoType::Apple2E,
+            model: TwoType::Apple2EEnhanced,
             io: MachineIo::E(io),
             dsks,
             hdds: BTreeMap::new(),
@@ -2638,7 +2638,7 @@ fn options_to_config(options: &Options) -> config::Config {
             model: Some(match options.model {
                 TwoType::Apple2 => config::Model::Two,
                 TwoType::Apple2Plus => config::Model::TwoPlus,
-                TwoType::Apple2E => config::Model::TwoE,
+                TwoType::Apple2EEnhanced => config::Model::TwoEEnhanced,
             }),
             // machine.cpu is an Apple 1 family key; two's CPU is the model's.
             cpu: None,
@@ -2746,7 +2746,7 @@ fn build_machine(options: &Options) -> Result<Two, String> {
         Some(config::SlotCard::Saturn128) => Slot0::Saturn128,
         _ => Slot0::Empty,
     };
-    if options.model == TwoType::Apple2E
+    if options.model == TwoType::Apple2EEnhanced
         && slot0 != Slot0::Language
         && options.slots.contains_key(&0)
     {
@@ -2976,7 +2976,7 @@ impl RemoteKeys {
             0x20..=0x7e => {
                 let b = keysym as u8;
                 // The ][+ ROM expects upper case; the //e passes it through.
-                if two.model() == TwoType::Apple2E {
+                if two.model() == TwoType::Apple2EEnhanced {
                     b
                 } else {
                     b.to_ascii_uppercase()
@@ -3123,7 +3123,7 @@ fn serve(mut options: Options) -> i32 {
 
     let width = frame_width(two.model()) as u16;
     let name = match two.model() {
-        TwoType::Apple2E => "EWM Apple //e",
+        TwoType::Apple2EEnhanced => "EWM Apple //e",
         _ => "EWM Apple ][+",
     };
     let auth = serve.password.is_some();
@@ -3923,7 +3923,7 @@ pub fn main(args: &[String]) -> i32 {
                         // The ][+ has no lower case, so its ROM expects
                         // upper-cased input; the //e passes lower case through.
                         let b = text.as_bytes()[0];
-                        let b = if two.model() == TwoType::Apple2E {
+                        let b = if two.model() == TwoType::Apple2EEnhanced {
                             b
                         } else {
                             b.to_ascii_uppercase()
@@ -4298,7 +4298,7 @@ mod tests {
         let o = opts(&["--set", "display:monitor=rgb"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
         let o = opts(&["--set", "machine:model=apple2enhanced"]);
-        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(o.model, TwoType::Apple2EEnhanced);
         let o = opts(&[
             "--set",
             "machine:model=apple2enhanced",
@@ -4359,7 +4359,7 @@ mod tests {
     #[test]
     fn config_populates_options() {
         let o = opts(&["--config", fixture!("full.json")]);
-        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(o.model, TwoType::Apple2EEnhanced);
         // The aux card travels as its validated token (parsed per power-on).
         let aux = o.aux.as_deref().expect("aux token from config");
         assert!(aux.starts_with("ramworksiii"), "{aux}");
@@ -4424,7 +4424,7 @@ mod tests {
             "--set",
             "machine:slots:6:drive1=game.dsk",
         ]);
-        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(o.model, TwoType::Apple2EEnhanced);
         assert_eq!(slot6_drives(&o).0, Some("game.dsk"));
     }
 
@@ -4560,7 +4560,7 @@ mod tests {
             "--config",
             fixture!("full.json"),
         ]);
-        assert_eq!(o.model, TwoType::Apple2E, "the later file wins");
+        assert_eq!(o.model, TwoType::Apple2EEnhanced, "the later file wins");
 
         // Bad expressions fail with exit code 1.
         for bad in [
@@ -4675,7 +4675,7 @@ mod tests {
             "--config-overlay",
             fixture!("amber-monitor.json"),
         ]);
-        assert_eq!(o.model, TwoType::Apple2E);
+        assert_eq!(o.model, TwoType::Apple2EEnhanced);
         assert_eq!(o.monitor, MonitorStyle::Amber);
         // Structural errors in an overlay exit 1 (the message names the
         // overlay file — pinned in the config module's tests).
