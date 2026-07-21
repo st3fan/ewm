@@ -160,9 +160,10 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
   every builtin carries a `description`, and the table stays sorted).
 - **Top-level `description`** joined the schema — a one-line human
   description shown by `builtin:list`, usable by any config file.
-- **Bare `ewm two` is unchanged** — the in-code default machine
-  (Thunderclock in slot 1) still differs from `builtin:apple2plus`
-  deliberately; unifying them is backlog in the plan.
+- **Bare `ewm two` boots `builtin:apple2plus`** — the default machine
+  *is* that built-in config, not an in-code layout (owner's decision;
+  the earlier Thunderclock-in-slot-1 in-code default is retired), so
+  code and configs describe the ][+ once.
 
 ## Config sources — partial configs (C2, recorded as built)
 

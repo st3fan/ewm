@@ -2314,10 +2314,15 @@ fn parse_options(args: &[String]) -> Result<Options, i32> {
             return Err(1);
         }
     };
-    if let Some(doc) = doc
-        && let Err(e) =
-            crate::config::from_document(doc).and_then(|c| apply_config(&mut options, c))
-    {
+    // No sources on the command line? The default machine *is* a config —
+    // `builtin:apple2plus` — not an in-code layout, so bare `ewm two` and
+    // `ewm two --config builtin:apple2plus` build the identical machine
+    // (owner's decision; the ][+ was the owner's first computer).
+    let doc = doc.unwrap_or_else(|| {
+        crate::config::load_source_document("builtin:apple2plus")
+            .expect("builtin:apple2plus is pinned valid by test")
+    });
+    if let Err(e) = crate::config::from_document(doc).and_then(|c| apply_config(&mut options, c)) {
         eprintln!("{e}");
         return Err(1);
     }
@@ -4716,12 +4721,13 @@ mod tests {
     #[test]
     fn print_config_round_trips_the_default_machine() {
         // Even bare `ewm two --print-config` describes the machine fully:
-        // model, the seeded slot table, display and cpu settings.
+        // model, the builtin:apple2plus slot table, display and cpu.
         let o = opts(&[]);
         let path = print_to_file(&o, "default.json");
         let text = std::fs::read_to_string(&path).expect("printed config");
         assert!(text.contains(r#""model": "apple2plus""#), "{text}");
-        assert!(text.contains(r#""thunderclock""#), "{text}");
+        assert!(text.contains(r#""title": "Apple ][+""#), "{text}");
+        assert!(text.contains(r#""language""#), "{text}");
         assert!(text.contains(r#""monitor": "green""#), "{text}");
         assert!(text.contains(r#""speed": "normal""#), "{text}");
         // Off-by-default extras stay out of the document.
@@ -5083,12 +5089,20 @@ mod tests {
     }
 
     #[test]
-    fn defaults_without_config_unchanged() {
-        let o = opts(&[]);
-        assert_eq!(o.speed, SPEED_NORMAL);
-        assert!(o.controller.is_none());
-        assert_eq!(o.fps, TWO_FPS_DEFAULT);
-        assert_eq!(o.slots, default_slot_cards());
+    fn bare_two_is_the_apple2plus_builtin() {
+        // The default machine is a config, not an in-code layout: bare
+        // `ewm two` builds the identical machine as
+        // `--config builtin:apple2plus` (owner's decision).
+        let bare = opts(&[]);
+        let builtin = opts(&["--config", "builtin:apple2plus"]);
+        assert_eq!(bare, builtin);
+        assert_eq!(bare.model, TwoType::Apple2Plus);
+        assert_eq!(bare.title.as_deref(), Some("Apple ][+"));
+        assert_eq!(bare.monitor, MonitorStyle::Green);
+        // The unconfigured extras keep their defaults.
+        assert_eq!(bare.speed, SPEED_NORMAL);
+        assert!(bare.controller.is_none());
+        assert_eq!(bare.fps, TWO_FPS_DEFAULT);
     }
 
     #[test]
