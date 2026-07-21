@@ -548,16 +548,16 @@ const BUILTINS: &[(&str, &str)] = &[
 const ROM_BUILTINS: &[(&str, &[u8])] = &[
     (
         "Krusader-1.3-6502",
-        include_bytes!("../../roms/Krusader-1.3-6502.rom"),
+        include_bytes!("../../roms/Krusader-1.3-6502.bin"),
     ),
     (
         "Krusader-1.3-65C02",
-        include_bytes!("../../roms/Krusader-1.3-65C02.rom"),
+        include_bytes!("../../roms/Krusader-1.3-65C02.bin"),
     ),
-    ("WozMon", include_bytes!("../../roms/WozMon.rom")),
+    ("WozMon", include_bytes!("../../roms/WozMon.bin")),
     (
         "apple1-basic",
-        include_bytes!("../../roms/apple1-basic.rom"),
+        include_bytes!("../../roms/apple1-basic.bin"),
     ),
 ];
 

@@ -1,12 +1,13 @@
-//! Character ROM decoding, port of the bitmap half of `chr.c`: the 2716
-//! character ROM (`3410036.bin`) becomes per-character 7×8 glyph bitmaps,
+//! Character ROM decoding, port of the bitmap half of `chr.c`: the Apple ][
+//! character ROM (`341-0036`) becomes per-character 7×8 glyph bitmaps,
 //! indexed by Apple ][ screen code. Texture creation from these bitmaps is
 //! frontend work (Phase 7); nothing here touches SDL.
 
 pub const CHR_WIDTH: usize = 7;
 pub const CHR_HEIGHT: usize = 8;
 
-static CHR_ROM: &[u8; 2048] = include_bytes!("../../roms/3410036.bin");
+static CHR_ROM: &[u8; 2048] =
+    include_bytes!("../../roms/341-0036 — Apple II Character ROM (2513).bin");
 
 /// The Enhanced Apple //e 4K video ROM (`342-0265-A`). Only the first 2K is
 /// used for display: it holds the complete glyph repertoire — upper case and
@@ -15,7 +16,7 @@ static CHR_ROM: &[u8; 2048] = include_bytes!("../../roms/3410036.bin");
 /// synthesized by XOR, as for the ][+ set, so the ROM's baked-inverse second
 /// half is not needed.
 static CHR_ROM_IIE: &[u8; 4096] =
-    include_bytes!("../../roms/Apple IIe Video - Enhanced - 342-0265-A - 2732.bin");
+    include_bytes!("../../roms/342-0265-A — Apple IIe Video Enhanced (2732).bin");
 
 /// The unenhanced (original 1983) Apple //e 4K video ROM (`342-0133-A`).
 /// Same 4K/first-2K-used shape as the Enhanced ROM above, but **without
@@ -24,7 +25,7 @@ static CHR_ROM_IIE: &[u8; 4096] =
 /// `ChrE::new_unenhanced` and selected per machine by the renderer; pinned by
 /// `iie_unenhanced_video_rom_matches_the_committed_image`.
 static CHR_ROM_IIE_UNENHANCED: &[u8; 4096] =
-    include_bytes!("../../roms/AppleIIe/Apple IIe Video - Unenhanced - 342-0133-A - 2732.bin");
+    include_bytes!("../../roms/342-0133-A — Apple IIe Video Unenhanced (2732).bin");
 
 pub type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
 
