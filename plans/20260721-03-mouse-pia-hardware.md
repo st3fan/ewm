@@ -75,7 +75,7 @@ surface (`{"card":"mouse"}`) is unchanged.
 |---|---|---|---|
 | P1 | The card substrate: 6520 PIA + 6805 controller + handshake + all commands + banked 342-0270-C ROM at `$Cn00`; retire the synthetic `mouse_rom`; migrate the unit tests | L | **Landed** (#332) |
 | P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | **Landed** (#TBD) |
-| P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | Planned |
+| P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | **Landed** (#TBD) |
 | P4 | Interrupts through the real firmware handler (//e path): VBL/movement/button; SERVEMOUSE clears | M | Planned |
 | P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | Planned |
 
@@ -132,11 +132,20 @@ firmware didn't:
 
 ### P3 — host input + the flagship
 
-- `feed_mouse_*` feed `mouseControllerMoveXY` / button; the 6805 integrates and
-  clamps.
-- **Gate — flagship:** boot MousePaint (dev-time disk — not committed, see
-  hazards), script a pointer interaction, assert the reported position tracks.
-  A committable firmware-level assertion is the CI gate.
+- Host input (`feed_mouse_*` → `set_position`/`move_by`/`set_button`) landed
+  in P1; P3 proves it reaches a program through the **real firmware on a //e**
+  (MousePaint's environment).
+- **Gate (met):** `tests/two_mouse_iie.rs` — on an Enhanced //e, a fed host
+  pointer (position + button) is reported by the real ROM's ReadMouse in the
+  screen holes; the banked `$Cn00` ROM is served through the //e IOU's
+  `$CX`-ROM region (INTCXROM shadowing), and the card identifies from it.
+
+**As built (P3):** no host-input code change was needed (P1 already wired it);
+P3 added the //e firmware-level flagship. **Dev-time confirmation:** the actual
+MousePaint disk (680-0239-A, not committed) now boots to its menu and
+**responds to RETURN** — the screen advances from "Press RETURN to learn how to
+use the mouse" to "One moment, please." The reported hang (the mouse-gated menu
+ignoring the keyboard) is resolved.
 
 ### P4 — interrupts
 
