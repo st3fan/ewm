@@ -2944,6 +2944,18 @@ fn typed_key_byte(model: TwoType, b: u8) -> u8 {
     }
 }
 
+/// Whether a `KeyDown` carries no *held* modifier — so the bare
+/// navigation/control keys (Return, Tab, arrows, …) should fire. Caps Lock,
+/// Num Lock and Mode are lock *states*, not held modifiers, and must be
+/// ignored: `keymod.is_empty()` alone would drop Return whenever Caps Lock
+/// was on. Ctrl / Shift / Alt / Gui are the real modifiers, handled by the
+/// branches above this one.
+fn is_unmodified_key(keymod: Mod) -> bool {
+    keymod
+        .difference(Mod::NUMMOD | Mod::CAPSMOD | Mod::MODEMOD | Mod::RESERVEDMOD)
+        .is_empty()
+}
+
 #[derive(Default)]
 struct RemoteKeys {
     ctrl: bool,
@@ -3908,7 +3920,7 @@ pub fn main(args: &[String]) -> i32 {
                             }
                             _ => {}
                         }
-                    } else if keymod.is_empty() {
+                    } else if is_unmodified_key(keymod) {
                         match keycode {
                             Keycode::Return => two.key(0x0d), // CR
                             Keycode::Tab => {
@@ -5175,6 +5187,22 @@ mod tests {
             assert_eq!(typed_key_byte(m, b'5'), b'5');
             assert_eq!(typed_key_byte(m, b']'), b']');
         }
+    }
+
+    #[test]
+    fn caps_lock_does_not_swallow_bare_keys() {
+        // The Return-key bug: Caps Lock / Num Lock / Mode are lock *states*,
+        // not held modifiers, so a bare Return (or Tab, arrows, Escape, …)
+        // with Caps Lock on must still count as unmodified and reach the
+        // machine.
+        assert!(is_unmodified_key(Mod::NOMOD));
+        assert!(is_unmodified_key(Mod::CAPSMOD));
+        assert!(is_unmodified_key(Mod::NUMMOD | Mod::CAPSMOD));
+        // Ctrl / Shift / Alt / Gui are real modifiers, handled by earlier
+        // branches — not "unmodified", even alongside a lock.
+        assert!(!is_unmodified_key(Mod::LSHIFTMOD));
+        assert!(!is_unmodified_key(Mod::LCTRLMOD));
+        assert!(!is_unmodified_key(Mod::LGUIMOD | Mod::CAPSMOD));
     }
 
     #[test]
