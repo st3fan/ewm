@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "description": "Apple ][ — 48K, Integer BASIC, Disk II in slot 6, green monitor",
+  "machine": {
+    "model": "apple2",
+    "slots": {
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "green" }
+}

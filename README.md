@@ -24,6 +24,8 @@ and sound.
 
 * **Apple 1** — 6502, 8KB RAM, Woz Monitor
 * **Replica 1** — 65C02, 32KB RAM, KRUSADER assembler ROM
+* **Apple ][** — the original 1978 machine: 6502, 48KB RAM, Integer
+  BASIC and the non-autostart Monitor in ROM (`builtin:apple2`)
 * **Apple ][+** — 6502, 48KB RAM, Apple Language Card, Disk II with two
   drives, a slot 7 hard drive for 32MB ProDOS block images (boots
   [Total Replay](https://archive.org/details/TotalReplay)!), 40-column text,
@@ -103,7 +105,7 @@ cargo run --release -- one --config builtin:replica1
 cargo run --release -- one --config builtin:apple1
 ```
 
-### The three `two` machine profiles
+### The `two` machine profiles
 
 Bare `ewm two` boots the **default machine**: an Apple ][+ with the 16K
 Language Card in slot 0 (the classic 64K build), a Thunderclock in
@@ -171,6 +173,33 @@ a Disk II in slot 6, and an RGB color monitor:
 ```
 cargo run --release -- two --config builtin:apple2e
 ```
+
+**`builtin:apple2`** — the original 1978 **Apple ][**: a 48K machine
+with **Integer BASIC** and the non-autostart Monitor in ROM (distinct
+from the ][+'s Applesoft/Autostart), no language card, and a Disk II
+in slot 6:
+
+```json
+{
+  "description": "Apple ][ — 48K, Integer BASIC, Disk II in slot 6, green monitor",
+  "machine": {
+    "model": "apple2",
+    "slots": {
+      "6": { "card": "diskii" }
+    }
+  },
+  "display": { "monitor": "green" }
+}
+```
+
+```
+cargo run --release -- two --config builtin:apple2
+```
+
+With no Autostart, this machine resets to the Monitor `*` prompt rather
+than booting a disk: `Ctrl-B` enters Integer BASIC, and a disk in slot
+6 boots with `C600G` (from the Monitor) or `PR#6` (from BASIC) — the
+1978 experience.
 
 None of the profiles mounts a disk — pair them with a `--set` override
 or an overlay, as in the examples above.

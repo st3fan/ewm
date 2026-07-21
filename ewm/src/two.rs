@@ -4942,6 +4942,73 @@ mod tests {
     }
 
     #[test]
+    fn builtin_apple2_boots_dos33_via_slot6() {
+        // The A3 gate: builtin:apple2 is a 48K, no-language-card machine
+        // with a Disk ][ in slot 6. With no Autostart, DOS 3.3 boots only
+        // when asked — `C600G` from the Monitor runs the slot 6 boot ROM.
+        let disk = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../disks/DOS33-SystemMaster.dsk"
+        );
+        let mut two = build_machine(&opts(&[
+            "--config",
+            "builtin:apple2",
+            "--set",
+            &format!("machine:slots:6:drive1={disk}"),
+        ]))
+        .expect("builtin:apple2 must construct");
+        two.cpu.reset();
+
+        let step = |two: &mut Two, cycles: u64| {
+            let mut n = 0u64;
+            while n < cycles {
+                n += two.cpu.step() as u64;
+            }
+        };
+        let key = |two: &mut Two, b: u8| {
+            two.key(b);
+            let mut n = 0u64;
+            while n < 500_000 {
+                n += two.cpu.step() as u64;
+                if two.key_register() & 0x80 == 0 {
+                    break;
+                }
+            }
+        };
+
+        // Reset lands at the Monitor, NOT a disk boot (no autostart).
+        step(&mut two, 1_000_000);
+        assert!(
+            !two.text_screen().contains("DOS VERSION"),
+            "apple2 should not autostart the disk:\n{}",
+            two.text_screen()
+        );
+
+        // Ask for it: C600G runs the slot 6 boot ROM.
+        for &b in b"C600G" {
+            key(&mut two, b);
+        }
+        key(&mut two, 0x0d);
+
+        // DOS's cold-start banner is the boot-success marker (RWTS loaded
+        // DOS off the disk). No `]` check: the original ][ has Integer
+        // BASIC, not Applesoft, so DOS 3.3 drops to `>`, not `]`.
+        let mut spent = 0u64;
+        loop {
+            let text = two.text_screen();
+            if text.contains("DOS VERSION 3.3") {
+                break;
+            }
+            assert!(
+                spent < 400_000_000,
+                "DOS 3.3 did not boot from slot 6 after C600G ({spent} cycles); screen:\n{text}"
+            );
+            step(&mut two, 100_000);
+            spent += 100_000;
+        }
+    }
+
+    #[test]
     fn apple2_rejects_the_slot0_memory_card() {
         // Slot 0 (a Language Card / Saturn) is deferred on the original ][:
         // a machine is 48K for now. An explicit slot-0 card in the document
