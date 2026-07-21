@@ -66,11 +66,7 @@ pub fn main(_args: &[String]) -> BooChoice {
     let video = context.video().expect("Failed to initialize SDL video");
 
     let window = video
-        .window(
-            "EWM v0.1 - Bootloader",
-            280 * 3 + 2 * pad,
-            192 * 3 + 2 * pad,
-        )
+        .window("EWM - Bootloader", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position_centered()
         .build()
         .expect("Failed create window");

@@ -37,6 +37,11 @@ pub struct Config {
     /// `--config builtin:list`.
     #[serde(default)]
     pub description: Option<String>,
+    /// A short name for the machine's window: the title bar reads
+    /// `EWM - <title>` when set, and plain `EWM` otherwise. The built-in
+    /// configs set it to the machine name (e.g. `"Apple ]["`).
+    #[serde(default)]
+    pub title: Option<String>,
     /// The machine's physical build: model, aux card, slots, and any extra
     /// memory regions. Required in a complete config; an overlay may omit
     /// it.
@@ -565,6 +570,16 @@ pub fn read_memory_image(path: &str) -> Result<Vec<u8>, String> {
     match path.strip_prefix("builtin:") {
         Some(name) => Ok(rom_builtin(name)?.to_vec()),
         None => std::fs::read(path).map_err(|e| format!("cannot read {path}: {e}")),
+    }
+}
+
+/// The window title for a machine's `title` field: `EWM - <title>` when
+/// set, plain `EWM` otherwise. Both frontends share this so the two
+/// window bars read identically.
+pub fn window_title(title: Option<&str>) -> String {
+    match title {
+        Some(title) => format!("EWM - {title}"),
+        None => "EWM".to_string(),
     }
 }
 
@@ -1450,6 +1465,24 @@ mod tests {
         }
         // The table stays sorted so listings and error text read predictably.
         assert!(BUILTINS.windows(2).all(|w| w[0].0 < w[1].0));
+    }
+
+    #[test]
+    fn window_title_uses_the_config_title() {
+        // Plain EWM with no title; "EWM - <title>" when set.
+        assert_eq!(window_title(None), "EWM");
+        assert_eq!(window_title(Some("Apple ][")), "EWM - Apple ][");
+        // Every built-in config carries a machine-name title.
+        for (name, expected) in [
+            ("apple1", "Apple 1"),
+            ("apple2", "Apple ]["),
+            ("apple2plus", "Apple ][+"),
+            ("apple2e", "Apple //e"),
+            ("replica1", "Replica 1"),
+        ] {
+            let title = load_builtin(name).unwrap().title;
+            assert_eq!(title.as_deref(), Some(expected), "builtin:{name}");
+        }
     }
 
     #[test]

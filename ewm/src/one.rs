@@ -178,6 +178,10 @@ type OneAction = fn(&mut OneCtx);
 #[derive(Debug, PartialEq)]
 pub(crate) struct Options {
     model: OneModel,
+    /// The window title's machine name (config `title`): `EWM - <title>`,
+    /// or plain `EWM` when None. Comes from the document only — a bare
+    /// `ewm one` stays `EWM` even though `normalize` fills the board.
+    title: Option<String>,
     /// The CPU (`machine.cpu`); filled from the model's builtin by
     /// `normalize` when the document doesn't say.
     cpu: Option<crate::config::CpuModel>,
@@ -203,6 +207,7 @@ impl Default for Options {
         Options {
             // The C default model is the Replica 1.
             model: OneModel::Replica1,
+            title: None,
             cpu: None,
             memory: Vec::new(),
             trace_path: None,
@@ -257,6 +262,9 @@ fn usage() {
 /// for completeness, and against the one-family key table — so what is
 /// left is the model boundary and the straight field mapping.
 fn apply_config(options: &mut Options, config: crate::config::Config) -> Result<(), String> {
+    if config.title.is_some() {
+        options.title = config.title.clone();
+    }
     let machine = config
         .machine
         .expect("from_document guarantees a machine section");
@@ -299,6 +307,7 @@ fn options_to_config(options: &Options) -> crate::config::Config {
                 .to_string(),
         ),
         description: None,
+        title: options.title.clone(),
         machine: Some(crate::config::Machine {
             model: Some(match options.model {
                 OneModel::Apple1 => crate::config::Model::Apple1,
@@ -888,8 +897,9 @@ pub fn main(args: &[String]) -> i32 {
     };
     let video = context.video().expect("Failed to initialize SDL video");
 
+    let title = crate::config::window_title(options.title.as_deref());
     let window = video
-        .window("EWM v0.1 - Apple 1", 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
+        .window(&title, 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position_centered()
         .build();
     let window = match window {
