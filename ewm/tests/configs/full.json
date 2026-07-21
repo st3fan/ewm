@@ -1,6 +1,6 @@
 {
   "machine": {
-    "model": "apple2e",
+    "model": "apple2enhanced",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },

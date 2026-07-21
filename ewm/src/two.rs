@@ -1261,7 +1261,7 @@ impl ewm_core::state::Persist for Two {
             w.put_str(match self.model {
                 TwoType::Apple2 => "apple2",
                 TwoType::Apple2Plus => "apple2plus",
-                TwoType::Apple2E => "apple2e",
+                TwoType::Apple2E => "apple2enhanced",
             });
         });
         w.chunk(*b"CPU ", |w| self.cpu.save(w));
@@ -1274,7 +1274,7 @@ impl ewm_core::state::Persist for Two {
         let ours = match self.model {
             TwoType::Apple2 => "apple2",
             TwoType::Apple2Plus => "apple2plus",
-            TwoType::Apple2E => "apple2e",
+            TwoType::Apple2E => "apple2enhanced",
         };
         if model != ours {
             return Err(ewm_core::state::Error(format!(
@@ -2179,7 +2179,7 @@ fn usage() {
     eprintln!("Usage: ewm two [options]");
     eprintln!("  --config <source> configure the machine from a JSON file or a built-in");
     eprintln!(
-        "                    config (builtin:apple2plus, builtin:apple2e; builtin:list lists"
+        "                    config (builtin:apple2plus, builtin:apple2enhanced; builtin:list lists"
     );
     eprintln!("                    them); at most one, the base of the document");
     eprintln!("  --config-overlay <source>  layer a partial config on top; repeatable,");
@@ -4256,11 +4256,11 @@ mod tests {
         }
         let o = opts(&["--set", "display:monitor=rgb"]);
         assert_eq!(o.monitor, MonitorStyle::Rgb);
-        let o = opts(&["--set", "machine:model=apple2e"]);
+        let o = opts(&["--set", "machine:model=apple2enhanced"]);
         assert_eq!(o.model, TwoType::Apple2E);
         let o = opts(&[
             "--set",
-            "machine:model=apple2e",
+            "machine:model=apple2enhanced",
             "--set",
             r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
         ]);
@@ -4361,8 +4361,11 @@ mod tests {
                 concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2plus.json"),
             ),
             (
-                "builtin:apple2e",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2e.json"),
+                "builtin:apple2enhanced",
+                concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../configs/apple2enhanced.json"
+                ),
             ),
         ];
         for (builtin, file) in pairs {
@@ -4376,7 +4379,7 @@ mod tests {
         // Built-ins layer like any other source.
         let o = opts(&[
             "--config",
-            "builtin:apple2e",
+            "builtin:apple2enhanced",
             "--set",
             "machine:slots:6:drive1=game.dsk",
         ]);
@@ -4615,7 +4618,7 @@ mod tests {
                 "--config",
                 "builtin:apple2plus",
                 "--config",
-                "builtin:apple2e"
+                "builtin:apple2enhanced"
             ]),
             Err(1)
         ));
@@ -4627,7 +4630,7 @@ mod tests {
         // ...but is exactly what --config-overlay takes.
         let o = opts(&[
             "--config",
-            "builtin:apple2e",
+            "builtin:apple2enhanced",
             "--config-overlay",
             fixture!("amber-monitor.json"),
         ]);
@@ -4687,7 +4690,7 @@ mod tests {
         .expect("write overlay");
         let o = opts(&[
             "--config",
-            "builtin:apple2e",
+            "builtin:apple2enhanced",
             "--config-overlay",
             fixture!("drive-with-total-replay.json"),
             "--config-overlay",
@@ -5196,7 +5199,7 @@ mod tests {
         // second build would silently fall back to the default aux.
         let o = opts(&[
             "--set",
-            "machine:model=apple2e",
+            "machine:model=apple2enhanced",
             "--set",
             r#"machine:aux={"card":"ramworksiii","size":"128k"}"#,
         ]);

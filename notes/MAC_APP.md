@@ -101,7 +101,7 @@ never seen Homebrew, with no Gatekeeper override.
   `notes/JSON_CONFIG.md`, including the JSON Schema and configurable
   slots), populating the same `Options` the flags do. *As built, the
   whole source surface landed*: complete configs, built-ins
-  (`builtin:apple2plus`/`apple2e`), partial `--config-overlay` layers, `--set`,
+  (`builtin:apple2plus`/`apple2enhanced`), partial `--config-overlay` layers, `--set`,
   and `--print-config` — an `.ewmachine` bundle can be a thin layer
   over these (e.g. a builtin base plus an overlay naming the bundle's
   disks).

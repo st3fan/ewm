@@ -50,7 +50,7 @@ and sound.
   80-column text with lower
   case and MouseText, lo-res / hi-res / double-lo-res / double-hi-res
   graphics, and the //e keyboard (Open/Solid-Apple keys). Reuses the Disk II,
-  hard drive, clock and sound. Start it with `two --config builtin:apple2e`.
+  hard drive, clock and sound. Start it with `two --config builtin:apple2enhanced`.
 
 ## Requirements
 
@@ -90,11 +90,11 @@ cargo run --release -- two --set display:monitor=rgb \
     --set "machine:slots:6:drive1=disks/woz/WOZ 1.0/Commando - Disk 1, Side A.woz"
 
 # Enhanced Apple //e (a built-in config) booting DOS 3.3 (try PR#3 for 80-column lower case)
-cargo run --release -- two --config builtin:apple2e \
+cargo run --release -- two --config builtin:apple2enhanced \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
 # Enhanced Apple //e with an 8MB RamWorks III in the auxiliary slot
-cargo run --release -- two --config builtin:apple2e \
+cargo run --release -- two --config builtin:apple2enhanced \
     --set machine:aux:card=ramworksiii \
     --set machine:slots:6:drive1=disks/DOS33-SystemMaster.dsk
 
@@ -139,7 +139,7 @@ minus the clock card:
 cargo run --release -- two --config builtin:apple2plus
 ```
 
-**`builtin:apple2e`** — an Enhanced Apple //e with the Extended 80-Column
+**`builtin:apple2enhanced`** — an Enhanced Apple //e with the Extended 80-Column
 Card (64K) in the auxiliary slot, a UniDisk 3.5 controller in slot 5,
 a Disk II in slot 6, and an RGB color monitor:
 
@@ -147,7 +147,7 @@ a Disk II in slot 6, and an RGB color monitor:
 {
   "description": "Enhanced Apple //e — Extended 80-Column Card, UniDisk 3.5 in slot 5, Disk II in slot 6, RGB monitor",
   "machine": {
-    "model": "apple2e",
+    "model": "apple2enhanced",
     "aux": { "card": "ext80col" },
     "slots": {
       "5": { "card": "liron" },
@@ -159,7 +159,7 @@ a Disk II in slot 6, and an RGB color monitor:
 ```
 
 ```
-cargo run --release -- two --config builtin:apple2e
+cargo run --release -- two --config builtin:apple2enhanced
 ```
 
 **`builtin:apple2`** — the original 1978 **Apple ][**: a 48K machine
@@ -316,7 +316,7 @@ A whole machine also fits in one file (`examples/myiie.json`):
 {
   "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
   "machine": {
-    "model": "apple2e",
+    "model": "apple2enhanced",
     "aux": { "card": "ramworksiii", "size": "1m" },
     "slots": {
       "1": { "card": "thunderclock" },
