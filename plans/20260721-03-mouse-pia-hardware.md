@@ -11,8 +11,9 @@
   - `github.com/freitz85/AppleIIMouse` — the real card ROM (**committed** as
     `roms/Apple Mouse Interface Card ROM - 342-0270-C.bin`, 2 KB, sha1
     `3a9d881a8a8d30f55b9719aceebbcf717f829d6f`) and its disassembly.
-- **Status:** planned — not started (supersedes the reverse-engineering
-  framing of the prior revision now that the reference is in hand).
+- **Status:** complete — P1–P5 landed (one PR per phase). The card is the real
+  6520 PIA + 6805 + `342-0270-C` ROM; MousePaint on the //e works. One item in
+  the backlog (the //e interrupt-driven path via the //e ROM handler).
 - **Target:** `main`; one PR per phase (default).
 
 ## Why (the diagnosis, now with the reference)
@@ -77,7 +78,7 @@ surface (`{"card":"mouse"}`) is unchanged.
 | P2 | The **real ROM firmware** drives it end-to-end (the entry convention + `$xx70` page-switching): Init→Clamp→Pos→Read in the screen holes | M | **Landed** (#TBD) |
 | P3 | Host input → the 6805; the MousePaint flagship (boots to a working pointer on the //e) | M | **Landed** (#TBD) |
 | P4 | Interrupts through the real firmware (][+): VBL asserts the line, ServeMouse reports + clears | M | **Landed** (#TBD) |
-| P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | Planned |
+| P5 | Docs (`notes/MOUSE.md` as-built); final cleanup | S | **Landed** (#TBD) |
 
 **As built (P1):** the PIA, the 6805 controller (handshake + every command
 body), the banked ROM, host input, and the interrupt model are too tightly

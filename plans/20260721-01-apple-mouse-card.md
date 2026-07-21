@@ -12,8 +12,12 @@
   contract.
 - **Backlog origin:** `notes/IDEAS.md` → "AppleMouse card (M) — unlocks
   MousePaint, Dazzle Draw menus, GEOS."
-- **Status:** complete — M1–M5 landed (one PR per phase). `{"card": "mouse"}`
-  is a working AppleMouse II; as-built in `notes/MOUSE.md`.
+- **Status:** complete — M1–M5 landed (one PR per phase). **Superseded:** this
+  built a *synthetic firmware* AppleMouse II, which could not drive MousePaint
+  on the //e (it talks to the card as real hardware, not the `$Cn00` entry
+  points). `plans/20260721-03-mouse-pia-hardware.md` replaced it with the real
+  6520 PIA + 6805 + `342-0270-C` ROM. The M1 IRQ line, M3 host-input, and the
+  config surface this plan built are reused as-is; as-built in `notes/MOUSE.md`.
 - **Target:** `main`; **one PR per phase** (owner directed).
 - **Kickoff decisions (this build):** (1) coordinates — **absolute/mapped**
   (revised from relative/captured during M3: both the SDL window pointer and
