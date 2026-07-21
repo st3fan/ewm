@@ -239,6 +239,9 @@ pub enum SlotCard {
     },
     /// A Thunderclock Plus real-time clock.
     Thunderclock,
+    /// An AppleMouse II card. Any slot 1–7 (slot 4 is the canonical home);
+    /// both ][+ and //e. The host pointer drives the emulated one.
+    Mouse,
     /// The 16K Apple Language Card. Slot 0 only, ][+ only — it turns the
     /// 48K machine into the classic 64K build. Omitting slot 0 from an
     /// explicit `slots` table leaves the socket empty (a 48K machine).
@@ -259,6 +262,7 @@ impl SlotCard {
             SlotCard::Harddrive { .. } => "harddrive",
             SlotCard::Liron { .. } => "liron",
             SlotCard::Thunderclock => "thunderclock",
+            SlotCard::Mouse => "mouse",
             SlotCard::Language => "language",
             SlotCard::Saturn128 => "saturn128",
             SlotCard::Empty => "empty",
@@ -644,6 +648,7 @@ fn referenced_files(config: &Config) -> Vec<&str> {
                 }
                 SlotCard::Harddrive { image } => files.push(image),
                 SlotCard::Thunderclock
+                | SlotCard::Mouse
                 | SlotCard::Language
                 | SlotCard::Saturn128
                 | SlotCard::Empty => {}
@@ -1110,6 +1115,9 @@ fn validate(config: &Config) -> Result<(), String> {
         if count("thunderclock") > 1 {
             return Err("machine.slots: at most one Thunderclock".into());
         }
+        if count("mouse") > 1 {
+            return Err("machine.slots: at most one mouse".into());
+        }
     }
     for (i, region) in machine
         .map(|m| m.memory.as_slice())
@@ -1359,6 +1367,7 @@ fn resolve_paths(config: &mut Config, base: &Path) {
                 }
                 SlotCard::Harddrive { image } => resolve(base, image),
                 SlotCard::Thunderclock
+                | SlotCard::Mouse
                 | SlotCard::Language
                 | SlotCard::Saturn128
                 | SlotCard::Empty => {}
