@@ -20,11 +20,9 @@ static CHR_ROM_IIE: &[u8; 4096] =
 /// The unenhanced (original 1983) Apple //e 4K video ROM (`342-0133-A`).
 /// Same 4K/first-2K-used shape as the Enhanced ROM above, but **without
 /// MouseText**: where the Enhanced set carries the MouseText repertoire at
-/// `$40-$5F`, the original //e shows inverse upper case there. Selected per
-/// machine by the renderer in a later phase
-/// (plans/20260720-02-original-iie.md E3); pinned by
-/// `iie_unenhanced_video_rom_matches_the_committed_image` until then.
-#[allow(dead_code)]
+/// `$40-$5F`, the original //e shows inverse upper case there. Decoded by
+/// `ChrE::new_unenhanced` and selected per machine by the renderer; pinned by
+/// `iie_unenhanced_video_rom_matches_the_committed_image`.
 static CHR_ROM_IIE_UNENHANCED: &[u8; 4096] =
     include_bytes!("../../roms/AppleIIe/Apple IIe Video - Unenhanced - 342-0133-A - 2732.bin");
 
@@ -123,11 +121,11 @@ pub enum CharSet {
 /// ][+ ROM, the //e ROM stores the leftmost pixel in **bit 0**, so bits are
 /// scanned low-to-high (bit 0 → bit 6); reading them high-to-low mirrors the
 /// glyph horizontally.
-fn generate_bitmap_iie(idx: usize, inverse: bool) -> Glyph {
+fn generate_bitmap_iie(rom: &[u8], idx: usize, inverse: bool) -> Glyph {
     let mut glyph = [false; CHR_WIDTH * CHR_HEIGHT];
     let mut p = 0;
     for y in 0..CHR_HEIGHT {
-        let mut row = CHR_ROM_IIE[(idx * 8) + y];
+        let mut row = rom[(idx * 8) + y];
         if inverse {
             row ^= 0xff;
         }
@@ -154,12 +152,17 @@ fn primary_index(code: u8) -> (usize, bool) {
 }
 
 /// Alternate-set screen code → (ROM glyph index, inverse?). This is the //e
-/// video display-code translation, derived from the ROM layout: MouseText is
-/// read straight from ROM `$40-$5F`; lower case from ROM `$60-$7F`.
-fn alternate_index(code: u8) -> (usize, bool) {
+/// video display-code translation, derived from the ROM layout: lower case is
+/// read from ROM `$60-$7F`. The `$40-$5F` slot is the one place the two //e
+/// generations differ: the Enhanced set reads MouseText straight from ROM
+/// `$40-$5F` (`mousetext`), while the original //e shows **inverse upper
+/// case** there — the same inverse glyphs the primary set flashes, just
+/// steady (Apple replaced them with MouseText when it enhanced the //e).
+fn alternate_index(code: u8, mousetext: bool) -> (usize, bool) {
     match code {
         0x00..=0x3f => ((code & 0x3f) as usize, true), // inverse UC / symbols
-        0x40..=0x5f => (code as usize, false),         // MouseText (as stored)
+        0x40..=0x5f if mousetext => (code as usize, false), // Enhanced: MouseText (as stored)
+        0x40..=0x5f => ((code & 0x3f) as usize, true), // original //e: inverse UC / symbols
         0x60..=0x7f => (code as usize, true),          // inverse lower case
         0x80..=0xdf => ((code & 0x3f) as usize, false), // normal UC / symbols
         0xe0..=0xff => (((code & 0x1f) | 0x60) as usize, false), // normal lower case
@@ -174,15 +177,28 @@ pub struct ChrE {
 }
 
 impl ChrE {
+    /// The Enhanced //e glyph tables (342-0265 video ROM, with MouseText).
     pub fn new() -> ChrE {
+        ChrE::from_rom(CHR_ROM_IIE, true)
+    }
+
+    /// The original (unenhanced) //e glyph tables (342-0133 video ROM, no
+    /// MouseText). The decode is the same //e layout; only the alternate
+    /// `$40-$5F` slot differs (inverse upper case, not MouseText — see
+    /// `alternate_index`).
+    pub fn new_unenhanced() -> ChrE {
+        ChrE::from_rom(CHR_ROM_IIE_UNENHANCED, false)
+    }
+
+    fn from_rom(rom: &[u8], mousetext: bool) -> ChrE {
         let mut sets = [[[false; CHR_WIDTH * CHR_HEIGHT]; 256]; 2];
         for (code, glyph) in sets[CharSet::Primary as usize].iter_mut().enumerate() {
             let (idx, inverse) = primary_index(code as u8);
-            *glyph = generate_bitmap_iie(idx, inverse);
+            *glyph = generate_bitmap_iie(rom, idx, inverse);
         }
         for (code, glyph) in sets[CharSet::Alternate as usize].iter_mut().enumerate() {
-            let (idx, inverse) = alternate_index(code as u8);
-            *glyph = generate_bitmap_iie(idx, inverse);
+            let (idx, inverse) = alternate_index(code as u8, mousetext);
+            *glyph = generate_bitmap_iie(rom, idx, inverse);
         }
         ChrE { sets }
     }
@@ -226,6 +242,52 @@ mod tests {
             .collect();
         assert_eq!(CHR_ROM_IIE_UNENHANCED.len(), 4096);
         assert_eq!(hex, "58ad0008df72896a18601e090ee0d58155ffa5be");
+    }
+
+    /// E3: the original //e has no MouseText. Its alternate character set
+    /// shows **inverse upper case** at `$40-$5F` — the same glyphs the
+    /// primary set flashes there, steady — which is exactly what Apple
+    /// replaced with MouseText when it enhanced the //e. So those glyphs
+    /// differ from the Enhanced //e's MouseText, and the two sets are
+    /// otherwise byte-identical.
+    #[test]
+    fn iie_original_alternate_set_is_inverse_upper_case_not_mousetext() {
+        let enhanced = ChrE::new();
+        let original = ChrE::new_unenhanced();
+
+        for code in 0x40u8..=0x5f {
+            // Original: the steady alternate glyph is the primary set's
+            // inverse-upper-case glyph for the same code.
+            assert_eq!(
+                original.bitmap(CharSet::Alternate, code),
+                original.bitmap(CharSet::Primary, code),
+                "original //e alt ${code:02X} is the steady inverse-UC glyph"
+            );
+            // Enhanced: MouseText there — a different glyph.
+            assert_ne!(
+                enhanced.bitmap(CharSet::Alternate, code),
+                original.bitmap(CharSet::Alternate, code),
+                "Enhanced MouseText must differ from the original at ${code:02X}"
+            );
+        }
+
+        // Everything else is byte-identical between the two //e sets: the
+        // primary set entirely, and the alternate set outside $40-$5F.
+        for code in 0u16..=0xff {
+            let c = code as u8;
+            assert_eq!(
+                enhanced.bitmap(CharSet::Primary, c),
+                original.bitmap(CharSet::Primary, c),
+                "primary ${c:02X} identical"
+            );
+            if !(0x40..=0x5f).contains(&c) {
+                assert_eq!(
+                    enhanced.bitmap(CharSet::Alternate, c),
+                    original.bitmap(CharSet::Alternate, c),
+                    "alternate ${c:02X} identical"
+                );
+            }
+        }
     }
 
     fn render(glyph: &Glyph) -> String {

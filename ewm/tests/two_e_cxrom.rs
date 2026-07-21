@@ -8,7 +8,7 @@
 use ewm::two::{Two, TwoType};
 
 fn machine() -> Two {
-    Two::new(TwoType::Apple2E).expect("apple2e must construct")
+    Two::new(TwoType::Apple2EEnhanced).expect("apple2e must construct")
 }
 
 #[test]

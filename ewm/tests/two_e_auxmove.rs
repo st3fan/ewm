@@ -48,7 +48,7 @@ fn run(two: &mut Two, prog: &[u8], org: u16) {
 
 #[test]
 fn auxmove_round_trips_a_buffer_main_to_aux_and_back() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     two.cpu.mem.write(SETINTCXROM, 0); // $C3xx = internal ROM so AUXMOVE is reachable
 
     // Seed a recognisable pattern in main $0300-$030F (RAMWRT off = main).

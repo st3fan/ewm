@@ -17,7 +17,7 @@ fn step(two: &mut Two, cycles: u64) {
 
 #[test]
 fn prodos_boots_to_the_bitsy_bye_launcher() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     two.load_disk(
         0,
         concat!(env!("CARGO_MANIFEST_DIR"), "/../disks/ProDOS_2_4_3.po"),

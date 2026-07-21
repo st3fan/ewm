@@ -6,7 +6,7 @@ use ewm::two::{Two, TwoType};
 
 #[test]
 fn open_and_solid_apple_read_as_buttons() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     // Not pressed.
     assert_eq!(two.cpu.mem.read(0xc061) & 0x80, 0x00);
     assert_eq!(two.cpu.mem.read(0xc062) & 0x80, 0x00);
@@ -27,7 +27,7 @@ struct Machine {
 
 impl Machine {
     fn boot() -> Machine {
-        let mut two = Two::new(TwoType::Apple2E).expect("apple2e must construct");
+        let mut two = Two::new(TwoType::Apple2EEnhanced).expect("apple2e must construct");
         two.load_disk(
             0,
             concat!(

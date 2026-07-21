@@ -262,7 +262,7 @@ fn empty_slots_read_zero_and_the_machine_falls_through_to_basic() {
 #[test]
 fn empty_slots_read_zero_on_the_iie() {
     let mut two = Two::new_with_slots(
-        TwoType::Apple2E,
+        TwoType::Apple2EEnhanced,
         None,
         Slot0::Language,
         &slots(&[(1, SlotDevice::Thunderclock)]),

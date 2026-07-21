@@ -28,7 +28,7 @@ fn minimal_config_loads() {
 fn full_config_loads_with_resolved_paths() {
     let config = config::load(fixture!("full.json")).expect("full.json must load");
     let machine = config.machine.as_ref().expect("machine section");
-    assert_eq!(machine.model, Some(Model::TwoE));
+    assert_eq!(machine.model, Some(Model::TwoEEnhanced));
 
     let aux = machine.aux.as_ref().expect("aux card");
     assert_eq!(aux.card, AuxKind::RamWorksIII);

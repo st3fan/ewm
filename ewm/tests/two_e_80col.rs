@@ -33,7 +33,7 @@ fn put_80(two: &mut Two, row: usize, text: &str) {
 
 #[test]
 fn text_screen_80_reads_the_interleave() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, COL80_ON);
     set(&mut two, ALTCHARSET_ON);
 
@@ -59,7 +59,7 @@ fn text_screen_80_reads_the_interleave() {
 fn even_and_odd_columns_come_from_the_expected_bank() {
     // Directly prove which bank feeds which column: write only the aux bank and
     // confirm the scrape shows those glyphs at even columns and blanks at odd.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, COL80_ON);
     let base = 0x400u16;
     // aux (RAMWRT on): 'X' at byte 0 -> display column 0.
@@ -81,7 +81,7 @@ struct Machine {
 }
 impl Machine {
     fn boot() -> Machine {
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         two.load_disk(
             0,
             concat!(
@@ -147,7 +147,7 @@ fn pr3_enables_80_columns_and_prints() {
 #[test]
 fn eighty_col_screen_matches_golden_bmp() {
     // A deterministic 80-column scene rendered through the 560-wide path.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     set(&mut two, TEXT);
     set(&mut two, COL80_ON);
     set(&mut two, ALTCHARSET_ON);
@@ -175,7 +175,7 @@ fn eighty_col_screen_matches_golden_bmp() {
 
     let mut scr = Scr::new(PixelLayout::Argb8888);
     scr.update(&two, 0, 40);
-    let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
+    let bmp = encode_bmp(scr.frame(TwoType::Apple2EEnhanced), SCR_WIDTH_E, SCR_HEIGHT);
 
     let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-80col.bmp");
     if std::env::var("EWM_WRITE_GOLDEN").is_ok() {

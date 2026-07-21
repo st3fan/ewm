@@ -5,7 +5,7 @@
 //! screenshot test runs headless; the SDL loop uploads the buffer as a
 //! texture.
 
-use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr, ChrE};
+use crate::chr::{CHR_HEIGHT, CHR_WIDTH, Chr, ChrE, Glyph};
 use crate::two::{GraphicsMode, GraphicsStyle, ScreenMode, ScreenPage, Two, TwoType};
 
 pub const SCR_WIDTH: usize = 280;
@@ -213,7 +213,11 @@ pub struct Scr {
     /// (text, HGR mono, DHGR mono); follows the monitor style.
     phosphor: u32,
     chr: Chr,
+    /// The Enhanced //e glyphs (342-0265, with MouseText).
     chre: ChrE,
+    /// The original //e glyphs (342-0133, no MouseText). Both are built up
+    /// front; `chre()` picks by machine variant at render time.
+    chre_unenhanced: ChrE,
     text_color: u32,
     lgr_bitmaps: Vec<[u32; CHR_WIDTH * CHR_HEIGHT]>, // 256 blocks
     pub pixels: Vec<u32>,
@@ -267,6 +271,7 @@ impl Scr {
             phosphor: green,
             chr: Chr::new(),
             chre: ChrE::new(),
+            chre_unenhanced: ChrE::new_unenhanced(),
             text_color: green,
             lgr_bitmaps,
             pixels: vec![0; SCR_WIDTH * SCR_HEIGHT],
@@ -327,17 +332,29 @@ impl Scr {
         }
     }
 
+    /// The //e glyph tables for a machine variant: the unenhanced set for the
+    /// original //e, the Enhanced set otherwise. Only meaningful for a //e
+    /// (`TwoType::is_iie`); the ][+ uses `self.chr`.
+    fn chre(&self, model: TwoType) -> &ChrE {
+        match model {
+            TwoType::Apple2E => &self.chre_unenhanced,
+            _ => &self.chre,
+        }
+    }
+
     /// Port of `scr_render_character`. On the //e the glyph comes from the
-    /// enhanced character set selected by ALTCHARSET, so lower case and
-    /// MouseText render; the ][+ uses its own set (unmapped codes leave the
-    /// buffer untouched, as in C).
+    /// character set selected by ALTCHARSET, so lower case and (on the
+    /// Enhanced //e) MouseText render; the ][+ uses its own set (unmapped
+    /// codes leave the buffer untouched, as in C).
     fn render_character(&mut self, two: &Two, row: usize, column: usize, flash: bool) {
         let c = two.ram()[TXT_LINE_OFFSETS[row] + Self::text_base(two) + column];
-        let glyph: &[bool] = if two.model() == TwoType::Apple2E {
-            self.chre.glyph(two.alt_charset(), c)
+        // Copy the glyph out so the immutable borrow of `self` (the char
+        // tables) ends before the `self.pixels` writes below.
+        let glyph: Glyph = if two.model().is_iie() {
+            *self.chre(two.model()).glyph(two.alt_charset(), c)
         } else {
             match self.chr.bitmap(c) {
-                Some(glyph) => glyph,
+                Some(glyph) => *glyph,
                 None => return,
             }
         };
@@ -503,7 +520,7 @@ impl Scr {
 
         // Some //e modes render natively into the 560-wide buffer; every other
         // mode renders 280-wide and (on the //e) is pixel-doubled.
-        if two.model() == TwoType::Apple2E {
+        if two.model().is_iie() {
             if two.col80() && two.screen_mode() == ScreenMode::Text {
                 self.render_txt_screen_80(two, flash);
                 return;
@@ -529,7 +546,7 @@ impl Scr {
 
         // The //e presents a 560-wide frame; at 40 columns it is the 280-wide
         // render pixel-doubled horizontally.
-        if two.model() == TwoType::Apple2E {
+        if two.model().is_iie() {
             self.fill_wide();
         }
     }
@@ -543,8 +560,9 @@ impl Scr {
         let main = two.ram();
         let aux = two.aux_ram();
         let alt = two.alt_charset();
-        for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate() {
-            self.render_txt_row_80(main, aux, alt, row, line_offset, flash);
+        let model = two.model();
+        for row in 0..TXT_LINE_OFFSETS.len() {
+            self.render_txt_row_80(model, main, aux, alt, row, flash);
         }
     }
 
@@ -552,21 +570,21 @@ impl Scr {
     /// columns, main the odd, each byte `base + column/2` of the row.
     fn render_txt_row_80(
         &mut self,
+        model: TwoType,
         main: &[u8],
         aux: &[u8],
         alt: bool,
         row: usize,
-        line_offset: usize,
         flash: bool,
     ) {
-        let base = 0x400 + line_offset;
+        let base = 0x400 + TXT_LINE_OFFSETS[row];
         // $40-$7F flashes only in the primary set — the alternate set's
         // MouseText and inverse lower case are steady.
         let flash = flash && !alt;
         for column in 0..80 {
             let bank = if column % 2 == 0 { aux } else { main };
             let c = bank[base + column / 2];
-            let glyph = self.chre.glyph(alt, c);
+            let glyph: Glyph = *self.chre(model).glyph(alt, c);
             let pos = (SCR_WIDTH_E * CHR_HEIGHT * row) + (CHR_WIDTH * column);
             for y in 0..CHR_HEIGHT {
                 for x in 0..CHR_WIDTH {
@@ -607,8 +625,8 @@ impl Scr {
         }
         if mixed {
             let alt = two.alt_charset();
-            for (row, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
-                self.render_txt_row_80(main, aux, alt, row, line_offset, flash);
+            for row in 20..TXT_LINE_OFFSETS.len() {
+                self.render_txt_row_80(two.model(), main, aux, alt, row, flash);
             }
         }
     }
@@ -662,8 +680,8 @@ impl Scr {
         }
         if mixed {
             let alt = two.alt_charset();
-            for (r, &line_offset) in TXT_LINE_OFFSETS.iter().enumerate().skip(20) {
-                self.render_txt_row_80(main, aux, alt, r, line_offset, flash);
+            for r in 20..TXT_LINE_OFFSETS.len() {
+                self.render_txt_row_80(two.model(), main, aux, alt, r, flash);
             }
         }
     }
@@ -683,7 +701,7 @@ impl Scr {
     /// The frame buffer to display or capture for `model`: the 560-wide //e
     /// buffer, or the 280-wide ][+ buffer.
     pub fn frame(&self, model: TwoType) -> &[u32] {
-        if model == TwoType::Apple2E {
+        if model.is_iie() {
             &self.wide
         } else {
             &self.pixels
@@ -693,7 +711,7 @@ impl Scr {
 
 /// The frame width for `model`: 560 for the //e, 280 for the ][+.
 pub fn frame_width(model: TwoType) -> usize {
-    if model == TwoType::Apple2E {
+    if model.is_iie() {
         SCR_WIDTH_E
     } else {
         SCR_WIDTH
@@ -816,7 +834,7 @@ mod tests {
     #[test]
     fn mousetext_does_not_flash() {
         let layout = PixelLayout::Argb8888;
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         let mut scr = Scr::new(layout);
 
         // $53 is the MouseText horizontal bar; put it in the top-left cell.
@@ -855,10 +873,10 @@ mod tests {
                 .count()
         };
 
-        scr.render_txt_row_80(&main, &aux, true, 0, 0, true);
+        scr.render_txt_row_80(TwoType::Apple2EEnhanced, &main, &aux, true, 0, true);
         assert!(cell(&scr) > 0, "alternate-set MouseText must not blank");
 
-        scr.render_txt_row_80(&main, &aux, false, 0, 0, true);
+        scr.render_txt_row_80(TwoType::Apple2EEnhanced, &main, &aux, false, 0, true);
         assert_eq!(cell(&scr), 0, "primary-set flash must still blank");
     }
 
@@ -912,7 +930,7 @@ mod tests {
     /// 80-column and double-res are Phase 5/6; this covers the 40-column path.
     #[test]
     fn iie_boot_screen_matches_golden_bmp() {
-        let mut two = Two::new(TwoType::Apple2E).unwrap();
+        let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
         two.load_disk(
             0,
             concat!(
@@ -937,7 +955,7 @@ mod tests {
         // pixel-doubled horizontally.
         let mut scr = Scr::new(PixelLayout::Argb8888);
         scr.update(&two, 0, 40);
-        let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
+        let bmp = encode_bmp(scr.frame(TwoType::Apple2EEnhanced), SCR_WIDTH_E, SCR_HEIGHT);
 
         let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-40col.bmp");
         if std::env::var("EWM_WRITE_GOLDEN").is_ok() {

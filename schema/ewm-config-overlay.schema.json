@@ -410,7 +410,12 @@
           "const": "apple2plus"
         },
         {
-          "description": "The Apple //e.",
+          "description": "The original (unenhanced) Apple //e (6502, no MouseText).",
+          "type": "string",
+          "const": "apple2e"
+        },
+        {
+          "description": "The Enhanced Apple //e (65C02, MouseText).",
           "type": "string",
           "const": "apple2enhanced"
         },

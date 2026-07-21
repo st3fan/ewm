@@ -11,7 +11,7 @@ struct Machine {
 
 impl Machine {
     fn boot() -> Machine {
-        let mut two = Two::new(TwoType::Apple2E).expect("apple2e must construct");
+        let mut two = Two::new(TwoType::Apple2EEnhanced).expect("apple2e must construct");
         two.load_disk(
             0,
             concat!(
@@ -93,7 +93,7 @@ fn status(two: &mut Two, addr: u16) -> u8 {
 
 #[test]
 fn memory_switch_round_trips() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     // Each switch pair (off/on) is reflected by its RD status register in bit 7.
     for &(off, on, rd) in &[
         (0xc000u16, 0xc001u16, 0xc018u16), // 80STORE  -> RD80STORE
@@ -112,7 +112,7 @@ fn memory_switch_round_trips() {
 
 #[test]
 fn display_switch_round_trips() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     // Display switches toggle on any access; their RD registers report state.
     for &(off, on, rd) in &[
         (0xc050u16, 0xc051u16, 0xc01au16), // TEXT  -> RDTEXT
@@ -129,7 +129,7 @@ fn display_switch_round_trips() {
 
 #[test]
 fn keyboard_strobe_clears_on_read_or_write() {
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     // A latched key shows in bit 7 of $C000; reading $C010 clears the strobe.
     two.key(b'A');
     assert_eq!(two.cpu.mem.read(0xc000) & 0x80, 0x80);

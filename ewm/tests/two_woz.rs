@@ -128,7 +128,7 @@ fn woz_bilestoad_boots() {
 #[test]
 fn woz_wings_of_fury_boots_on_iie() {
     boots_to_graphics(
-        TwoType::Apple2E,
+        TwoType::Apple2EEnhanced,
         "Wings of Fury - Disk 1, Side A",
         60_000_000,
     );

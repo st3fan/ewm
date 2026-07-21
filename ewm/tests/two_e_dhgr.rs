@@ -39,14 +39,14 @@ fn poke_main(two: &mut Two, addr: u16, b: u8) {
 #[test]
 fn aux_is_the_leftmost_group() {
     // aux byte 0 fills display group 0 (pixels 0-6); main byte 0 group 1 (7-13).
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_dhgr(&mut two);
     poke_aux(&mut two, HGR1, 0x7f); // all 7 bits -> pixels 0-6 on
     poke_main(&mut two, HGR1, 0x00); // pixels 7-13 off
 
     let mut scr = Scr::new(LAYOUT); // monochrome by default
     scr.update(&two, 0, 40);
-    let f = scr.frame(TwoType::Apple2E);
+    let f = scr.frame(TwoType::Apple2EEnhanced);
     let green = LAYOUT.pack(0, 255, 0, 255);
     for (x, &p) in f.iter().take(7).enumerate() {
         assert_eq!(p, green, "pixel {x} (aux group 0) on");
@@ -59,12 +59,12 @@ fn aux_is_the_leftmost_group() {
 #[test]
 fn bit_zero_is_leftmost() {
     // Only bit 0 set -> only the leftmost pixel of the group lights.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_dhgr(&mut two);
     poke_aux(&mut two, HGR1, 0x01);
     let mut scr = Scr::new(LAYOUT);
     scr.update(&two, 0, 40);
-    let f = scr.frame(TwoType::Apple2E);
+    let f = scr.frame(TwoType::Apple2EEnhanced);
     let green = LAYOUT.pack(0, 255, 0, 255);
     assert_eq!(f[0], green, "bit 0 -> pixel 0");
     assert_eq!(f[1], 0, "bit 1 clear -> pixel 1 off");
@@ -74,13 +74,13 @@ fn bit_zero_is_leftmost() {
 fn colour_cell_selects_the_palette() {
     // A 4-bit cell of value 5 (bits 0 and 2 set) -> lo-res colour 5 (grey),
     // drawn 4 px wide; the next cell (all clear) is black.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_dhgr(&mut two);
     poke_aux(&mut two, HGR1, 0b0000_0101); // bits 0,2 -> cell 0 = 5
     let mut scr = Scr::new(LAYOUT);
     scr.set_color_scheme(ColorScheme::Color);
     scr.update(&two, 0, 40);
-    let f = scr.frame(TwoType::Apple2E);
+    let f = scr.frame(TwoType::Apple2EEnhanced);
     let grey = LAYOUT.pack(128, 128, 128, 255); // lo-res colour 5
     for (x, &p) in f.iter().take(4).enumerate() {
         assert_eq!(p, grey, "cell 0 pixel {x} = colour 5");
@@ -92,7 +92,7 @@ fn colour_cell_selects_the_palette() {
 #[test]
 fn dhgr_screen_matches_golden_bmp() {
     // Fill hi-res page 1: aux all-on, main all-off -> 40 vertical 7px stripes.
-    let mut two = Two::new(TwoType::Apple2E).unwrap();
+    let mut two = Two::new(TwoType::Apple2EEnhanced).unwrap();
     enable_dhgr(&mut two);
     set(&mut two, RAMWRT_ON);
     for addr in 0x2000u16..0x4000 {
@@ -105,7 +105,7 @@ fn dhgr_screen_matches_golden_bmp() {
 
     let mut scr = Scr::new(LAYOUT); // monochrome
     scr.update(&two, 0, 40);
-    let bmp = encode_bmp(scr.frame(TwoType::Apple2E), SCR_WIDTH_E, SCR_HEIGHT);
+    let bmp = encode_bmp(scr.frame(TwoType::Apple2EEnhanced), SCR_WIDTH_E, SCR_HEIGHT);
 
     let golden_path = concat!(env!("CARGO_MANIFEST_DIR"), "/golden/two-e-dhgr.bmp");
     if std::env::var("EWM_WRITE_GOLDEN").is_ok() {

@@ -113,9 +113,13 @@ fn dos_boot_round_trips_and_catalogs_after_restore() {
 #[test]
 fn apple2e_round_trip_preserves_switches_and_aux_memory() {
     let build = || {
-        let mut two =
-            Two::new_with_slots(TwoType::Apple2E, None, Slot0::Language, &BTreeMap::new())
-                .expect("apple2e must construct");
+        let mut two = Two::new_with_slots(
+            TwoType::Apple2EEnhanced,
+            None,
+            Slot0::Language,
+            &BTreeMap::new(),
+        )
+        .expect("apple2e must construct");
         two.cpu.reset();
         Machine { two }
     };
@@ -161,8 +165,13 @@ fn restore_rejects_a_different_model() {
     plus.save(&mut w);
     let bytes = w.into_bytes();
 
-    let mut e = Two::new_with_slots(TwoType::Apple2E, None, Slot0::Language, &BTreeMap::new())
-        .expect("construct");
+    let mut e = Two::new_with_slots(
+        TwoType::Apple2EEnhanced,
+        None,
+        Slot0::Language,
+        &BTreeMap::new(),
+    )
+    .expect("construct");
     let err = e
         .restore(&mut Reader::new(&bytes))
         .expect_err("model mismatch must be rejected")
