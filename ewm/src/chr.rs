@@ -6,26 +6,12 @@
 pub const CHR_WIDTH: usize = 7;
 pub const CHR_HEIGHT: usize = 8;
 
-static CHR_ROM: &[u8; 2048] =
-    include_bytes!("../../roms/341-0036 — Apple II Character ROM (2513).bin");
-
-/// The Enhanced Apple //e 4K video ROM (`342-0265-A`). Only the first 2K is
-/// used for display: it holds the complete glyph repertoire — upper case and
-/// symbols (`$00-$3F`), MouseText (`$40-$5F`), and lower case (`$60-$7F`) —
-/// from which both //e character sets are built. Inverse forms are
-/// synthesized by XOR, as for the ][+ set, so the ROM's baked-inverse second
-/// half is not needed.
-static CHR_ROM_IIE: &[u8; 4096] =
-    include_bytes!("../../roms/342-0265-A — Apple IIe Video Enhanced (2732).bin");
-
-/// The unenhanced (original 1983) Apple //e 4K video ROM (`342-0133-A`).
-/// Same 4K/first-2K-used shape as the Enhanced ROM above, but **without
-/// MouseText**: where the Enhanced set carries the MouseText repertoire at
-/// `$40-$5F`, the original //e shows inverse upper case there. Decoded by
-/// `ChrE::new_unenhanced` and selected per machine by the renderer; pinned by
-/// `iie_unenhanced_video_rom_matches_the_committed_image`.
-static CHR_ROM_IIE_UNENHANCED: &[u8; 4096] =
-    include_bytes!("../../roms/342-0133-A — Apple IIe Video Unenhanced (2732).bin");
+// The character / video ROMs come from the catalog (`rom::rom`): the ][ 2K
+// character ROM (341-0036), and the two 4K //e video ROMs — Enhanced
+// (342-0265-A, with MouseText at $40-$5F) and original (342-0133-A, no
+// MouseText; inverse upper case there instead). Only the first 2K of each //e
+// ROM is used for display; inverse forms are synthesized by XOR, so each
+// ROM's baked-inverse second half is unused.
 
 pub type Glyph = [bool; CHR_WIDTH * CHR_HEIGHT];
 
@@ -36,11 +22,11 @@ pub struct Chr {
 /// Port of `_generate_bitmap`: eight rows starting at `rom[c * 8 + 1]`
 /// (note the one-byte offset), seven pixels per row scanned from bit 6
 /// down to bit 0.
-fn generate_bitmap(c: usize, inverse: bool) -> Glyph {
+fn generate_bitmap(rom: &[u8], c: usize, inverse: bool) -> Glyph {
     let mut glyph = [false; CHR_WIDTH * CHR_HEIGHT];
     let mut p = 0;
     for y in 0..CHR_HEIGHT {
-        let mut row = CHR_ROM[(c * 8) + y + 1];
+        let mut row = rom[(c * 8) + y + 1];
         if inverse {
             row ^= 0xff;
         }
@@ -61,30 +47,31 @@ impl Chr {
     // loops rather than being rewritten in iterator style.
     #[allow(clippy::needless_range_loop)]
     pub fn new() -> Chr {
+        let rom = crate::rom::rom("341-0036");
         let mut bitmaps: [Option<Glyph>; 256] = [None; 256];
 
         // Normal Text
         for c in 0..32 {
-            bitmaps[0xc0 + c] = Some(generate_bitmap(c, false));
+            bitmaps[0xc0 + c] = Some(generate_bitmap(rom, c, false));
         }
         for c in 32..64 {
-            bitmaps[0xa0 + (c - 32)] = Some(generate_bitmap(c, false));
+            bitmaps[0xa0 + (c - 32)] = Some(generate_bitmap(rom, c, false));
         }
 
         // Inverse Text
         for c in 0..32 {
-            bitmaps[c] = Some(generate_bitmap(c, true));
+            bitmaps[c] = Some(generate_bitmap(rom, c, true));
         }
         for c in 32..64 {
-            bitmaps[0x20 + (c - 32)] = Some(generate_bitmap(c, true));
+            bitmaps[0x20 + (c - 32)] = Some(generate_bitmap(rom, c, true));
         }
 
         // TODO Flashing - Currently simply rendered as inverse
         for c in 0..32 {
-            bitmaps[0x40 + c] = Some(generate_bitmap(c, true));
+            bitmaps[0x40 + c] = Some(generate_bitmap(rom, c, true));
         }
         for c in 32..64 {
-            bitmaps[0x60 + (c - 32)] = Some(generate_bitmap(c, true));
+            bitmaps[0x60 + (c - 32)] = Some(generate_bitmap(rom, c, true));
         }
 
         Chr { bitmaps }
@@ -180,7 +167,7 @@ pub struct ChrE {
 impl ChrE {
     /// The Enhanced //e glyph tables (342-0265 video ROM, with MouseText).
     pub fn new() -> ChrE {
-        ChrE::from_rom(CHR_ROM_IIE, true)
+        ChrE::from_rom(crate::rom::rom("342-0265-A"), true)
     }
 
     /// The original (unenhanced) //e glyph tables (342-0133 video ROM, no
@@ -188,7 +175,7 @@ impl ChrE {
     /// `$40-$5F` slot differs (inverse upper case, not MouseText — see
     /// `alternate_index`).
     pub fn new_unenhanced() -> ChrE {
-        ChrE::from_rom(CHR_ROM_IIE_UNENHANCED, false)
+        ChrE::from_rom(crate::rom::rom("342-0133-A"), false)
     }
 
     fn from_rom(rom: &[u8], mousetext: bool) -> ChrE {
@@ -237,11 +224,12 @@ mod tests {
     /// E3 renders from it cannot silently drift.
     #[test]
     fn iie_unenhanced_video_rom_matches_the_committed_image() {
-        let hex: String = crate::ws::sha1(CHR_ROM_IIE_UNENHANCED)
+        let rom = crate::rom::rom("342-0133-A");
+        let hex: String = crate::ws::sha1(rom)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
-        assert_eq!(CHR_ROM_IIE_UNENHANCED.len(), 4096);
+        assert_eq!(rom.len(), 4096);
         assert_eq!(hex, "58ad0008df72896a18601e090ee0d58155ffa5be");
     }
 

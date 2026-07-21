@@ -48,12 +48,10 @@
 
 use ewm_core::mem::Device;
 
-/// The card ROM: 2 KB (eight 256-byte pages), banked into `$Cn00` by PIA port
-/// B bits 1-3. Apple part `342-0270-C`; sha1
-/// `3a9d881a8a8d30f55b9719aceebbcf717f829d6f` (freitz85/AppleIIMouse), pinned
-/// by `mouse_rom_is_the_committed_image`.
-static MOUSE_ROM: &[u8; 2048] =
-    include_bytes!("../../roms/342-0270-C — AppleMouse II Interface Card (2716).bin");
+/// The card ROM catalog key: 2 KB (eight 256-byte pages), banked into `$Cn00`
+/// by PIA port B bits 1-3. Apple part `342-0270-C` (freitz85/AppleIIMouse),
+/// pinned by `mouse_rom_is_the_committed_image`.
+const MOUSE_ROM_KEY: &str = "342-0270-C";
 
 // PIA port B handshake bits.
 const PB_RDACK: u8 = 0x10;
@@ -246,6 +244,9 @@ pub struct Mou {
     ctl: Ctl,
     #[allow(dead_code)]
     slot: u8,
+    /// The banked 2 KB card ROM, held from the catalog at construction (the
+    /// per-fetch `rom_byte` path indexes it directly).
+    rom: &'static [u8],
 }
 
 impl Mou {
@@ -254,6 +255,7 @@ impl Mou {
             pia: Pia::default(),
             ctl: Ctl::default(),
             slot,
+            rom: crate::rom::rom(MOUSE_ROM_KEY),
         }
     }
 
@@ -266,7 +268,7 @@ impl Mou {
 
     /// The ROM byte at `$Cn00 + offset`, from the selected page.
     fn rom_byte(&self, offset: u8) -> u8 {
-        MOUSE_ROM[self.rom_bank() * 256 + offset as usize]
+        self.rom[self.rom_bank() * 256 + offset as usize]
     }
 
     // ---- the 6805 run loop (port of mouseControllerRun, minus VBL) ----
@@ -689,8 +691,9 @@ mod tests {
     /// the Apple ][ ROM set) and by its identification bytes.
     #[test]
     fn mouse_rom_is_the_committed_image() {
-        assert_eq!(MOUSE_ROM.len(), 2048);
-        let sha1: String = crate::ws::sha1(MOUSE_ROM)
+        let rom = crate::rom::rom(MOUSE_ROM_KEY);
+        assert_eq!(rom.len(), 2048);
+        let sha1: String = crate::ws::sha1(rom)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();
@@ -698,11 +701,11 @@ mod tests {
         // Identification bytes read from the default bank (page 0): the Pascal
         // 1.1 protocol signature, the X-Y pointing-device class, the mouse ID,
         // and $Cn01 != $20 so the slot scan never mistakes it for a Disk II.
-        assert_eq!(MOUSE_ROM[0x05], 0x38);
-        assert_eq!(MOUSE_ROM[0x07], 0x18);
-        assert_eq!(MOUSE_ROM[0x0c], 0x20);
-        assert_eq!(MOUSE_ROM[0xfb], 0xd6);
-        assert_ne!(MOUSE_ROM[0x01], 0x20);
+        assert_eq!(rom[0x05], 0x38);
+        assert_eq!(rom[0x07], 0x18);
+        assert_eq!(rom[0x0c], 0x20);
+        assert_eq!(rom[0xfb], 0xd6);
+        assert_ne!(rom[0x01], 0x20);
     }
 
     /// The card serves the identification bytes from the default bank, and PIA
@@ -718,12 +721,13 @@ mod tests {
         // Select each page through port B bits 1-3 and confirm the window
         // tracks it. (DDRB = 0x3E puts bits 1-5 under 6502 control.)
         pia_init(&mut m);
+        let rom = crate::rom::rom(MOUSE_ROM_KEY);
         for bank in 0u8..8 {
             set_port_b(&mut m, (bank << 1) & 0x0e);
             for off in [0x00u8, 0x05, 0x70, 0xff] {
                 assert_eq!(
                     m.read(0xc400 + off as u16, 0),
-                    MOUSE_ROM[bank as usize * 256 + off as usize],
+                    rom[bank as usize * 256 + off as usize],
                     "bank {bank} offset ${off:02x}"
                 );
             }
