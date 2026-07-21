@@ -111,7 +111,10 @@ pub enum Model {
     /// The Apple ][+.
     #[serde(rename = "apple2plus")]
     TwoPlus,
-    /// The Apple //e.
+    /// The original (unenhanced) Apple //e (6502, no MouseText).
+    #[serde(rename = "apple2e")]
+    TwoE,
+    /// The Enhanced Apple //e (65C02, MouseText).
     #[serde(rename = "apple2enhanced")]
     TwoEEnhanced,
     /// The classic Apple 1 (6502, 8KB RAM, Woz Monitor).
@@ -135,7 +138,7 @@ pub enum Family {
 impl Model {
     pub fn family(self) -> Family {
         match self {
-            Model::Two | Model::TwoPlus | Model::TwoEEnhanced => Family::Apple2,
+            Model::Two | Model::TwoPlus | Model::TwoE | Model::TwoEEnhanced => Family::Apple2,
             Model::Apple1 | Model::Replica1 => Family::Apple1,
         }
     }
@@ -145,6 +148,7 @@ impl Model {
         match self {
             Model::Two => "apple2",
             Model::TwoPlus => "apple2plus",
+            Model::TwoE => "apple2e",
             Model::TwoEEnhanced => "apple2enhanced",
             Model::Apple1 => "apple1",
             Model::Replica1 => "replica1",
@@ -157,6 +161,7 @@ impl Model {
         match self {
             Model::Two => Some(TwoType::Apple2),
             Model::TwoPlus => Some(TwoType::Apple2Plus),
+            Model::TwoE => Some(TwoType::Apple2E),
             Model::TwoEEnhanced => Some(TwoType::Apple2EEnhanced),
             Model::Apple1 | Model::Replica1 => None,
         }
@@ -1189,12 +1194,12 @@ fn validate_complete(config: &Config, hint: &str) -> Result<(), String> {
                         .into(),
                 );
             }
-            if machine.aux.is_some() && model != Model::TwoEEnhanced {
+            if machine.aux.is_some() && !matches!(model, Model::TwoE | Model::TwoEEnhanced) {
                 return Err(
                     "machine.aux: aux cards are a //e feature (model is \"apple2plus\")".into(),
                 );
             }
-            if model == Model::TwoEEnhanced
+            if matches!(model, Model::TwoE | Model::TwoEEnhanced)
                 && machine.slots.as_ref().is_some_and(|s| s.contains_key("0"))
             {
                 return Err(

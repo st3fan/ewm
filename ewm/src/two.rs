@@ -78,13 +78,10 @@ static ROM_IIE_EF: &[u8] =
 
 // The unenhanced (original 1983 //e) system ROM halves — same $C000-$DFFF
 // (CD) / $E000-$FFFF (EF) split as the Enhanced pair above, but without the
-// 65C02/MouseText firmware. Wired into the 6502 //e by `Two::new_2e` in a
-// later phase (plans/20260720-02-original-iie.md E3); pinned by
-// `iie_unenhanced_system_roms_match_the_committed_images` until then.
-#[allow(dead_code)]
+// 65C02/MouseText firmware. Wired into the 6502 //e by `Two::new_2e`; pinned
+// by `iie_unenhanced_system_roms_match_the_committed_images`.
 static ROM_IIE_CD_UNENHANCED: &[u8] =
     include_bytes!("../../roms/AppleIIe/Apple IIe CD Unenhanced - 342-0135-B - 2764.bin");
-#[allow(dead_code)]
 static ROM_IIE_EF_UNENHANCED: &[u8] =
     include_bytes!("../../roms/AppleIIe/Apple IIe EF Unenhanced - 342-0134-A - 2764.bin");
 
@@ -145,7 +142,22 @@ pub enum TwoType {
     Apple2,
     #[default]
     Apple2Plus,
+    /// The original (unenhanced, 1983) //e: a 6502 with the 342-0134/0135
+    /// system ROMs and the 342-0133 video ROM (no MouseText).
+    Apple2E,
+    /// The Enhanced (1985) //e: a 65C02 with the 342-0303/0304 system ROMs
+    /// and the 342-0265 MouseText video ROM.
     Apple2EEnhanced,
+}
+
+impl TwoType {
+    /// Whether this is an Apple //e (original or Enhanced). The two share the
+    /// same //e video hardware and memory map and render identically apart
+    /// from the character ROM, so machine-vs-machine checks want this rather
+    /// than an exact-variant match.
+    pub fn is_iie(self) -> bool {
+        matches!(self, TwoType::Apple2E | TwoType::Apple2EEnhanced)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -497,14 +509,19 @@ struct IouE {
 }
 
 impl IouE {
-    fn new(aux: Box<dyn AuxCard>) -> IouE {
+    /// `cd`/`ef` are the two 8K system-ROM halves — the Enhanced
+    /// 342-0304/0303 pair or the unenhanced 342-0135/0134 pair. `$C100-$CFFF`
+    /// internal firmware is the CD half's `[0x100..0x1000]`; the banked
+    /// `$D000-$FFFF` language-card ROM is the CD half's upper 4K plus the
+    /// whole EF half.
+    fn new(aux: Box<dyn AuxCard>, cd: &'static [u8], ef: &'static [u8]) -> IouE {
         IouE {
             key: 0,
             debug: false,
             intcxrom: false,
             slotc3rom: false,
             c800_internal: false,
-            internal_rom: &ROM_IIE_CD[0x100..0x1000],
+            internal_rom: &cd[0x100..0x1000],
             slot_rom: [None; 8],
             store80: false,
             ramrd: false,
@@ -530,7 +547,7 @@ impl IouE {
             aux,
             // The banked $D000-$FFFF ROM: the CD half's upper 4K plus the EF
             // half, the same image the ][+ hands to `Alc`.
-            lc_rom: [&ROM_IIE_CD[0x1000..0x2000], ROM_IIE_EF].concat(),
+            lc_rom: [&cd[0x1000..0x2000], ef].concat(),
             lc_d1: vec![0; 0x1000],
             lc_d2: vec![0; 0x1000],
             lc_e: vec![0; 0x2000],
@@ -1273,6 +1290,7 @@ impl ewm_core::state::Persist for Two {
             w.put_str(match self.model {
                 TwoType::Apple2 => "apple2",
                 TwoType::Apple2Plus => "apple2plus",
+                TwoType::Apple2E => "apple2e",
                 TwoType::Apple2EEnhanced => "apple2enhanced",
             });
         });
@@ -1286,6 +1304,7 @@ impl ewm_core::state::Persist for Two {
         let ours = match self.model {
             TwoType::Apple2 => "apple2",
             TwoType::Apple2Plus => "apple2plus",
+            TwoType::Apple2E => "apple2e",
             TwoType::Apple2EEnhanced => "apple2enhanced",
         };
         if model != ours {
@@ -1419,7 +1438,8 @@ impl Two {
                 }
                 Ok(Two::new_2plus(slot0, slots))
             }
-            TwoType::Apple2EEnhanced => Ok(Two::new_2e(
+            TwoType::Apple2E | TwoType::Apple2EEnhanced => Ok(Two::new_2e(
+                two_type,
                 aux.unwrap_or_else(|| Box::new(Ext80Col::new())),
                 slots,
             )),
@@ -1578,13 +1598,19 @@ impl Two {
         }
     }
 
-    /// The Enhanced //e — a 65C02 with the //e system ROM, the `$C100-$CFFF`
-    /// internal-vs-slot ROM arbitration, and (Phase 4a) auxiliary memory. All
-    /// RAM below `$C000` lives in the `IouE`, so `Memory` is built with no
-    /// base-RAM fast path.
-    fn new_2e(aux: Box<dyn AuxCard>, slots: &BTreeMap<u8, SlotDevice>) -> Two {
-        assert_eq!(ROM_IIE_CD.len(), 0x2000, "//e CD ROM half must be 8K");
-        assert_eq!(ROM_IIE_EF.len(), 0x2000, "//e EF ROM half must be 8K");
+    /// A //e — the `$C100-$CFFF` internal-vs-slot ROM arbitration and
+    /// (Phase 4a) auxiliary memory. All RAM below `$C000` lives in the
+    /// `IouE`, so `Memory` is built with no base-RAM fast path. The variant
+    /// selects the CPU and system ROM: the original //e is a 6502 with the
+    /// unenhanced 342-0134/0135 ROMs, the Enhanced //e a 65C02 with the
+    /// 342-0303/0304 ROMs (plans/20260720-02-original-iie.md E3).
+    fn new_2e(two_type: TwoType, aux: Box<dyn AuxCard>, slots: &BTreeMap<u8, SlotDevice>) -> Two {
+        let (cd, ef, cpu_model) = match two_type {
+            TwoType::Apple2E => (ROM_IIE_CD_UNENHANCED, ROM_IIE_EF_UNENHANCED, Model::M6502),
+            _ => (ROM_IIE_CD, ROM_IIE_EF, Model::M65C02), // Apple2EEnhanced
+        };
+        assert_eq!(cd.len(), 0x2000, "//e CD ROM half must be 8K");
+        assert_eq!(ef.len(), 0x2000, "//e EF ROM half must be 8K");
 
         // No base-RAM fast path: the IouE owns main + aux RAM for $0000-$BFFF.
         let mut mem = Memory::new(0);
@@ -1596,7 +1622,7 @@ impl Two {
         // (internal firmware vs the peripheral-slot ROMs it holds). The
         // peripheral I/O devices stay separate below; the //e does not use
         // `Alc`.
-        let mut iou = IouE::new(aux);
+        let mut iou = IouE::new(aux, cd, ef);
         for (&slot, &card) in slots {
             match card {
                 SlotDevice::DiskII => iou.set_slot_rom(slot as usize, &DSK_ROM),
@@ -1633,8 +1659,8 @@ impl Two {
         mem.map_device(io, 0x0000, 0xbfff);
 
         Two {
-            cpu: Cpu::new(Model::M65C02, mem),
-            model: TwoType::Apple2EEnhanced,
+            cpu: Cpu::new(cpu_model, mem),
+            model: two_type,
             io: MachineIo::E(io),
             dsks,
             hdds: BTreeMap::new(),
@@ -2638,6 +2664,7 @@ fn options_to_config(options: &Options) -> config::Config {
             model: Some(match options.model {
                 TwoType::Apple2 => config::Model::Two,
                 TwoType::Apple2Plus => config::Model::TwoPlus,
+                TwoType::Apple2E => config::Model::TwoE,
                 TwoType::Apple2EEnhanced => config::Model::TwoEEnhanced,
             }),
             // machine.cpu is an Apple 1 family key; two's CPU is the model's.
@@ -4240,6 +4267,43 @@ mod tests {
             assert_eq!(rom.len(), size, "{hash}");
             assert_eq!(sha1(rom), hash);
         }
+    }
+
+    /// E3: the original //e composes its system ROM from the *unenhanced*
+    /// halves on a 6502, and the Enhanced //e from the Enhanced halves on a
+    /// 65C02. Reading `$E000-$FFFF` through the bus after reset returns the EF
+    /// half byte-for-byte, so the two machines run demonstrably different ROMs.
+    #[test]
+    fn iie_variants_compose_their_own_system_rom() {
+        fn top_8k(two: &mut Two) -> Vec<u8> {
+            (0xe000..=0xffffu32)
+                .map(|a| two.cpu.mem.read(a as u16))
+                .collect()
+        }
+
+        let mut orig = Two::new(TwoType::Apple2E).expect("original //e must construct");
+        orig.cpu.reset();
+        assert_eq!(orig.cpu.model, Model::M6502, "the original //e is a 6502");
+        assert_eq!(
+            top_8k(&mut orig),
+            ROM_IIE_EF_UNENHANCED,
+            "$E000-$FFFF must be the unenhanced EF half"
+        );
+
+        let mut enh = Two::new(TwoType::Apple2EEnhanced).expect("Enhanced //e must construct");
+        enh.cpu.reset();
+        assert_eq!(enh.cpu.model, Model::M65C02, "the Enhanced //e is a 65C02");
+        assert_eq!(
+            top_8k(&mut enh),
+            ROM_IIE_EF,
+            "$E000-$FFFF must be the Enhanced EF half"
+        );
+
+        assert_ne!(
+            top_8k(&mut orig),
+            top_8k(&mut enh),
+            "the two //e run different system ROMs"
+        );
     }
 
     /// The drives of the slot 6 Disk II entry in an options table.
