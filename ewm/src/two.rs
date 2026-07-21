@@ -2201,6 +2201,9 @@ fn usage() {
 #[derive(Debug, Default, PartialEq)]
 struct Options {
     model: TwoType,
+    /// The window title's machine name (config `title`): the bar reads
+    /// `EWM - <title>`, or plain `EWM` when None.
+    title: Option<String>,
     /// The machine's slot table, seeded with the default layout (clock in 1,
     /// Disk II in 6) and replaced when the config document carries a
     /// `machine.slots` table (`--config` files and `--set` overrides).
@@ -2485,6 +2488,9 @@ fn parse_serve(url: &str, mut serve: ServeOptions) -> Result<ServeOptions, Strin
 /// per-file relative paths resolved — so slot placement can be trusted
 /// here and the completeness expects below are unreachable.
 fn apply_config(options: &mut Options, config: config::Config) -> Result<(), String> {
+    if config.title.is_some() {
+        options.title = config.title.clone();
+    }
     let machine = config
         .machine
         .expect("from_document guarantees a machine section");
@@ -2610,6 +2616,7 @@ fn options_to_config(options: &Options) -> config::Config {
                 .to_string(),
         ),
         description: None,
+        title: options.title.clone(),
         machine: Some(config::Machine {
             model: Some(match options.model {
                 TwoType::Apple2 => config::Model::Two,
@@ -3288,12 +3295,9 @@ pub fn main(args: &[String]) -> i32 {
     let audio = context.audio().ok();
     let controller_subsystem = context.gamepad().ok();
 
-    let title = match options.model {
-        TwoType::Apple2E => "EWM v0.1 / Apple //e",
-        _ => "EWM v0.1 / Apple ][+",
-    };
+    let title = config::window_title(options.title.as_deref());
     let window = video
-        .window(title, 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
+        .window(&title, 280 * 3 + 2 * pad, 192 * 3 + 2 * pad)
         .position(400, 60)
         .build();
     let window = match window {

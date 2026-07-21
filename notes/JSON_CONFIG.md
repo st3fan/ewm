@@ -336,6 +336,7 @@ below is **apple2-family only**.
 | Source | Setting | Values |
 |---|---|---|
 | config + `--set` | `machine.model` | `apple2`, `apple2plus`, `apple2e`, `apple1`, `replica1` |
+| config + `--set` | `title` | window bar reads `EWM - <title>`, else plain `EWM`; the built-ins set the machine name |
 | config + `--set` | `machine.cpu` | `6502`, `65C02` (apple1 family; absent = the model's CPU) |
 | config + `--set` | `machine.aux` | `80col`, `ext80col`, `ramworksiii` (+ `size`; //e only) |
 | config + `--set` + palette | `display.monitor` | `green`, `amber`, `white`, `rgb` |

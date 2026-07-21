@@ -89,6 +89,14 @@
       "default": {
         "path": null
       }
+    },
+    "title": {
+      "description": "A short name for the machine's window: the title bar reads\n`EWM - <title>` when set, and plain `EWM` otherwise. The built-in\nconfigs set it to the machine name (e.g. `\"Apple ][\"`).",
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
     }
   },
   "additionalProperties": false,
