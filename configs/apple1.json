@@ -7,8 +7,8 @@
     "cpu": "6502",
     "memory": [
       { "type": "ram", "address": "0x0000", "size": "4k" },
-      { "type": "ram", "address": "0xe000", "path": "builtin:apple1-basic" },
-      { "type": "rom", "address": "0xff00", "path": "builtin:WozMon" }
+      { "type": "ram", "address": "0xe000", "path": "builtin:apple1-basic" }, // Apple 1 Integer BASIC ($E000-$EFFF)
+      { "type": "rom", "address": "0xff00", "path": "builtin:WozMon" }         // Apple 1 Woz Monitor ($FF00-$FFFF)
     ]
   }
 }

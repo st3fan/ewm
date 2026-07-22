@@ -637,7 +637,8 @@ pub fn load_builtin(name: &str) -> Result<Config, String> {
         ));
     };
     let origin = format!("builtin:{name}");
-    let config: Config = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
+    let config: Config =
+        serde_json::from_str(&strip_json_comments(text)).map_err(|e| format!("{origin}: {e}"))?;
     validate(&config).map_err(|e| format!("{origin}: {e}"))?;
     validate_complete(&config, "built-in configs must be complete")
         .map_err(|e| format!("{origin}: {e}"))?;
@@ -1052,6 +1053,62 @@ pub fn from_document(doc: serde_json::Value) -> Result<Config, String> {
 
 /// The testable core of `load`: `origin` names the file in error messages,
 /// `base` is the directory relative paths resolve against.
+/// Strip `//` line and `/* */` block comments (JSONC) from config JSON so the
+/// files can be annotated — string contents are left untouched, and newlines
+/// are preserved so `serde_json` error line numbers still line up. Hand-rolled
+/// (the house dependency budget); comments are the only leniency, not trailing
+/// commas.
+fn strip_json_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    let mut in_string = false;
+    let mut escaped = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_string = true;
+                out.push(c);
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                // Line comment: drop to (but keep) the newline.
+                for nc in chars.by_ref() {
+                    if nc == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next(); // the '*'
+                let mut prev = '\0';
+                for nc in chars.by_ref() {
+                    // Keep newlines so line numbers survive a block comment.
+                    if nc == '\n' {
+                        out.push('\n');
+                    }
+                    if prev == '*' && nc == '/' {
+                        break;
+                    }
+                    prev = nc;
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 fn from_str_resolved(text: &str, origin: &str, base: &Path) -> Result<Config, String> {
     let config = from_str_partial(text, origin, base)?;
     validate_complete(&config, "is this an overlay? use --config-overlay")
@@ -1063,7 +1120,8 @@ fn from_str_resolved(text: &str, origin: &str, base: &Path) -> Result<Config, St
 /// structural validation, path resolution — no completeness check, so a
 /// partial overlay loads.
 fn from_str_partial(text: &str, origin: &str, base: &Path) -> Result<Config, String> {
-    let mut config: Config = serde_json::from_str(text).map_err(|e| format!("{origin}: {e}"))?;
+    let mut config: Config =
+        serde_json::from_str(&strip_json_comments(text)).map_err(|e| format!("{origin}: {e}"))?;
     validate(&config).map_err(|e| format!("{origin}: {e}"))?;
     resolve_paths(&mut config, base);
     Ok(config)
@@ -1444,6 +1502,28 @@ mod tests {
         from_str_resolved(text, "test.json", Path::new("/cfg"))
     }
 
+    /// The JSONC comment stripper removes `//` line and `/* */` block comments
+    /// but never touches comment-like text inside strings, and a config with
+    /// comments parses.
+    #[test]
+    fn strips_comments_but_not_strings() {
+        let jsonc = "{\n  // a line comment\n  \"a\": 1, /* block */ \"b\": 2,\n  \
+                     \"url\": \"http://x/y\", // trailing\n  \"lit\": \"/* not a comment */\"\n}";
+        let stripped = strip_json_comments(jsonc);
+        let v: serde_json::Value = serde_json::from_str(&stripped).expect("stripped JSON parses");
+        assert_eq!(v["a"], 1);
+        assert_eq!(v["b"], 2);
+        assert_eq!(v["url"], "http://x/y", "// inside a string is kept");
+        assert_eq!(
+            v["lit"], "/* not a comment */",
+            "/* */ inside a string is kept"
+        );
+        // A full config with comments loads.
+        let cfg =
+            parse("{ \"machine\": { \"model\": \"apple2plus\" } // the ][+\n, \"display\": {} }");
+        assert!(cfg.is_ok(), "{cfg:?}");
+    }
+
     /// The committed schemas are derived from these structs — this test
     /// keeps them in lockstep, byte for byte. Since C2 the serde types are
     /// partial-friendly, so the raw generated schema is *overlay*-shaped
@@ -1505,7 +1585,8 @@ mod tests {
             // Self-containment, stated directly: the loader would have
             // rejected any file reference, but pin the property on the
             // parsed text too so a future loader change can't lose it.
-            let parsed: Config = serde_json::from_str(text).expect("builtin parses");
+            let parsed: Config =
+                serde_json::from_str(&strip_json_comments(text)).expect("builtin parses");
             assert_eq!(
                 referenced_files(&parsed),
                 Vec::<&str>::new(),

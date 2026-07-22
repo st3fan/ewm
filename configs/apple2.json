@@ -5,13 +5,13 @@
   "machine": {
     "model": "apple2",
     "rom": [
-      { "address": "0xd000", "path": "builtin:341-0016" },
-      { "address": "0xe000", "path": "builtin:341-0001" },
-      { "address": "0xe800", "path": "builtin:341-0002" },
-      { "address": "0xf000", "path": "builtin:341-0003" },
-      { "address": "0xf800", "path": "builtin:341-0004" }
+      { "address": "0xd000", "path": "builtin:341-0016" }, // Apple ][ Programmer's Aid #1, $D000-$D7FF
+      { "address": "0xe000", "path": "builtin:341-0001" }, // Apple ][ Integer BASIC, $E000-$E7FF
+      { "address": "0xe800", "path": "builtin:341-0002" }, // Apple ][ Integer BASIC, $E800-$EFFF
+      { "address": "0xf000", "path": "builtin:341-0003" }, // Apple ][ Integer BASIC, $F000-$F7FF
+      { "address": "0xf800", "path": "builtin:341-0004" }  // Apple ][ Original (non-autostart) Monitor, $F800-$FFFF
     ],
-    "character_rom": "builtin:341-0036",
+    "character_rom": "builtin:341-0036", // Apple ][ character ROM
     "slots": {
       "6": { "card": "diskii" }
     }
