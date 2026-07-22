@@ -570,15 +570,15 @@ pub enum RemoteProtocol {
 /// `builtins_load_and_are_self_contained` test. See
 /// plans/20260718-02-config-sources.md (C1).
 const BUILTINS: &[(&str, &str)] = &[
-    ("apple1", include_str!("../../configs/apple1.json")),
-    ("apple2", include_str!("../../configs/apple2.json")),
-    ("apple2e", include_str!("../../configs/apple2e.json")),
+    ("apple1", include_str!("../../configs/apple1.jsonc")),
+    ("apple2", include_str!("../../configs/apple2.jsonc")),
+    ("apple2e", include_str!("../../configs/apple2e.jsonc")),
     (
         "apple2enhanced",
-        include_str!("../../configs/apple2enhanced.json"),
+        include_str!("../../configs/apple2enhanced.jsonc"),
     ),
-    ("apple2plus", include_str!("../../configs/apple2plus.json")),
-    ("replica1", include_str!("../../configs/replica1.json")),
+    ("apple2plus", include_str!("../../configs/apple2plus.jsonc")),
+    ("replica1", include_str!("../../configs/replica1.jsonc")),
 ];
 
 /// Look up an embedded ROM image by its `builtin:` name — any key in the ROM
@@ -1876,7 +1876,7 @@ mod tests {
         let builtin = load_source_document("builtin:apple2plus").expect("builtin source");
         let file = load_document(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../configs/apple2plus.json"
+            "/../configs/apple2plus.jsonc"
         ))
         .expect("file source");
         // The embedded copy and the committed file are the same config.

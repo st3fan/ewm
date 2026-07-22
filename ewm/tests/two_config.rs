@@ -90,7 +90,7 @@ fn builtin_configs_load_and_match_the_committed_files() {
 
         let builtin =
             config::load_source_document(&format!("builtin:{name}")).expect("builtin source loads");
-        let committed = format!("{}/../configs/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        let committed = format!("{}/../configs/{name}.jsonc", env!("CARGO_MANIFEST_DIR"));
         let file = config::load_document(&committed).expect("committed file loads");
         assert_eq!(builtin, file, "builtin:{name} != {committed}");
     }
@@ -167,7 +167,7 @@ fn every_config_rom_line_has_its_catalog_name_as_a_comment() {
         "apple2plus",
         "replica1",
     ] {
-        let path = format!("{}/../configs/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../configs/{name}.jsonc", env!("CARGO_MANIFEST_DIR"));
         let text = std::fs::read_to_string(&path).expect("config reads");
         for line in text.lines() {
             let Some(key) = builtin_key(line) else {
@@ -189,4 +189,16 @@ fn every_config_rom_line_has_its_catalog_name_as_a_comment() {
         checked >= 20,
         "expected many commented ROM lines, saw {checked}"
     );
+}
+
+/// R6: config files load by path regardless of extension — a `.jsonc` file
+/// (with comments) and a plain `.json` file both parse. The built-in configs
+/// ship as `.jsonc`; a user's own config or overlay may use either.
+#[test]
+fn jsonc_and_json_user_files_both_load() {
+    let jsonc = config::load(fixture!("commented.jsonc")).expect("commented.jsonc loads");
+    assert_eq!(jsonc.machine.expect("machine").model, Some(Model::TwoPlus));
+
+    let json = config::load(fixture!("minimal.json")).expect("minimal.json loads");
+    assert_eq!(json.machine.expect("machine").model, Some(Model::TwoPlus));
 }
