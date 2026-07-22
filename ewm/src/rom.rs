@@ -159,6 +159,12 @@ pub fn rom(key: &str) -> &'static [u8] {
     catalog(key).unwrap_or_else(|| panic!("ROM catalog has no key {key:?}"))
 }
 
+/// The one-line description of the ROM with catalog key `key` — the text the
+/// config files put in a `//` comment behind each `builtin:<key>`.
+pub fn describe(key: &str) -> Option<&'static str> {
+    ROM_CATALOG.iter().find(|e| e.key == key).map(|e| e.desc)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -147,3 +147,46 @@ fn missing_file_and_bad_multiplicity_error() {
         "{err}"
     );
 }
+
+/// R5: every `builtin:<key>` ROM reference in the committed configs carries
+/// that ROM's catalog description as a `//` comment — so the annotations that
+/// make the configs "look great" can't silently drift from the catalog.
+#[test]
+fn every_config_rom_line_has_its_catalog_name_as_a_comment() {
+    fn builtin_key(line: &str) -> Option<&str> {
+        let start = line.find("\"builtin:")? + "\"builtin:".len();
+        let rest = &line[start..];
+        Some(&rest[..rest.find('"')?])
+    }
+    let mut checked = 0;
+    for name in [
+        "apple1",
+        "apple2",
+        "apple2e",
+        "apple2enhanced",
+        "apple2plus",
+        "replica1",
+    ] {
+        let path = format!("{}/../configs/{name}.json", env!("CARGO_MANIFEST_DIR"));
+        let text = std::fs::read_to_string(&path).expect("config reads");
+        for line in text.lines() {
+            let Some(key) = builtin_key(line) else {
+                continue;
+            };
+            let desc = ewm::rom::describe(key)
+                .unwrap_or_else(|| panic!("{name}: no catalog entry for {key:?}"));
+            let comment = line.split_once("//").map(|(_, c)| c.trim());
+            assert_eq!(
+                comment,
+                Some(desc),
+                "{name}: `{}` should be commented `// {desc}`",
+                line.trim()
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 20,
+        "expected many commented ROM lines, saw {checked}"
+    );
+}

@@ -5,10 +5,10 @@
   "machine": {
     "model": "apple2enhanced",
     "rom": [
-      { "address": "0xc000", "path": "builtin:342-0304-A" },
-      { "address": "0xe000", "path": "builtin:342-0303-A" }
+      { "address": "0xc000", "path": "builtin:342-0304-A" }, // Enhanced //e system ROM, CD half ($C000-$DFFF)
+      { "address": "0xe000", "path": "builtin:342-0303-A" }  // Enhanced //e system ROM, EF half ($E000-$FFFF)
     ],
-    "character_rom": "builtin:342-0265-A",
+    "character_rom": "builtin:342-0265-A", // Enhanced //e video ROM (with MouseText)
     "aux": { "card": "ext80col" },
     "slots": {
       "5": { "card": "liron" },

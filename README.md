@@ -317,6 +317,10 @@ one document, merged strictly in command-line order —
   repeatable;
 - **`--set <key>=<value>`** — single-value overrides.
 
+Config files may carry `//` line and `/* */` block comments (JSONC) — the
+built-in machine configs annotate each ROM with its name — so a hand-written
+config can document itself.
+
 An overlay describes just the part of the machine it cares about. This
 one (`examples/drive-with-total-replay.json`) adds a hard drive with
 Total Replay to whatever machine it lands on:
