@@ -147,8 +147,8 @@ Phase C1 of `plans/20260718-02-config-sources.md`:
 - **`--config builtin:<name>`** loads one of the embedded copies of the
   `configs/` files (`include_str!`, a static table in `config.rs` — no
   build script). Names are the schema's model tokens, matching the file
-  stems 1:1: `builtin:apple2plus` (`configs/apple2plus.json`) and `builtin:apple2enhanced`
-  (`configs/apple2enhanced.json`; the files were renamed from `plus.json` /
+  stems 1:1: `builtin:apple2plus` (`configs/apple2plus.jsonc`) and `builtin:apple2enhanced`
+  (`configs/apple2enhanced.jsonc`; the files were renamed from `plus.json` /
   `enhanced.json`). `builtin:list` prints the names with descriptions
   and exits 0, like `--help`; an unknown name errors listing the
   available names. A literal file named `builtin:x` is reachable as
@@ -363,7 +363,7 @@ below is **apple2-family only**.
 - **The literal-table rule covers slot 0** — a deliberate breaking
   change, accepted by the owner: a ][+ config whose `slots` table omits
   `"0"` is a stock **48K machine** ($D000–$FFFF motherboard ROM on the
-  bus, slot 0's DEVSEL range unmapped). `configs/apple2plus.json` declares the
+  bus, slot 0's DEVSEL range unmapped). `configs/apple2plus.jsonc` declares the
   card explicitly. The default table (absent `slots`, and the `--set`
   materialization) gains `"0": {"card": "language"}`, so bare command
   lines stay the classic 64K build; `--set machine:slots:0:card=empty`
@@ -398,7 +398,7 @@ below is **apple2-family only**.
   (`drive1`/`drive2`), **.2mg only**, ProDOS-order, exactly 800 (400K)
   or 1600 (800K) blocks; the 2IMG locked flag mounts read-only;
   write-back lands at `data_offset + block*512`, header preserved. Any
-  slot 1–7, no multiplicity limit; `configs/apple2enhanced.json` carries one
+  slot 1–7, no multiplicity limit; `configs/apple2enhanced.jsonc` carries one
   in slot 5.
 - **SmartPort identity is real**: signature `$Cn07=$00`, ID type at
   `$CnFB`, ProDOS entry via `$CnFF` with the SmartPort dispatch at

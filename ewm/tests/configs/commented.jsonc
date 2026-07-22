@@ -1,0 +1,9 @@
+{
+  // A hand-written user config, loaded by path with a .jsonc extension.
+  "$schema": "https://raw.githubusercontent.com/st3fan/ewm/main/schema/ewm-config.schema.json",
+  "title": "Commented user config",
+  "machine": {
+    "model": "apple2plus" /* the ][+ */
+  },
+  "display": { "monitor": "green" } // green phosphor
+}

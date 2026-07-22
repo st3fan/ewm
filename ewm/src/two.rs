@@ -4787,13 +4787,13 @@ mod tests {
         let pairs = [
             (
                 "builtin:apple2plus",
-                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2plus.json"),
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../configs/apple2plus.jsonc"),
             ),
             (
                 "builtin:apple2enhanced",
                 concat!(
                     env!("CARGO_MANIFEST_DIR"),
-                    "/../configs/apple2enhanced.json"
+                    "/../configs/apple2enhanced.jsonc"
                 ),
             ),
         ];
